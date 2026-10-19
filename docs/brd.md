@@ -1,0 +1,247 @@
+# Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
+
+**Project:** k8s-RemValGate
+**Version:** 1.0 (draft for group review)
+**Date:** 2026-10-19
+**Authors:** project group (four members)
+**Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). Where this document and the proposal differ, the proposal governs until the group agrees a change.
+
+## 1. Purpose
+
+This document states what the project must deliver, how success is judged, and how the work is divided into epics and user stories managed on a GitHub Project. It turns the proposal into a plan that can be tracked, and it records the process rules (gates, tests, reproducibility) that protect the validity of the results.
+
+## 2. Background
+
+LLM agents diagnose microservice incidents well but often fail to choose an action that restores the service. On the AIOpsLab mitigation task the best evaluated agent solves 6 of 11 problems (54.55 percent), and the weaker ones solve 36.36, 27.27 and 0 percent. A related benchmark (R2Act) reports root-cause service accuracy of 91.4 to 99.7 percent against recovery validity of only 36.8 to 60.3 percent for five RAG-based LLM backbones. Existing deterministic safety layers check that an action is permitted, not that it works.
+
+The project tests one idea: a small fine-tuned gate (Qwen3.5-4B with LoRA and decision tokens) that scores candidate actions from a retrieval-grounded planner, applies the best one if it clears a calibrated threshold, and otherwise escalates to a human.
+
+## 3. Scope
+
+**In scope**
+- A planner that retrieves similar past incidents and runbook entries, then samples K candidate commands through AIOpsLab's agent-cloud interface.
+- A deterministic allow-list and sandbox check, the fine-tuned gate, a calibrated threshold, snapshot-based rollback for Kubernetes-object faults, and escalation.
+- Seven baselines, ablations of each of the three capabilities (fine-tuning, RAG, tool calling), and an evaluation on AIOpsLab mitigation problems labelled by execution.
+- Extending the problem pool from 14 to 24 problems, with a sealed confirmation slice.
+- A mid-project submission, a final submission, and preparation for the project evaluations.
+
+**Out of scope**
+- Production deployment, monitoring, continuous training, or any user interface.
+- Large-scale pretraining, and any paid API spend (every model is open-weight and self-hosted).
+- Using R2Act's benchmark for training or evaluation (it is cited as evidence only).
+
+## 4. Stakeholders and roles
+
+| Role | Interest |
+|---|---|
+| Group members (four) | Build, evaluate and report the system. Division of work is agreed by the group and is not fixed in this document. |
+| Course TA and evaluators | Approve the proposal, review the mid and final submissions, run the project evaluations. |
+| Target user (on-call site reliability engineer) | Decides whether to trust an AI-proposed fix. The system should act on likely-working fixes and hand over the rest. |
+
+## 5. Business objectives and success measures
+
+| ID | Objective | Measure |
+|---|---|---|
+| O1 | Answer the research question: does the gate select working candidates better than the planner's own ranking? | Candidate-level AUROC, Brier score and top-1 accuracy against baseline 5, with incident-clustered intervals. |
+| O2 | Meet the course evaluation rules. | At least one baseline, a sealed blind slice opened once, a quantitative metric and an ablation for each capability, paired comparisons, model name, version and date recorded for every result. |
+| O3 | Deliver on time. | Mid-submission package by 2026-10-30. Final submission by 2026-11-15. |
+| O4 | Make results reproducible. | Every reported number traces to a run manifest and a commit. |
+
+## 6. Key dates
+
+| Date | Event | Source |
+|---|---|---|
+| 2026-10-30 | Mid-submission: progress, datasets, baseline experiments, ablations, results, challenges, mitigation plans, final timeline, and a GitHub repository with all code | Course announcement, as reported by a group member |
+| 2026-11-15 | Final submission. No extension is possible. | Same |
+| 2026-11-16 to 2026-11-19 | Project evaluations | Same |
+
+## 7. Process and quality requirements
+
+### 7.1 Pre-registration gates
+
+Freezing a decision before a run protects the results in the way a failing test protects code. These gates are blocking: the dependent work must not start until the gate is closed, and each gate is a tracked story.
+
+| Gate | Closes before | What is frozen |
+|---|---|---|
+| G1 | any rollout on the primary pool | The three-problem confirmation slice is created and sealed. |
+| G2 | choosing K and R | A five-rollout pilot has measured the per-rollout time. |
+| G3 | any fine-tuning | The baseline-only run has fixed R, committed a numeric minimum-gain threshold, and run the headroom check (does baseline 5 already solve 12 or more of 16 problems). |
+| G4 | any fine-tuning | The free-form versus template-library decision is made from the pilot AUROC (template library if free-form scoring reaches AUROC below 0.65). |
+| G5 | any evaluation run | Retrieval configuration (iii) is fixed. Ablation results are reported and never used to change it. |
+
+### 7.2 Test lanes
+
+- **Test-first (deterministic harness):** allow-list and sandbox check, snapshot and restore, harm detection by pod-status differencing, the five-class outcome classifier, fold assignment invariants, retrieval corpus isolation, the incident-clustered bootstrap. Metric code (Hit@k, MRR, AUROC, Brier, AURC, McNemar mid-p, Wilson, Bonett-Price) is tested against reference implementations or published worked examples.
+- **Eval-first (model behaviour):** planner and gate output is judged by the frozen evaluation protocol, the sealed slice and the pre-declared metrics, never by unit tests.
+- **Integration (few):** live-cluster rollouts, using recorded telemetry for repeat runs. Continuous integration never runs cluster rollouts.
+- Test fixtures use synthetic data or problems outside the pool. A fixture built from a pool or confirmation problem counts as an evaluation-set touch.
+- A few tests are written by someone other than the implementer, or are property based, so an implementation cannot simply fit the visible examples.
+
+### 7.3 Reproducibility
+
+- A run manifest per rollout: commit hash, model name, version and date, random seed, K, R, AIOpsLab commit, cluster configuration.
+- A dependency lockfile, and a plain `requirements.txt` export so the code also runs on Colab.
+- Large artifacts (model weights, rollout logs, datasets) live on shared drive storage, referenced by checksum, and are not committed.
+- An evaluation-set touch log records every use of the primary pool and confirmation slice.
+
+### 7.4 Workflow and Definition of Done
+
+- Short-lived branches, a pull request reviewed by another group member, and continuous integration that runs unit tests and lint on every pull request. Cluster rollouts are run by hand and logged.
+- Kanban board with limits on work in progress. Statuses: Backlog, Ready, In progress, In review, Done.
+- A story is Done when: its acceptance criteria pass; unit tests exist for deterministic code; an experiment story states its metric, slice, threshold (or "descriptive only") and has its evaluation-set touches logged; the run manifest exists for any reported number; the pull request is reviewed and merged.
+- Commits are batched, not spammy. Committed files carry no em dash.
+
+## 8. Requirements by epic
+
+Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed for the mid-submission, M2 for the final. The phasing is proposed and not yet confirmed by the group.
+
+### E1. Foundations and environment
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R1.1 | Repository layout, dependency lockfile, lint and test commands documented in the README. | Must | M1 |
+| R1.2 | Continuous integration running unit tests and lint on pull requests. | Must | M1 |
+| R1.3 | A kind cluster running AIOpsLab, with fault injection and the agent-cloud interface working end to end for one mitigation problem. | Must | M1 |
+| R1.4 | Access to GPU and to self-hosted open-weight models for the planner and gate. | Must | M1 |
+| R1.5 | Run manifest schema and writer, and the evaluation-set touch log. | Must | M1 |
+
+### E2. Evaluation harness (test-first)
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R2.1 | Allow-list and sandbox check applied to every sampled candidate, with reasons for rejection. | Must | M1 |
+| R2.2 | Snapshot and restore for the three fault types whose state is a Kubernetes object (TargetPortMisconfig, ScalePod, AssignNonExistentNode). | Must | M1 |
+| R2.3 | Harm detection by differencing pre-action and post-action pod status across the target namespace. | Must | M1 |
+| R2.4 | Outcome classifier with five classes: recovered, escalated with a working candidate, escalated with none, applied and ineffective, applied and harmful. | Must | M1 |
+| R2.5 | Metric library: Hit@1, Hit@3, MRR, Recall@3, AUROC, Brier, AURC, top-1 accuracy, harmful rate at matched coverage. | Must | M1 |
+| R2.6 | Statistics: incident-clustered bootstrap, McNemar mid-p, Wilson and Bonett-Price intervals. | Must | M1 |
+| R2.7 | Tool-call and schema validity scoring. | Should | M1 |
+
+### E3. Dataset and problem pool
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R3.1 | Inventory of the current mitigation problems (14) with fault type and rollback scope. | Must | M1 |
+| R3.2 | Extend TargetPortMisconfig from 3 to 6 instances and ScalePod and AssignNonExistentNode from 1 to 3 each, giving a 16-problem primary pool. | Must | M1 |
+| R3.3 | Create and seal the three-problem confirmation slice (gate G1) before the pool extension and before any rollout on a pool problem. | Must | M1 |
+| R3.4 | Grouped 4-fold assignment at incident level, with the stated invariants and an automated check. | Must | M1 |
+| R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates. | Must | M2 |
+| R3.6 | Singleton fault types set aside for the exploratory generalization check. | Should | M2 |
+| R3.7 | Record one post-injection telemetry query per pool incident (16 injections, after gate G1), reused later by oracle labelling, so intrinsic retrieval metrics do not wait for it. | Must | M1 |
+
+### E4. Retrieval capability (RAG)
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R4.1 | Per-fold corpus built only from that fold's training problems and the runbook entries, so no evaluation incident can retrieve itself. | Must | M1 |
+| R4.2 | Retrieval configurations: (i) none, (ii) dense, (iii) dense with a cross-encoder reranker, (iv) hybrid dense and BM25 with the reranker, scored on retrieval metrics only. | Must | M1 |
+| R4.3 | Intrinsic metrics (Hit@1, Hit@3, MRR, fault-type Recall@3) over one fixed query per primary-pool incident. | Must | M1 |
+| R4.4 | Extrinsic ablation analysis of the untuned planner (baselines 3a to 3c, run once in the baseline-only run) by diagnosis accuracy and single-action recovery, with no new rollouts. | Must | M1 |
+| R4.5 | Full system rerun with retrieval removed, reporting the change in candidate yield, AUROC and recovery. | Should | M2 |
+
+### E5. Planner and tool calling
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R5.1 | Planner that retrieves, diagnoses and samples K candidates through the agent-cloud interface tools. | Must | M1 |
+| R5.2 | Resample once if every candidate is rejected, then escalate. | Must | M2 |
+| R5.3 | Tool-calling ablation without interactive tools (fixed telemetry bundle). | Must | M1 |
+| R5.4 | Tool-calling ablation without the deterministic check (applied offline, share removed reported by reason). | Must | M1 |
+
+### E6. Baselines
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R6.1 | Baseline 1, fault-type rule, and baseline 2, retrieval only. | Must | M1 |
+| R6.2 | Baselines 3a, 3b and 3c, the untuned planner in three retrieval configurations. | Must | M1 |
+| R6.3 | Baseline 4, a non-LM classifier over structured features. | Must | M2 |
+| R6.4 | Baseline 5, the LoRA-fine-tuned planner choosing by log-probability, trained on the same triples as the gate. | Must | M2 |
+| R6.5 | Baseline 6, a prompted judge in place of the gate, and baseline 7, the planner told to escalate when unsure. | Must | M2 |
+| R6.6 | Headroom check (gate G3, tracked inside the baseline-only run story): decide before fine-tuning whether the baseline already solves 12 or more of 16 problems. See review point 7. | Must | M1 |
+
+### E7. Gate fine-tuning
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R7.1 | Training data generation: K candidate rollouts per training incident per fold, executed and labelled by the evaluator. | Must | M2 |
+| R7.2 | LoRA fine-tuning of Qwen3.5-4B with decision tokens (fallback sizes 0.6B to 1.7B). | Must | M2 |
+| R7.3 | Platt calibration split at incident level, with the threshold reported per fold and swept. | Must | M2 |
+| R7.4 | Ablations: classification-head variant and a Gemma gate. | Should | M2 |
+
+### E8. Execution loop and rollback
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R8.1 | Gate scores admissible candidates, applies the top one only if it clears the threshold, otherwise escalates with ranked candidates, evidence and scores. | Must | M2 |
+| R8.2 | Snapshot, apply, readiness check with problem-specific probes, restore and escalate on failure. | Must | M2 |
+| R8.3 | Latency overhead relative to the ungated planner. | Should | M2 |
+
+### E9. Experiments and analysis
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R9.1 | Five-rollout pilot on non-pool problems (gate G2) and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). | Must | M1 |
+| R9.2 | Main runs with R fixed by the stated rule, and every primary-pool use logged. | Must | M2 |
+| R9.3 | Primary analysis: gate against baseline 5 at candidate level, plus descriptive problem-level recovery. | Must | M2 |
+| R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
+| R9.5 | Exploratory singleton-type check, and qualitative failure analysis. | Should | M2 |
+| R9.6 | Open the confirmation slice once, as a qualitative check with no inferential weight. | Must | M2 |
+
+### E10. Reporting and submission
+
+| ID | Requirement | Priority | Phase |
+|---|---|---|---|
+| R10.1 | Mid-submission package: progress, datasets, baseline experiments, ablations, results, challenges, mitigation plans, timeline. | Must | M1 |
+| R10.2 | Repository with all code, runnable from the README, submitted with the mid-submission. | Must | M1 |
+| R10.3 | Final report with results, limits, and the falsifiable claim stated and judged. | Must | M2 |
+| R10.4 | Final repository tag and submission. | Must | M2 |
+| R10.5 | Preparation for the project evaluations. | Must | M2 |
+
+## 9. Risks and open questions
+
+**Schedule.** The proposal's compute plan (about 832 rollouts, 69 hours serial or 17 hours at four-way parallelism, plus roughly 150 to 240 GPU-hours of fine-tuning) must fit in 27 days from this document, and the mid-submission needs baselines, ablations and results within 11 days. Feasibility is unconfirmed. The pilot (G2) is the first test. The proposal already says K is cut before R is raised. Candidate cuts for the group to decide, in this order: the Gemma gate and classification-head ablations, extrinsic retrieval ablation of configuration (iv), the singleton generalization check.
+
+**Carried from the proposal**
+- Small dataset (11 to 14 problems today, 24 planned). Fallback: inject further faults.
+- Free-form commands against a typed-action classifier. Fallback: a bounded template library.
+- Live evaluation cost. Fallback: a fixed rollout budget per split.
+- Too few successful plans from a small planner. Fallback: a larger open-weight Qwen planner.
+- Shared model family between planner and gate. Mitigation: overlap measurement and a Gemma gate.
+- Faults are injected, not production incidents. State in the limits.
+- RevokeAuth and UserUnregistered state is outside Kubernetes objects, so those 4 pool problems have no automated rollback.
+
+**Review points raised against the proposal (open, for the group)**
+1. Retrieval relevance is a fault-type label match over about 5 types and 16 queries, so Hit@3 and Recall@3 may saturate and fail to separate configurations (ii) and (iii). A stricter label (type plus target service) would discriminate more.
+2. The primary interval is an incident-clustered bootstrap over 16 clusters (7 today), and the proposal itself argues percentile bootstrap under-covers at this size. Pooled AUROC mixes incident difficulty with within-incident ranking, so per-incident top-1 may be the safer primary.
+3. The falsifier says recovery "will not be lower" but fails only when more than one problem is lost, and the minimum gain has no number until gate G3.
+4. Section X names "a prompted large model" among the standard baselines, but none of the seven baselines is one.
+5. Training rollouts are stated as 64K but each fold trains on 12 problems, giving 48K (conservative by about 128 rollouts).
+6. The proposal does not state that model name, version and date are recorded for every reported result, which the course requires. This document adds it as a requirement (R1.5).
+7. The headroom check is run "before any fine-tuning" on baseline 5, but baseline 5 is itself a fine-tuned planner. The group must state which system stands in for it at gate G3 (for example the untuned planner).
+8. Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point. The group must state which candidates and which scorer the pilot AUROC is measured on.
+
+**Open questions**
+- Division of work among members (not yet agreed; assignees stay blank).
+- Which GPU and cluster resources are available, and the cost of each.
+- Whether the TA's reply to version 2 will change the plan.
+
+## 10. Traceability
+
+| Epic | Proposal sections | Objectives |
+|---|---|---|
+| E1 | XII | O3, O4 |
+| E2 | VII, XI | O1, O2, O4 |
+| E3 | IX | O1, O2 |
+| E4 | VI, XI | O2 |
+| E5 | VI, VII | O2 |
+| E6 | X | O1, O2 |
+| E7 | VI, XII | O1 |
+| E8 | VII | O1 |
+| E9 | IX, XI | O1, O2 |
+| E10 | none (course milestones) | O3 |
+
+## 11. Change log
+
+| Version | Date | Change |
+|---|---|---|
+| 1.0 | 2026-10-19 | First draft from proposal version 2 and the course milestone dates. |
