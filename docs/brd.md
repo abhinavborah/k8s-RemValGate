@@ -1,10 +1,10 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.0 (draft for group review)
+**Version:** 1.2 (draft for group review)
 **Date:** 2026-10-19
 **Authors:** project group (four members)
-**Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). Where this document and the proposal differ, the proposal governs until the group agrees a change.
+**Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
 ## 1. Purpose
 
@@ -15,6 +15,14 @@ This document states what the project must deliver, how success is judged, and h
 LLM agents diagnose microservice incidents well but often fail to choose an action that restores the service. On the AIOpsLab mitigation task the best evaluated agent solves 6 of 11 problems (54.55 percent), and the weaker ones solve 36.36, 27.27 and 0 percent. A related benchmark (R2Act) reports root-cause service accuracy of 91.4 to 99.7 percent against recovery validity of only 36.8 to 60.3 percent for five RAG-based LLM backbones. Existing deterministic safety layers check that an action is permitted, not that it works.
 
 The project tests one idea: a small fine-tuned gate (Qwen3.5-4B with LoRA and decision tokens) that scores candidate actions from a retrieval-grounded planner, applies the best one if it clears a calibrated threshold, and otherwise escalates to a human.
+
+### Terms
+
+- **The gate** is the learned scorer. **G1 to G5** are the pre-registration gates in section 7.1.
+- **K** is the number of candidate commands the planner samples per problem (8 planned). **R** is the number of runs per system per problem (1 unless baseline outcomes vary, at most 3).
+- **Pool** is the 16 problems used for evaluation by cross-validation. **Confirmation slice** is 3 problems sealed before any run and opened once. **Development problems** are kept apart from both, and from the singleton types, for prompt iteration, smoke tests and timing.
+- **Touch** is any use of the pool or the confirmation slice, recorded in the touch log.
+- **Baseline 5** is the fine-tuned planner choosing by its own ranking, with no gate.
 
 ## 3. Scope
 
@@ -67,7 +75,7 @@ Freezing a decision before a run protects the results in the way a failing test 
 | G1 | any rollout on the primary pool | The three-problem confirmation slice is created and sealed. |
 | G2 | choosing K and R | A five-rollout pilot has measured the per-rollout time. |
 | G3 | any fine-tuning | The baseline-only run has fixed R, committed a numeric minimum-gain threshold, and run the headroom check (does baseline 5 already solve 12 or more of 16 problems). |
-| G4 | any fine-tuning | The free-form versus template-library decision is made from the pilot AUROC (template library if free-form scoring reaches AUROC below 0.65). |
+| G4 | any fine-tuning | The free-form versus template-library decision is made from a scoring pilot, separate from the G2 timing pilot and with its method set by the decision issue (template library if free-form scoring reaches AUROC below 0.65). |
 | G5 | any evaluation run | Retrieval configuration (iii) is fixed. Ablation results are reported and never used to change it. |
 
 ### 7.2 Test lanes
@@ -114,10 +122,10 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 |---|---|---|---|
 | R2.1 | Allow-list and sandbox check applied to every sampled candidate, with reasons for rejection. | Must | M1 |
 | R2.2 | Snapshot and restore for the three fault types whose state is a Kubernetes object (TargetPortMisconfig, ScalePod, AssignNonExistentNode). | Must | M1 |
-| R2.3 | Harm detection by differencing pre-action and post-action pod status across the target namespace. | Must | M1 |
+| R2.3 | Harm detection by differencing pre-action and post-action pod status across the target namespace, with the post-action status taken after the 120 second settle window. | Must | M1 |
 | R2.4 | Outcome classifier with five classes: recovered, escalated with a working candidate, escalated with none, applied and ineffective, applied and harmful. | Must | M1 |
 | R2.5 | Metric library: Hit@1, Hit@3, MRR, Recall@3, AUROC, Brier, AURC, top-1 accuracy, harmful rate at matched coverage. | Must | M1 |
-| R2.6 | Statistics: incident-clustered bootstrap, McNemar mid-p, Wilson and Bonett-Price intervals. | Must | M1 |
+| R2.6 | Statistics: McNemar mid-p, Wilson and Bonett-Price intervals, and the interval method for the primary comparison. The incident-clustered bootstrap in the proposal is provisional pending review point 2. | Must | M1 |
 | R2.7 | Tool-call and schema validity scoring (required by the course for tool-using systems). | Must | M1 |
 
 ### E3. Dataset and problem pool
@@ -128,7 +136,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R3.2 | Extend TargetPortMisconfig from 3 to 6 instances and ScalePod and AssignNonExistentNode from 1 to 3 each, giving a 16-problem primary pool. | Must | M1 |
 | R3.3 | Create and seal the three-problem confirmation slice (gate G1) before the pool extension and before any system run on a pool problem. The new problems are validated with a scripted known-fix command only and logged as a creation touch. | Must | M1 |
 | R3.4 | Grouped 4-fold assignment at incident level, with the stated invariants and an automated check. | Must | M1 |
-| R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates. | Must | M2 |
+| R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates, checked against the saved post-injection state. Deduplicate near-identical candidates and report how many problems have mixed outcomes. | Must | M2 |
 | R3.6 | Singleton fault types set aside for the exploratory generalization check. | Should | M2 |
 | R3.7 | Record one post-injection telemetry query per pool incident (16 injections, after gate G1), reused later by oracle labelling, so intrinsic retrieval metrics do not wait for it. | Must | M1 |
 | R3.8 | Designate development problems, disjoint from the evaluation pool, the confirmation slice and the singleton types, for prompt iteration, smoke tests and the pilot. | Must | M1 |
@@ -138,7 +146,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
 | R4.1 | Per-fold corpus built only from that fold's training problems and the runbook entries, so no evaluation incident can retrieve itself. | Must | M1 |
-| R4.2 | Retrieval configurations: (i) none, (ii) dense, (iii) dense with a cross-encoder reranker, (iv) hybrid dense and BM25 with the reranker, scored on retrieval metrics only. | Must | M1 |
+| R4.2 | Retrieval configurations (the ablation the TA requested, plus a hybrid): (i) none, (ii) dense, (iii) dense with a cross-encoder reranker, (iv) hybrid dense and BM25 with the reranker, scored on retrieval metrics only. | Must | M1 |
 | R4.3 | Intrinsic metrics (Hit@1, Hit@3, MRR, fault-type Recall@3) over one fixed query per primary-pool incident. | Must | M1 |
 | R4.4 | Extrinsic ablation analysis of the untuned planner (baselines 3a to 3c, run once in the baseline-only run) by diagnosis accuracy and single-action recovery, with no new rollouts. | Must | M1 |
 | R4.5 | Full system rerun with retrieval removed, reporting the change in candidate yield, AUROC and recovery. | Should | M2 |
@@ -184,13 +192,13 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
-| R9.1 | Five-rollout pilot on development problems (gate G2) and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). | Must | M1 |
+| R9.1 | Five-rollout timing pilot on development problems (gate G2), which sets K and R and produces no AUROC, and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). | Must | M1 |
 | R9.2 | Main runs with R fixed by the stated rule, and every primary-pool use logged. | Must | M2 |
-| R9.3 | Primary analysis: gate against baseline 5 at candidate level, plus descriptive problem-level recovery. | Must | M2 |
+| R9.3 | Primary analysis: gate against baseline 5 at candidate level with the confirmed interval method, plus descriptive problem-level recovery, and the number of problems with mixed outcomes. | Must | M2 |
 | R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
 | R9.5 | Exploratory singleton-type check, and qualitative failure analysis. | Should | M2 |
 | R9.10 | Decision issue: which system stands in for baseline 5 at the headroom check (blocks gate G3). | Must | M1 |
-| R9.11 | Decision issue: what the pilot AUROC is measured on before a gate exists (blocks gate G4). | Must | M1 |
+| R9.11 | Decision issue: what the G4 scoring pilot's AUROC is measured on before a gate exists (blocks gate G4). | Must | M1 |
 | R9.6 | Open the confirmation slice once, as a qualitative check with no inferential weight. | Must | M2 |
 
 ### E10. Reporting and submission
@@ -205,7 +213,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 ## 9. Risks and open questions
 
-**Schedule.** The proposal's compute plan (about 832 rollouts, 69 hours serial or 17 hours at four-way parallelism, plus roughly 150 to 240 GPU-hours of fine-tuning) must fit in 27 days from this document, and the mid-submission needs baselines, ablations and results within 11 days. Feasibility is unconfirmed. The pilot (G2) is the first test. The proposal already says K is cut before R is raised. Candidate cuts for the group to decide, in this order: the Gemma gate and classification-head ablations, extrinsic retrieval ablation of configuration (iv), the singleton generalization check.
+**Schedule.** The proposal's compute plan (about 832 rollouts, 69 hours serial or 17 hours at four-way parallelism, plus roughly 150 to 240 GPU-hours of fine-tuning) must fit in the 27 days from 2026-10-19 to the final submission, and the mid-submission needs baselines, ablations and results within the 11 days from 2026-10-19. Agent assistance shortens coding but not live rollouts or training, which this estimate counts. Feasibility is unconfirmed. The pilot (G2) is the first test. The proposal already says K is cut before R is raised. Candidate cuts for the group to decide, in this order: the Gemma gate and classification-head ablations, extrinsic retrieval ablation of configuration (iv), the singleton generalization check.
 
 **Carried from the proposal**
 - Small dataset (11 to 14 problems today, 24 planned). Fallback: inject further faults.
@@ -224,7 +232,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 5. Training rollouts are stated as 64K but each fold trains on 12 problems, giving 48K (conservative by about 128 rollouts).
 6. The proposal does not state that model name, version and date are recorded for every reported result, which the course requires. This document adds it as a requirement (R1.5).
 7. (Tracked as a decision issue.) The headroom check is run "before any fine-tuning" on baseline 5, but baseline 5 is itself a fine-tuned planner. The group must state which system stands in for it at gate G3 (for example the untuned planner).
-8. (Tracked as a decision issue.) Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point. The group must state which candidates and which scorer the pilot AUROC is measured on.
+8. (Tracked as a decision issue.) Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point, and the five-rollout timing pilot cannot produce an AUROC. G4 therefore needs its own scoring pilot. The group must state which candidates, which scorer and which uncertainty rule it uses.
 9. The proposal defines no development set, but the course requires training, development and blind sets to be kept separate. This document adds one (R3.8). Candidates are extra instances of existing fault types on other services (TargetPortMisconfig is listed for up to 10 services, 6 are in the pool and 1 in the confirmation slice) or lower task levels of existing injections. The group decides.
 
 **Open questions**
@@ -253,3 +261,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 |---|---|---|
 | 1.0 | 2026-10-19 | First draft from proposal version 2 and the course milestone dates. |
 | 1.1 | 2026-10-19 | Added development problems (R3.8), the AIOpsLab pin and layout decision (R1.6), two gate decision issues (R9.10, R9.11), and raised tool-call scoring (R2.7) to Must, after review. |
+| 1.2 | 2026-10-19 | Separated the G4 scoring pilot from the G2 timing pilot, added harm-snapshot timing, oracle reset check, deduplication and mixed-outcome counting, marked the primary interval method provisional, and added a terms section and the TA traceability line, after review. |
