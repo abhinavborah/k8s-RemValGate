@@ -21,6 +21,7 @@ The project tests one idea: a small fine-tuned gate (Qwen3.5-4B with LoRA and de
 **In scope**
 - A planner that retrieves similar past incidents and runbook entries, then samples K candidate commands through AIOpsLab's agent-cloud interface.
 - A deterministic allow-list and sandbox check, the fine-tuned gate, a calibrated threshold, snapshot-based rollback for Kubernetes-object faults, and escalation.
+- AIOpsLab (Microsoft, MIT licence) as the evaluation environment: a live fault-injection framework, installed at a pinned commit and extended with new problem definitions. No dataset is downloaded.
 - Seven baselines, ablations of each of the three capabilities (fine-tuning, RAG, tool calling), and an evaluation on AIOpsLab mitigation problems labelled by execution.
 - Extending the problem pool from 14 to 24 problems, with a sealed confirmation slice.
 - A mid-project submission, a final submission, and preparation for the project evaluations.
@@ -74,6 +75,7 @@ Freezing a decision before a run protects the results in the way a failing test 
 - **Test-first (deterministic harness):** allow-list and sandbox check, snapshot and restore, harm detection by pod-status differencing, the five-class outcome classifier, fold assignment invariants, retrieval corpus isolation, the incident-clustered bootstrap. Metric code (Hit@k, MRR, AUROC, Brier, AURC, McNemar mid-p, Wilson, Bonett-Price) is tested against reference implementations or published worked examples.
 - **Eval-first (model behaviour):** planner and gate output is judged by the frozen evaluation protocol, the sealed slice and the pre-declared metrics, never by unit tests.
 - **Integration (few):** live-cluster rollouts, using recorded telemetry for repeat runs. Continuous integration never runs cluster rollouts.
+- Prompt iteration, smoke tests and the pilot use development problems only. The evaluation pool, the confirmation slice and the singleton types are never used for them.
 - Test fixtures use synthetic data or problems outside the pool. A fixture built from a pool or confirmation problem counts as an evaluation-set touch.
 - A few tests are written by someone other than the implementer, or are property based, so an implementation cannot simply fit the visible examples.
 
@@ -101,9 +103,10 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 |---|---|---|---|
 | R1.1 | Repository layout, dependency lockfile, lint and test commands documented in the README. | Must | M1 |
 | R1.2 | Continuous integration running unit tests and lint on pull requests. | Must | M1 |
-| R1.3 | A kind cluster running AIOpsLab, with fault injection and the agent-cloud interface working end to end for one mitigation problem. | Must | M1 |
+| R1.3 | A kind cluster running AIOpsLab at a pinned commit recorded in the README and the run manifest, with fault injection and the agent-cloud interface working end to end for one mitigation problem. | Must | M1 |
 | R1.4 | Access to GPU and to self-hosted open-weight models for the planner and gate. | Must | M1 |
 | R1.5 | Run manifest schema and writer, and the evaluation-set touch log. | Must | M1 |
+| R1.6 | Decide how AIOpsLab is pinned and where new problem definitions are kept (a fork, a submodule or an overlay in this repository), so that the repository holds all code. | Must | M1 |
 
 ### E2. Evaluation harness (test-first)
 
@@ -115,7 +118,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R2.4 | Outcome classifier with five classes: recovered, escalated with a working candidate, escalated with none, applied and ineffective, applied and harmful. | Must | M1 |
 | R2.5 | Metric library: Hit@1, Hit@3, MRR, Recall@3, AUROC, Brier, AURC, top-1 accuracy, harmful rate at matched coverage. | Must | M1 |
 | R2.6 | Statistics: incident-clustered bootstrap, McNemar mid-p, Wilson and Bonett-Price intervals. | Must | M1 |
-| R2.7 | Tool-call and schema validity scoring. | Should | M1 |
+| R2.7 | Tool-call and schema validity scoring (required by the course for tool-using systems). | Must | M1 |
 
 ### E3. Dataset and problem pool
 
@@ -123,11 +126,12 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 |---|---|---|---|
 | R3.1 | Inventory of the current mitigation problems (14) with fault type and rollback scope. | Must | M1 |
 | R3.2 | Extend TargetPortMisconfig from 3 to 6 instances and ScalePod and AssignNonExistentNode from 1 to 3 each, giving a 16-problem primary pool. | Must | M1 |
-| R3.3 | Create and seal the three-problem confirmation slice (gate G1) before the pool extension and before any rollout on a pool problem. | Must | M1 |
+| R3.3 | Create and seal the three-problem confirmation slice (gate G1) before the pool extension and before any system run on a pool problem. The new problems are validated with a scripted known-fix command only and logged as a creation touch. | Must | M1 |
 | R3.4 | Grouped 4-fold assignment at incident level, with the stated invariants and an automated check. | Must | M1 |
 | R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates. | Must | M2 |
 | R3.6 | Singleton fault types set aside for the exploratory generalization check. | Should | M2 |
 | R3.7 | Record one post-injection telemetry query per pool incident (16 injections, after gate G1), reused later by oracle labelling, so intrinsic retrieval metrics do not wait for it. | Must | M1 |
+| R3.8 | Designate development problems, disjoint from the evaluation pool, the confirmation slice and the singleton types, for prompt iteration, smoke tests and the pilot. | Must | M1 |
 
 ### E4. Retrieval capability (RAG)
 
@@ -180,11 +184,13 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
-| R9.1 | Five-rollout pilot on non-pool problems (gate G2) and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). | Must | M1 |
+| R9.1 | Five-rollout pilot on development problems (gate G2) and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). | Must | M1 |
 | R9.2 | Main runs with R fixed by the stated rule, and every primary-pool use logged. | Must | M2 |
 | R9.3 | Primary analysis: gate against baseline 5 at candidate level, plus descriptive problem-level recovery. | Must | M2 |
 | R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
 | R9.5 | Exploratory singleton-type check, and qualitative failure analysis. | Should | M2 |
+| R9.10 | Decision issue: which system stands in for baseline 5 at the headroom check (blocks gate G3). | Must | M1 |
+| R9.11 | Decision issue: what the pilot AUROC is measured on before a gate exists (blocks gate G4). | Must | M1 |
 | R9.6 | Open the confirmation slice once, as a qualitative check with no inferential weight. | Must | M2 |
 
 ### E10. Reporting and submission
@@ -217,8 +223,9 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 4. Section X names "a prompted large model" among the standard baselines, but none of the seven baselines is one.
 5. Training rollouts are stated as 64K but each fold trains on 12 problems, giving 48K (conservative by about 128 rollouts).
 6. The proposal does not state that model name, version and date are recorded for every reported result, which the course requires. This document adds it as a requirement (R1.5).
-7. The headroom check is run "before any fine-tuning" on baseline 5, but baseline 5 is itself a fine-tuned planner. The group must state which system stands in for it at gate G3 (for example the untuned planner).
-8. Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point. The group must state which candidates and which scorer the pilot AUROC is measured on.
+7. (Tracked as a decision issue.) The headroom check is run "before any fine-tuning" on baseline 5, but baseline 5 is itself a fine-tuned planner. The group must state which system stands in for it at gate G3 (for example the untuned planner).
+8. (Tracked as a decision issue.) Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point. The group must state which candidates and which scorer the pilot AUROC is measured on.
+9. The proposal defines no development set, but the course requires training, development and blind sets to be kept separate. This document adds one (R3.8). Candidates are extra instances of existing fault types on other services (TargetPortMisconfig is listed for up to 10 services, 6 are in the pool and 1 in the confirmation slice) or lower task levels of existing injections. The group decides.
 
 **Open questions**
 - Division of work among members (not yet agreed; assignees stay blank).
@@ -245,3 +252,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-10-19 | First draft from proposal version 2 and the course milestone dates. |
+| 1.1 | 2026-10-19 | Added development problems (R3.8), the AIOpsLab pin and layout decision (R1.6), two gate decision issues (R9.10, R9.11), and raised tool-call scoring (R2.7) to Must, after review. |
