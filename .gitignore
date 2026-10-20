@@ -1,0 +1,23 @@
+# local planning notes
+.planning/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# environment and secrets
+.env
+.env.*
+
+# large artifacts live on shared drive storage, not in git
+*.safetensors
+*.ckpt
+*.pt
+
+# os and editor
+.DS_Store
+.idea/
+.vscode/
