@@ -1,0 +1,28 @@
+[project]
+name = "remvalgate"
+version = "0.1.0"
+description = "A fine-tuned validity gate for agentic Kubernetes incident remediation"
+readme = "README.md"
+# matches the range AIOpsLab supports
+requires-python = ">=3.11,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling>=1.32,<2"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

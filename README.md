@@ -10,12 +10,49 @@ This is a group project for the course Language Models and Agents (CL3410).
 ## Status
 
 Planning. The requirements, epics and acceptance criteria are in [docs/brd.md](docs/brd.md), and the
-work is tracked as issues on this repository's GitHub Project. There is no runnable code yet.
+work is tracked as issues on this repository's GitHub Project. The repository layout and environment
+are in place; the system itself is not written yet.
+
+## Layout
+
+```
+src/remvalgate/   the package
+tests/            unit tests (pytest)
+docs/             requirements and project notes
+pyproject.toml    project metadata, dependencies, pytest and ruff settings
+uv.lock           the dependency lockfile
+requirements.txt  plain pip export of the lockfile, for Colab
+```
 
 ## Setup
 
-Install and test commands will be added by the repository layout story, together with the pinned
-AIOpsLab commit and the model hosting notes.
+Python 3.11 or 3.12 is required, the range AIOpsLab supports. `.python-version` selects 3.12.
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) and locked in `uv.lock`.
+
+```
+uv sync --locked                 # install from the lockfile; fails if the lock is stale
+uv run pytest                    # unit tests
+uv run ruff check .              # lint
+uv run ruff format --check .     # formatting
+```
+
+After changing dependencies, run `uv lock` and regenerate the pip export:
+
+```
+uv export --format requirements-txt --no-hashes --no-emit-project --no-header -o requirements.txt
+```
+
+The export includes the dev group, so the tests run on Colab too. It leaves out the project itself,
+which is installed separately:
+
+```
+pip install -r requirements.txt
+pip install -e .
+pytest
+```
+
+AIOpsLab commit: not pinned yet. How AIOpsLab is pinned is decided in #65, and the commit is
+recorded here once it is pinned (#65 and #69).
 
 ## Large files
 
