@@ -54,8 +54,9 @@ pytest
 ## AIOpsLab
 
 Decided in #65: AIOpsLab will be added as an unmodified git submodule pinned at a commit, and new
-problem definitions will live in an overlay in this repository. No tracked file inside the submodule
-is changed.
+problem definitions will live in an overlay in this repository. No tracked file inside the
+submodule will be changed. A fork was rejected because our code would then live in a second
+repository, against R1.6.
 
 AIOpsLab commit: not pinned yet. It is recorded here when the install story (#69) pins it.
 
