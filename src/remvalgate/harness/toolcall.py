@@ -4,11 +4,20 @@ The schema file holds placeholder tool signatures until the AIOpsLab commit is p
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
+
+from remvalgate.harness.allowlist import (
+    Policy,
+    Rejected,
+    parse_args,
+    split_targets,
+    split_verb,
+    tokenize,
+)
 
 DEFAULT_SCHEMAS_PATH = Path(__file__).with_name("toolcall_schemas.json")
 
@@ -84,3 +93,154 @@ def load_schemas(path: str | Path) -> Schemas:
         kinds=MappingProxyType(kinds),
         value_flags=frozenset(value_flags),
     )
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    tool: str
+    arguments: Mapping[str, object]
+
+
+@dataclass(frozen=True)
+class Gold:
+    """The expected call. A field left as None is not checked.
+
+    operation and kind apply to exec_shell only, and other tools take only the target fields
+    their schema maps. score raises ValueError for a record that breaks either rule.
+    """
+
+    tool: str
+    # the kubectl verb for exec_shell, as the policy names it, such as "rollout restart"
+    operation: str | None = None
+    namespace: str | None = None
+    # canonical kind, as the schema file's kinds map names it
+    kind: str | None = None
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class Score:
+    call: ToolCall
+    error: ErrorType
+
+
+@dataclass(frozen=True)
+class _Target:
+    operation: str | None
+    namespace: str | None
+    kind: str | None
+    name: str | None
+
+
+def _schema_valid(call: ToolCall, schemas: Schemas) -> bool:
+    arguments = schemas.tools.get(call.tool)
+    if arguments is None or call.arguments.keys() != arguments.keys():
+        return False
+    # type() and not isinstance(), so a bool is not taken for an int
+    return all(type(call.arguments[name]) is t for name, t in arguments.items())
+
+
+def _shell_target(command: str, schemas: Schemas, policy: Policy) -> _Target | None:
+    # the allow-list verdict is not consulted: this scores intent, not admissibility
+    try:
+        argv = tokenize(command)
+    except Rejected:
+        return None
+    if argv[0] not in policy.binaries:
+        return None
+    parsed = parse_args(argv[1:], policy, schemas.value_flags)
+    # a namespace counts only when exactly one is given and -A is absent
+    namespace = None
+    if len(parsed.namespaces) == 1 and not parsed.all_namespaces:
+        namespace = parsed.namespaces[0]
+    positionals = parsed.positionals
+    if positionals[:1] == ["exec"]:
+        operation, targets = "exec", positionals[1:]
+        # exec names a pod unless the type/name form says otherwise
+        types, names = ["pod"], targets
+        if targets and "/" in targets[0]:
+            types, names = split_targets(targets)
+    else:
+        verb = split_verb(positionals, policy)
+        if verb is None:
+            verb = (positionals[0], positionals[1:]) if positionals else (None, [])
+        operation, targets = verb
+        types, names = split_targets(targets) if targets else ([], [])
+    # kubectl reads kinds case-insensitively, with an optional API group as in deployment.apps
+    bases = [t.lower().partition(".")[0] for t in types]
+    kinds = {schemas.kinds.get(base, base) for base in bases}
+    # several kinds or names do not match one gold kind or name
+    kind = kinds.pop() if len(kinds) == 1 else None
+    name = names[0] if len(names) == 1 else None
+    return _Target(operation, namespace, kind, name)
+
+
+def _tool_target(call: ToolCall, schemas: Schemas) -> _Target:
+    target = schemas.targets.get(call.tool, {})
+    namespace = call.arguments.get(target["namespace"]) if "namespace" in target else None
+    name = call.arguments.get(target["name"]) if "name" in target else None
+    return _Target(None, namespace, None, name)
+
+
+def _check_gold(gold: Gold, schemas: Schemas) -> None:
+    # a gold record no call can match would silently score every call as an error
+    if gold.tool not in schemas.tools:
+        raise ValueError(f"gold tool {gold.tool!r} is not in the schemas")
+    if gold.tool == "exec_shell":
+        return
+    target = schemas.targets.get(gold.tool, {})
+    if gold.operation is not None or gold.kind is not None:
+        raise ValueError(f"gold for {gold.tool!r}: operation and kind apply to exec_shell only")
+    if (gold.namespace is not None and "namespace" not in target) or (
+        gold.name is not None and "name" not in target
+    ):
+        raise ValueError(f"gold for {gold.tool!r}: the tool has no such target argument")
+
+
+def score(call: ToolCall, gold: Gold, schemas: Schemas, policy: Policy) -> Score:
+    """Score a call against its gold record with the first error that applies.
+
+    An exec_shell command is read with the allow-list tokenizer and argv walk, so a
+    command that does not tokenize, or runs a binary the policy does not know, has no
+    operation and scores WRONG_OP.
+
+    Raises ValueError for a gold record that no call of its tool could match.
+    """
+    _check_gold(gold, schemas)
+    if not _schema_valid(call, schemas):
+        return Score(call=call, error=ErrorType.BAD_SCHEMA)
+    if call.tool != gold.tool:
+        return Score(call=call, error=ErrorType.WRONG_OP)
+    if call.tool == "exec_shell":
+        target = _shell_target(call.arguments["command"], schemas, policy)
+    else:
+        target = _tool_target(call, schemas)
+    if target is None or (gold.operation is not None and target.operation != gold.operation):
+        return Score(call=call, error=ErrorType.WRONG_OP)
+    expected = (gold.namespace, gold.kind, gold.name)
+    actual = (target.namespace, target.kind, target.name)
+    if any(want is not None and want != got for want, got in zip(expected, actual, strict=True)):
+        return Score(call=call, error=ErrorType.WRONG_TARGET)
+    return Score(call=call, error=ErrorType.OK)
+
+
+@dataclass(frozen=True)
+class ErrorCounts:
+    total: int
+    # scores per type, with every type present, OK included
+    by_type: Mapping[ErrorType, int]
+
+    @property
+    def accuracy(self) -> float:
+        """Tool-call accuracy, the share of calls scored OK; 0.0 when there are no calls."""
+        return self.by_type[ErrorType.OK] / self.total if self.total else 0.0
+
+
+def error_counts(scores: Iterable[Score]) -> ErrorCounts:
+    """Count scores, so the share of each error type is by_type[e] / total."""
+    total = 0
+    by_type = {error: 0 for error in ErrorType}
+    for item in scores:
+        total += 1
+        by_type[item.error] += 1
+    return ErrorCounts(total=total, by_type=by_type)

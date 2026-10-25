@@ -1,14 +1,24 @@
 import json
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
+from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.toolcall import (
     DEFAULT_SCHEMAS_PATH,
+    ErrorCounts,
     ErrorType,
+    Gold,
+    Score,
+    ToolCall,
+    error_counts,
     load_schemas,
+    score,
 )
 
 SCHEMAS = load_schemas(DEFAULT_SCHEMAS_PATH)
+POLICY = load_policy(DEFAULT_POLICY_PATH)
 
 
 def _schemas_data():
@@ -90,3 +100,176 @@ def test_schemas_read_only():
 
 def test_error_type_set_is_fixed():
     assert [e.value for e in ErrorType] == ["OK", "BAD_SCHEMA", "WRONG_OP", "WRONG_TARGET"]
+
+
+def _shell(command, **extra):
+    return ToolCall("exec_shell", {"command": command, **extra})
+
+
+# synthetic fixtures only: namespace sandbox-a, names web, api, web-0, mongo-0
+SCALE_WEB = Gold("exec_shell", "scale", "sandbox-a", "deployment", "web")
+RESTART_WEB = Gold("exec_shell", "rollout restart", "sandbox-a", "deployment", "web")
+LOGS_API = Gold("get_logs", namespace="sandbox-a", name="api")
+METRICS = Gold("get_metrics", namespace="sandbox-a")
+
+OK_CASES = [
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a"), SCALE_WEB),
+    (_shell("kubectl -n sandbox-a scale deployments web --replicas 1"), SCALE_WEB),
+    (_shell("kubectl rollout restart deploy/web -n sandbox-a"), RESTART_WEB),
+    # a gold field left as None is not checked
+    (_shell("kubectl -n sandbox-a get pods"), Gold("exec_shell", "get", "sandbox-a", "pod")),
+    (
+        _shell("kubectl exec mongo-0 -n sandbox-a -- mongo --eval 'db.getUsers()'"),
+        Gold("exec_shell", "exec", "sandbox-a", "pod", "mongo-0"),
+    ),
+    (
+        _shell("kubectl exec pod/mongo-0 -n sandbox-a -- mongo --eval 'db.getUsers()'"),
+        Gold("exec_shell", "exec", "sandbox-a", "pod", "mongo-0"),
+    ),
+    # kubectl reads kinds case-insensitively and with an optional API group
+    (_shell("kubectl scale Deployment/web --replicas=1 -n sandbox-a"), SCALE_WEB),
+    (_shell("kubectl scale deployment.apps web --replicas=1 -n sandbox-a"), SCALE_WEB),
+    # flags the policy does not know, but whose values must not be read as targets
+    (
+        _shell("kubectl exec mongo-0 -c mongo -n sandbox-a -- mongo --eval 'db.getUsers()'"),
+        Gold("exec_shell", "exec", "sandbox-a", "pod", "mongo-0"),
+    ),
+    (_shell("kubectl --context kind -n sandbox-a scale deploy web --replicas=1"), SCALE_WEB),
+    # the allow-list rejects --all, but that is its concern, not this scorer's
+    (
+        _shell("kubectl delete pods --all -n sandbox-a"),
+        Gold("exec_shell", "delete", "sandbox-a", "pod"),
+    ),
+    (ToolCall("get_logs", {"namespace": "sandbox-a", "service": "api"}), LOGS_API),
+    (ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": 60}), METRICS),
+]
+
+# AC: a malformed schema is mapped to BAD_SCHEMA
+BAD_SCHEMA_CASES = [
+    (ToolCall("exec_shell", {}), SCALE_WEB),
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a", timeout=5), SCALE_WEB),
+    (ToolCall("exec_shell", {"command": 1}), SCALE_WEB),
+    (ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": "60"}), METRICS),
+    # bool is a subclass of int, but not a valid int argument
+    (ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": True}), METRICS),
+    (ToolCall("run_kubectl", {"command": "kubectl get pods -n sandbox-a"}), SCALE_WEB),
+]
+
+# AC: a wrong operation is mapped to WRONG_OP
+WRONG_OP_CASES = [
+    (_shell("kubectl delete pod web-0 -n sandbox-a"), SCALE_WEB),
+    (ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": 60}), LOGS_API),
+    (_shell("kubectl rollout undo deploy/web -n sandbox-a"), RESTART_WEB),
+    # no operation can be read from a command that does not tokenize or is not kubectl
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a; rm x"), SCALE_WEB),
+    (_shell(""), SCALE_WEB),
+    (_shell("helm rollback web 1 -n sandbox-a"), SCALE_WEB),
+]
+
+# AC: a wrong target is mapped to WRONG_TARGET
+WRONG_TARGET_CASES = [
+    (_shell("kubectl scale deploy api --replicas=1 -n sandbox-a"), SCALE_WEB),
+    (_shell("kubectl rollout restart svc/web -n sandbox-a"), RESTART_WEB),
+    (_shell("kubectl scale deploy web --replicas=1 -n other"), SCALE_WEB),
+    (_shell("kubectl scale deploy web --replicas=1"), SCALE_WEB),
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a -n other"), SCALE_WEB),
+    (_shell("kubectl scale deploy web --replicas=1 -A"), SCALE_WEB),
+    (_shell("kubectl scale deploy web api --replicas=1 -n sandbox-a"), SCALE_WEB),
+    # several kinds do not match one gold kind
+    (_shell("kubectl get pods,svc -n sandbox-a"), Gold("exec_shell", "get", "sandbox-a", "pod")),
+    (
+        _shell("kubectl exec deploy/mongo-0 -n sandbox-a -- mongo --eval 'db.getUsers()'"),
+        Gold("exec_shell", "exec", "sandbox-a", "pod", "mongo-0"),
+    ),
+    (ToolCall("get_logs", {"namespace": "sandbox-a", "service": "web"}), LOGS_API),
+    (ToolCall("get_logs", {"namespace": "other", "service": "api"}), LOGS_API),
+]
+
+# several errors at once: BAD_SCHEMA before WRONG_OP before WRONG_TARGET
+PRECEDENCE_CASES = [
+    (
+        ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": 60, "step": 1}),
+        LOGS_API,
+        ErrorType.BAD_SCHEMA,
+    ),
+    (
+        _shell("kubectl scale deploy api --replicas=1 -n other", timeout=5),
+        SCALE_WEB,
+        ErrorType.BAD_SCHEMA,
+    ),
+    (_shell("kubectl delete pod api-0 -n other"), SCALE_WEB, ErrorType.WRONG_OP),
+]
+
+CASES = [
+    *((call, gold, ErrorType.OK) for call, gold in OK_CASES),
+    *((call, gold, ErrorType.BAD_SCHEMA) for call, gold in BAD_SCHEMA_CASES),
+    *((call, gold, ErrorType.WRONG_OP) for call, gold in WRONG_OP_CASES),
+    *((call, gold, ErrorType.WRONG_TARGET) for call, gold in WRONG_TARGET_CASES),
+    *PRECEDENCE_CASES,
+]
+
+
+@pytest.mark.parametrize(("call", "gold", "expected"), CASES)
+def test_score(call, gold, expected):
+    assert score(call, gold, SCHEMAS, POLICY) == Score(call=call, error=expected)
+
+
+@given(text=st.text(), gold=st.sampled_from([gold for _, gold in OK_CASES]))
+def test_score_never_raises(text, gold):
+    for command in (text, "kubectl " + text):
+        call = _shell(command)
+        assert score(call, gold, SCHEMAS, POLICY).call == call
+
+
+@given(case=st.sampled_from(OK_CASES), data=st.data())
+def test_dropped_argument_is_bad_schema(case, data):
+    call, gold = case
+    dropped = data.draw(st.sampled_from(sorted(call.arguments)))
+    broken = ToolCall(call.tool, {k: v for k, v in call.arguments.items() if k != dropped})
+    assert score(broken, gold, SCHEMAS, POLICY).error is ErrorType.BAD_SCHEMA
+
+
+def test_error_counts_empty():
+    counts = error_counts([])
+    assert counts == ErrorCounts(total=0, by_type={error: 0 for error in ErrorType})
+    assert counts.accuracy == 0.0
+
+
+def test_error_counts_mixed():
+    # AC: each mapped error type is counted
+    rows = [*OK_CASES[:2], *BAD_SCHEMA_CASES[:1], *WRONG_OP_CASES[:3], *WRONG_TARGET_CASES[:2]]
+    counts = error_counts(score(call, gold, SCHEMAS, POLICY) for call, gold in rows)
+    assert counts.total == 8
+    assert counts.by_type == {
+        ErrorType.OK: 2,
+        ErrorType.BAD_SCHEMA: 1,
+        ErrorType.WRONG_OP: 3,
+        ErrorType.WRONG_TARGET: 2,
+    }
+    assert counts.accuracy == 0.25
+
+
+@given(st.lists(st.sampled_from(CASES)))
+def test_counts_sum_and_accuracy_bounds(rows):
+    counts = error_counts(score(call, gold, SCHEMAS, POLICY) for call, gold, _ in rows)
+    assert counts.total == len(rows)
+    assert sum(counts.by_type.values()) == counts.total
+    assert counts.by_type[ErrorType.OK] == sum(1 for *_, e in rows if e is ErrorType.OK)
+    assert 0.0 <= counts.accuracy <= 1.0
+    if counts.total:
+        assert counts.accuracy == counts.by_type[ErrorType.OK] / counts.total
+
+
+@pytest.mark.parametrize(
+    "gold",
+    [
+        Gold("get_log", namespace="sandbox-a"),
+        Gold("get_metrics", namespace="sandbox-a", name="web"),
+        Gold("get_logs", operation="get"),
+        Gold("get_logs", kind="service"),
+    ],
+)
+def test_gold_the_tool_cannot_match_raises(gold):
+    call = ToolCall("get_logs", {"namespace": "sandbox-a", "service": "api"})
+    with pytest.raises(ValueError, match="gold"):
+        score(call, gold, SCHEMAS, POLICY)
