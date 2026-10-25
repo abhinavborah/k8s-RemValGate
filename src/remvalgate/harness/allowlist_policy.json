@@ -1,0 +1,17 @@
+{
+  "binaries": ["kubectl"],
+  "verbs": ["get", "describe", "scale", "patch", "delete", "rollout restart", "rollout undo"],
+  "resources": [
+    "pods", "pod", "po",
+    "deployments", "deployment", "deploy",
+    "services", "service", "svc",
+    "replicasets", "rs"
+  ],
+  "flags": {
+    "-o": true, "--output": true,
+    "-l": true, "--selector": true,
+    "-p": true, "--patch": true,
+    "--type": true,
+    "--replicas": true
+  }
+}
