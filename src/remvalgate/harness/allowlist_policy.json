@@ -8,7 +8,7 @@
     "replicasets", "rs"
   ],
   "flags": {
-    "-o": true, "--output": true,
+    "-o": ["wide", "name", "yaml", "json"], "--output": ["wide", "name", "yaml", "json"],
     "-l": true, "--selector": true,
     "-p": true, "--patch": true,
     "--type": true,

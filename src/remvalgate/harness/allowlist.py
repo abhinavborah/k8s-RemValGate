@@ -5,6 +5,7 @@ The policy file holds placeholder contents until the group fixes the lists.
 
 import json
 import re
+import shlex
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from enum import StrEnum
@@ -73,3 +74,117 @@ def load_policy(path: str | Path) -> Policy:
         resources=_strings("resources", data["resources"]),
         flags=MappingProxyType(flags),
     )
+
+
+@dataclass(frozen=True)
+class Verdict:
+    command: str
+    admitted: bool
+    reason: Reason | None
+
+
+# Characters bash expands or treats as operators. The scan follows bash quoting because
+# shlex.split performs no expansion: "$(id)" and {a,b} reach it as plain words.
+_UNQUOTED = frozenset(";&|<>(){}$`\\*?[]#~!")
+_DOUBLE_QUOTED = frozenset("$`\\")
+
+
+def _scan(command: str) -> None:
+    quote = None
+    for ch in command:
+        if ord(ch) < 0x20 or ord(ch) == 0x7F:
+            raise Rejected(Reason.SHELL_METACHAR)
+        if quote == "'":
+            if ch == "'":
+                quote = None
+        elif quote == '"':
+            if ch == '"':
+                quote = None
+            elif ch in _DOUBLE_QUOTED:
+                raise Rejected(Reason.SHELL_METACHAR)
+        elif ch in "'\"":
+            quote = ch
+        elif ch in _UNQUOTED:
+            raise Rejected(Reason.SHELL_METACHAR)
+    if quote:
+        raise Rejected(Reason.PARSE_ERROR)
+
+
+def tokenize(command: str) -> list[str]:
+    """Split a candidate into argv, rejecting anything the shell would expand or chain."""
+    if not command.strip():
+        raise Rejected(Reason.EMPTY)
+    _scan(command)
+    # cannot raise: the scan has already rejected backslashes and unterminated quotes
+    return shlex.split(command)
+
+
+def _split_flag(token: str) -> tuple[str, str | None]:
+    if token.startswith("--"):
+        name, eq, value = token.partition("=")
+        return name, value if eq else None
+    # a short flag may carry its value attached, as in -nsandbox-a or -owide. An empty
+    # attached value ("-n=") stays "" so the next token is not read as the value.
+    return token[:2], token[2:].removeprefix("=") if len(token) > 2 else None
+
+
+def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
+    namespaces: list[str | None] = []
+    flag_denied = False
+    positionals: list[str] = []
+    rest = iter(args)
+    for token in rest:
+        if not token.startswith("-") or token == "-":
+            positionals.append(token)
+            continue
+        name, value = _split_flag(token)
+        if name in ("-A", "--all-namespaces"):
+            raise Rejected(Reason.OUT_OF_SANDBOX)
+        if name in ("-n", "--namespace"):
+            namespaces.append(value if value is not None else next(rest, None))
+        elif name not in policy.flags:
+            flag_denied = True
+        elif policy.flags[name] is False:
+            # any attached value is rejected, since pflag reads -wA as -w -A
+            flag_denied = flag_denied or value is not None
+        else:
+            if value is None:
+                value = next(rest, None)
+            allowed = policy.flags[name]
+            if value is None or (allowed is not True and value not in allowed):
+                flag_denied = True
+
+    # namespace before flags, so the reason does not depend on token order
+    if namespaces != [namespace]:
+        raise Rejected(Reason.OUT_OF_SANDBOX)
+    if flag_denied:
+        raise Rejected(Reason.FLAG_DENIED)
+
+    if len(positionals) >= 2 and f"{positionals[0]} {positionals[1]}" in policy.verbs:
+        targets = positionals[2:]
+    elif positionals and positionals[0] in policy.verbs:
+        targets = positionals[1:]
+    else:
+        raise Rejected(Reason.VERB_NOT_ALLOWED)
+
+    if not targets:
+        raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
+    if "/" in targets[0]:
+        # type/name form: every argument names its own type
+        types = [target.split("/", 1)[0] for target in targets]
+    else:
+        types = targets[0].split(",")
+    if not set(types) <= policy.resources:
+        raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
+
+
+def check(command: str, policy: Policy, namespace: str) -> Verdict:
+    """Admit the command unchanged, or reject it with the first failing reason."""
+    try:
+        argv = tokenize(command)
+        if argv[0] not in policy.binaries:
+            raise Rejected(Reason.BINARY_NOT_ALLOWED)
+        _check_args(argv[1:], policy, namespace)
+    except Rejected as rejected:
+        return Verdict(command=command, admitted=False, reason=rejected.reason)
+    return Verdict(command=command, admitted=True, reason=None)
