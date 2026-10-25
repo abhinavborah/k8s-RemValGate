@@ -41,13 +41,15 @@ def _with(**changes):
     return data
 
 
-def test_placeholder_policy_loads():
+def test_default_policy_loads():
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.binaries == {"kubectl"}
     assert "rollout restart" in policy.verbs
     assert policy.verbs["scale"].flags["--replicas"] == {"1", "2", "3"}
     assert policy.verbs["delete"].name_required is True
     assert "hostNetwork" in policy.patch_denied_keys
+    assert policy.exec_shells == {"mongo", "mongosh"}
+    assert "createUser" in policy.exec_methods
 
 
 def test_policy_missing_key_raises(tmp_path):
@@ -87,6 +89,22 @@ RULE = {"resources": ["pods"], "flags": {}, "name_required": False}
 def test_policy_wrong_value_raises(tmp_path, key, value):
     with pytest.raises(ValueError, match=key):
         load_policy(_write_policy(tmp_path, _with(**{key: value})))
+
+
+@pytest.mark.parametrize(
+    "exec_rule",
+    [["mongo"], {"shells": ["mongo"]}, {"shells": "mongo", "methods": []}],
+)
+def test_policy_wrong_exec_raises(tmp_path, exec_rule):
+    with pytest.raises(ValueError, match="exec"):
+        load_policy(_write_policy(tmp_path, _with(exec=exec_rule)))
+
+
+def test_policy_exec_in_verbs_raises(tmp_path):
+    data = _policy_data()
+    data["verbs"]["exec"] = RULE
+    with pytest.raises(ValueError, match="exec"):
+        load_policy(_write_policy(tmp_path, data))
 
 
 def test_policy_not_an_object_raises(tmp_path):
@@ -169,8 +187,62 @@ REJECTED = [
     ("kubectl apply -f m.yaml -n sandbox-a", Reason.FLAG_DENIED),
     ("kubectl apply -k dir -n sandbox-a", Reason.FLAG_DENIED),
     ("kubectl delete pod web-0 -n sandbox-a --grace-period=0", Reason.FLAG_DENIED),
-    # exec stays rejected until the group decides the policy for database-state faults
-    ("kubectl exec web-0 -n sandbox-a -- sh", Reason.FLAG_DENIED),
+    # exec runs only an additive mongo shell call; anything else after -- is not a verb we allow
+    ("kubectl exec web-0 -n sandbox-a -- sh", Reason.VERB_NOT_ALLOWED),
+    ("kubectl exec mongo-0 -n sandbox-a -- /bin/bash /scripts/x.sh", Reason.VERB_NOT_ALLOWED),
+    ("kubectl exec -it mongo-0 -n sandbox-a -- mongo --eval 'db.getUsers()'", Reason.FLAG_DENIED),
+    ("kubectl exec mongo-0 -n sandbox-a -- mongo db1", Reason.FLAG_DENIED),
+    (
+        "kubectl exec mongo-0 -n sandbox-a -- mongo db1 --quiet --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec mongo-0 -n sandbox-a -- mongo 'db1;x' --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        """kubectl exec mongo-0 -n sandbox-a -- mongo db1 --eval 'db.dropUser("app")'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec mongo-0 -n sandbox-a -- mongo db1"
+        """ --eval 'db.revokeRolesFromUser("app",["readWrite"])'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        """kubectl exec mongo-0 -n sandbox-a -- mongo db1 --eval 'db.updateUser("app",{})'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec mongo-0 -n sandbox-a -- mongo db1"
+        """ --eval 'db.changeUserPassword("app","x")'""",
+        Reason.FLAG_DENIED,
+    ),
+    # a call must name an allowed method directly, so indirect calls are rejected
+    (
+        """kubectl exec mongo-0 -n sandbox-a -- mongo db1 --eval 'db["drop"+"User"]("app")'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        """kubectl exec mongo-0 -n sandbox-a -- mongo db1 --eval 'db.createUser.call(db,{})'""",
+        Reason.FLAG_DENIED,
+    ),
+    ("kubectl exec mongo-0 -n sandbox-a -- mongo db1 --eval '(x)'", Reason.FLAG_DENIED),
+    ("kubectl get pods -n sandbox-a -- x", Reason.FLAG_DENIED),
+    # exec takes no flags besides the namespace, even ones another verb allows
+    (
+        "kubectl exec mongo-0 -o wide -n sandbox-a -- mongo --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec mongo-0 -l app=x -n sandbox-a -- mongo --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec mongo-0 web-0 -n sandbox-a -- mongo --eval 'db.getUsers()'",
+        Reason.RESOURCE_NOT_ALLOWED,
+    ),
+    ("kubectl exec -n sandbox-a -- mongo --eval 'db.getUsers()'", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get pods -n sandbox-a -o", Reason.FLAG_DENIED),
     # an empty attached value must not swallow the next token as the value
     ("kubectl get pods -n sandbox-a -o= --context=other", Reason.FLAG_DENIED),
@@ -262,6 +334,10 @@ ADMITTED = [
     ' -p \'[{"op":"replace","path":"/spec/replicas","value":2}]\'',
     "kubectl rollout restart deploy/web -n sandbox-a",
     "kubectl delete pod web-0 -n sandbox-a",
+    "kubectl exec mongo-0 -n sandbox-a -- mongo db1"
+    """ --eval 'db.createUser({user:"app",pwd:"pw",roles:["readWrite"]})'""",
+    "kubectl exec mongo-0 -n sandbox-a -- mongosh"
+    """ --eval 'db.getSiblingDB("db1").grantRolesToUser("app",["readWrite"])'""",
 ]
 
 
@@ -351,6 +427,13 @@ def test_generated_permitted_admitted(verb_resource, name, ns_form, ns_first):
     parts = [ns_form, *parts] if ns_first else [*parts, ns_form]
     command = " ".join(["kubectl", *parts])
     assert check(command, POLICY, NS) == Verdict(command=command, admitted=True, reason=None)
+
+
+@given(st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,15}", fullmatch=True))
+def test_exec_method_outside_allow_list_rejected(method):
+    command = f"""kubectl exec mongo-0 -n sandbox-a -- mongo db1 --eval 'db.{method}("app")'"""
+    admitted = check(command, POLICY, NS).admitted
+    assert admitted is (method in POLICY.exec_methods)
 
 
 def _host_wrapper(command):

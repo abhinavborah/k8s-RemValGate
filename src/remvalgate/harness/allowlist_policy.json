@@ -45,5 +45,9 @@
   "patch_denied_keys": [
     "hostNetwork", "hostPID", "hostIPC", "hostPath", "privileged", "securityContext",
     "volumes", "image", "type", "externalIPs"
-  ]
+  ],
+  "exec": {
+    "shells": ["mongo", "mongosh"],
+    "methods": ["getSiblingDB", "createUser", "grantRolesToUser", "getUser", "getUsers"]
+  }
 }

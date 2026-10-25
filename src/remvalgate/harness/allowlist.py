@@ -1,6 +1,6 @@
 """Allow-list and namespace sandbox check for sampled candidate commands.
 
-The policy file holds placeholder contents until the group fixes the lists.
+The policy file holds the initial lists. Change them through a pull request.
 """
 
 import json
@@ -14,7 +14,8 @@ from types import MappingProxyType
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("allowlist_policy.json")
 
-_POLICY_KEYS = {"binaries", "verbs", "patch_denied_keys"}
+_POLICY_KEYS = {"binaries", "verbs", "patch_denied_keys", "exec"}
+_EXEC_KEYS = {"shells", "methods"}
 _VERB_KEYS = {"resources", "flags", "name_required"}
 _PATCH_FLAGS = ("-p", "--patch")
 # a namespace is a DNS-1123 label; an object name is a DNS-1123 subdomain
@@ -60,6 +61,9 @@ class Policy:
     verbs: Mapping[str, VerbRule]
     # JSON keys a patch body may not contain, at any depth
     patch_denied_keys: frozenset[str]
+    # exec runs only <shell> [db] --eval '<script>', calling these methods and nothing else
+    exec_shells: frozenset[str]
+    exec_methods: frozenset[str]
 
 
 def _strings(key: str, value: object) -> frozenset[str]:
@@ -98,7 +102,12 @@ def load_policy(path: str | Path) -> Policy:
         raise ValueError(f"policy keys: missing {sorted(missing)}, unexpected {sorted(extra)}")
     if not isinstance(data["verbs"], dict):
         raise ValueError("policy verbs: expected an object")
+    if "exec" in data["verbs"]:
+        raise ValueError("policy verbs: exec is set by the exec key, not as a verb")
     verbs = {verb: _verb_rule(verb, rule) for verb, rule in data["verbs"].items()}
+    exec_rule = data["exec"]
+    if not isinstance(exec_rule, dict) or exec_rule.keys() != _EXEC_KEYS:
+        raise ValueError(f"policy exec: needs exactly {sorted(_EXEC_KEYS)}")
     takes_value: dict[str, bool] = {}
     for rule in verbs.values():
         for name, value in rule.flags.items():
@@ -109,6 +118,8 @@ def load_policy(path: str | Path) -> Policy:
         binaries=_strings("binaries", data["binaries"]),
         verbs=MappingProxyType(verbs),
         patch_denied_keys=_strings("patch_denied_keys", data["patch_denied_keys"]),
+        exec_shells=_strings("exec", exec_rule["shells"]),
+        exec_methods=_strings("exec", exec_rule["methods"]),
     )
 
 
@@ -182,6 +193,26 @@ def _patch_allowed(body: str, policy: Policy) -> bool:
         return False
 
 
+def _check_exec(targets: list[str], command: list[str] | None, policy: Policy) -> None:
+    # ponytail: role grants are not limited, since a fix may need a broad admin role;
+    # check the roles named in grantRolesToUser and createUser if that proves too loose
+    if len(targets) != 1 or not _SUBDOMAIN.fullmatch(targets[0]):
+        raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
+    if not command or command[0] not in policy.exec_shells:
+        raise Rejected(Reason.VERB_NOT_ALLOWED)
+    shape = command[1:]
+    if len(shape) == 3 and re.fullmatch(r"\w+", shape[0]):
+        shape = shape[1:]
+    if len(shape) != 2 or shape[0] != "--eval":
+        raise Rejected(Reason.FLAG_DENIED)
+    script = shape[1]
+    for call in re.finditer(r"\(", script):
+        # every call names an allowed method directly: no db["x"](), f.call(), (x) or =>
+        name = re.search(r"(\w+)\s*$", script[: call.start()])
+        if not name or name.group(1) not in policy.exec_methods:
+            raise Rejected(Reason.FLAG_DENIED)
+
+
 def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
     takes_value = {
         name: value is not False
@@ -192,8 +223,13 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
     flags: list[tuple[str, str | None]] = []
     flag_denied = False
     positionals: list[str] = []
+    command: list[str] | None = None
     rest = iter(args)
     for token in rest:
+        if token == "--":
+            # everything after -- is the command exec runs in the container
+            command = list(rest)
+            break
         if not token.startswith("-") or token == "-":
             positionals.append(token)
             continue
@@ -220,6 +256,13 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
     if flag_denied:
         raise Rejected(Reason.FLAG_DENIED)
 
+    if positionals and positionals[0] == "exec":
+        if flags:
+            raise Rejected(Reason.FLAG_DENIED)
+        _check_exec(positionals[1:], command, policy)
+        return
+    if command is not None:
+        raise Rejected(Reason.FLAG_DENIED)
     if len(positionals) >= 2 and f"{positionals[0]} {positionals[1]}" in policy.verbs:
         rule, targets = policy.verbs[f"{positionals[0]} {positionals[1]}"], positionals[2:]
     elif positionals and positionals[0] in policy.verbs:
