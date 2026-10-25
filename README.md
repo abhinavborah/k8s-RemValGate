@@ -51,8 +51,13 @@ pip install -e .
 pytest
 ```
 
-AIOpsLab commit: not pinned yet. How AIOpsLab is pinned is decided in #65, and the commit is
-recorded here once it is pinned (#65 and #69).
+## AIOpsLab
+
+Decided in #65: AIOpsLab will be added as an unmodified git submodule pinned at a commit, and new
+problem definitions will live in an overlay in this repository. No tracked file inside the submodule
+is changed.
+
+AIOpsLab commit: not pinned yet. It is recorded here when the install story (#69) pins it.
 
 ## Large files
 
