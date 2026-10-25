@@ -11,6 +11,7 @@ from remvalgate.harness.allowlist import (
     Verdict,
     check,
     load_policy,
+    reason_counts,
     tokenize,
 )
 
@@ -259,3 +260,18 @@ def test_generated_permitted_admitted(verb, resource, name, ns_form, ns_first):
 )
 def test_operator_suffix_rejected(base, op, tail):
     assert check(base + op + tail, POLICY, NS).reason is Reason.SHELL_METACHAR
+
+
+def test_reason_counts_empty():
+    assert reason_counts([]) == {reason: 0 for reason in Reason}
+
+
+def test_reason_counts_mixed():
+    precedence = [command for command, _ in REJECTED[-5:]]
+    verdicts = [check(command, POLICY, NS) for command in [*precedence, *ADMITTED[:2]]]
+    counts = reason_counts(verdicts)
+    assert counts.keys() == set(Reason)
+    assert counts[Reason.SHELL_METACHAR] == 1
+    assert counts[Reason.OUT_OF_SANDBOX] == 1
+    assert counts[Reason.EMPTY] == 0
+    assert sum(counts.values()) == 5

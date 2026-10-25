@@ -6,7 +6,7 @@ The policy file holds placeholder contents until the group fixes the lists.
 import json
 import re
 import shlex
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, fields
 from enum import StrEnum
 from pathlib import Path
@@ -188,3 +188,12 @@ def check(command: str, policy: Policy, namespace: str) -> Verdict:
     except Rejected as rejected:
         return Verdict(command=command, admitted=False, reason=rejected.reason)
     return Verdict(command=command, admitted=True, reason=None)
+
+
+def reason_counts(verdicts: Iterable[Verdict]) -> dict[Reason, int]:
+    """Rejections per reason, with every reason present. Admitted verdicts are not counted."""
+    counts = {reason: 0 for reason in Reason}
+    for verdict in verdicts:
+        if verdict.reason is not None:
+            counts[verdict.reason] += 1
+    return counts
