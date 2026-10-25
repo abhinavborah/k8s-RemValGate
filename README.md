@@ -52,7 +52,7 @@ pytest
 ```
 
 AIOpsLab commit: not pinned yet. How AIOpsLab is pinned is decided in #65, and the commit is
-recorded here when that issue closes.
+recorded here once it is pinned (#65 and #69).
 
 ## Large files
 
