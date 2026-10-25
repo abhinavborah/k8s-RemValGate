@@ -93,7 +93,7 @@ def _verb_rule(verb: str, rule: object) -> VerbRule:
 
 
 def load_policy(path: str | Path) -> Policy:
-    data = json.loads(Path(path).read_text())
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("policy: expected a JSON object")
     missing = _POLICY_KEYS - data.keys()
@@ -213,13 +213,34 @@ def _check_exec(targets: list[str], command: list[str] | None, policy: Policy) -
             raise Rejected(Reason.FLAG_DENIED)
 
 
-def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
+@dataclass(frozen=True)
+class ParsedArgs:
+    positionals: list[str]
+    # one entry per -n or --namespace; None when the flag has no value
+    namespaces: list[str | None]
+    all_namespaces: bool
+    flags: list[tuple[str, str | None]]
+    # a flag no verb allows, or a flag with a missing or unexpected value
+    flag_denied: bool
+    # everything after --, the command exec runs in the container
+    command: list[str] | None
+
+
+def parse_args(
+    args: list[str], policy: Policy, value_flags: frozenset[str] = frozenset()
+) -> ParsedArgs:
+    """Walk kubectl argv after the binary. Never raises; the caller judges the result.
+
+    value_flags names flags outside the policy that take a value, so the value is skipped
+    instead of read as a positional. They are still denied.
+    """
     takes_value = {
         name: value is not False
         for rule in policy.verbs.values()
         for name, value in rule.flags.items()
     }
     namespaces: list[str | None] = []
+    all_namespaces = False
     flags: list[tuple[str, str | None]] = []
     flag_denied = False
     positionals: list[str] = []
@@ -227,7 +248,6 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
     rest = iter(args)
     for token in rest:
         if token == "--":
-            # everything after -- is the command exec runs in the container
             command = list(rest)
             break
         if not token.startswith("-") or token == "-":
@@ -235,11 +255,13 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
             continue
         name, value = _split_flag(token)
         if name in ("-A", "--all-namespaces"):
-            raise Rejected(Reason.OUT_OF_SANDBOX)
-        if name in ("-n", "--namespace"):
+            all_namespaces = True
+        elif name in ("-n", "--namespace"):
             namespaces.append(value if value is not None else next(rest, None))
         elif name not in takes_value:
             flag_denied = True
+            if name in value_flags and value is None:
+                next(rest, None)
         elif not takes_value[name]:
             # any attached value is rejected, since pflag reads -wA as -w -A
             flag_denied = flag_denied or value is not None
@@ -249,26 +271,48 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
                 value = next(rest, None)
             flag_denied = flag_denied or value is None
             flags.append((name, value))
+    return ParsedArgs(positionals, namespaces, all_namespaces, flags, flag_denied, command)
+
+
+def split_verb(positionals: list[str], policy: Policy) -> tuple[str, list[str]] | None:
+    """Split positionals into a policy verb (two words tried first) and its targets."""
+    if len(positionals) >= 2 and f"{positionals[0]} {positionals[1]}" in policy.verbs:
+        return f"{positionals[0]} {positionals[1]}", positionals[2:]
+    if positionals and positionals[0] in policy.verbs:
+        return positionals[0], positionals[1:]
+    return None
+
+
+def split_targets(targets: list[str]) -> tuple[list[str], list[str]]:
+    """Split verb targets into resource types and object names. targets must not be empty."""
+    if "/" in targets[0]:
+        # type/name form: every argument names its own type
+        pairs = [target.partition("/") for target in targets]
+        return [t for t, _, _ in pairs], [n for _, _, n in pairs]
+    return targets[0].split(","), targets[1:]
+
+
+def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
+    parsed = parse_args(args, policy)
+    positionals, flags = parsed.positionals, parsed.flags
 
     # namespace before flags, so the reason does not depend on token order
-    if namespaces != [namespace]:
+    if parsed.all_namespaces or parsed.namespaces != [namespace]:
         raise Rejected(Reason.OUT_OF_SANDBOX)
-    if flag_denied:
+    if parsed.flag_denied:
         raise Rejected(Reason.FLAG_DENIED)
 
     if positionals and positionals[0] == "exec":
         if flags:
             raise Rejected(Reason.FLAG_DENIED)
-        _check_exec(positionals[1:], command, policy)
+        _check_exec(positionals[1:], parsed.command, policy)
         return
-    if command is not None:
+    if parsed.command is not None:
         raise Rejected(Reason.FLAG_DENIED)
-    if len(positionals) >= 2 and f"{positionals[0]} {positionals[1]}" in policy.verbs:
-        rule, targets = policy.verbs[f"{positionals[0]} {positionals[1]}"], positionals[2:]
-    elif positionals and positionals[0] in policy.verbs:
-        rule, targets = policy.verbs[positionals[0]], positionals[1:]
-    else:
+    verb = split_verb(positionals, policy)
+    if verb is None:
         raise Rejected(Reason.VERB_NOT_ALLOWED)
+    rule, targets = policy.verbs[verb[0]], verb[1]
 
     for name, value in flags:
         allowed = rule.flags.get(name)
@@ -279,12 +323,7 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
 
     if not targets:
         raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
-    if "/" in targets[0]:
-        # type/name form: every argument names its own type
-        pairs = [target.partition("/") for target in targets]
-        types, names = [t for t, _, _ in pairs], [n for _, _, n in pairs]
-    else:
-        types, names = targets[0].split(","), targets[1:]
+    types, names = split_targets(targets)
     if not set(types) <= rule.resources:
         raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
     if rule.name_required and not names:

@@ -13,7 +13,10 @@ from remvalgate.harness.allowlist import (
     Verdict,
     check,
     load_policy,
+    parse_args,
     reason_counts,
+    split_targets,
+    split_verb,
     tokenize,
 )
 
@@ -401,6 +404,48 @@ def test_tokenize_returns_argv():
     with pytest.raises(Rejected) as excinfo:
         tokenize("a; b")
     assert excinfo.value.reason is Reason.SHELL_METACHAR
+
+
+def test_parse_args_reads_flags_before_and_after_the_verb():
+    parsed = parse_args("-n sandbox-a scale deploy web --replicas 1 -o=wide".split(), POLICY)
+    assert parsed.namespaces == ["sandbox-a"]
+    assert parsed.all_namespaces is False
+    assert parsed.positionals == ["scale", "deploy", "web"]
+    assert parsed.flags == [("--replicas", "1"), ("-o", "wide")]
+    assert parsed.flag_denied is False
+    assert parsed.command is None
+
+
+def test_parse_args_keeps_the_exec_command():
+    parsed = parse_args("exec mongo-0 -A -- mongo --eval x".split(), POLICY)
+    assert parsed.all_namespaces is True
+    assert parsed.positionals == ["exec", "mongo-0"]
+    assert parsed.command == ["mongo", "--eval", "x"]
+
+
+def test_parse_args_consumes_named_value_flags():
+    args = "-c mongo --context=kind exec mongo-0".split()
+    assert parse_args(args, POLICY).positionals == ["mongo", "exec", "mongo-0"]
+    parsed = parse_args(args, POLICY, value_flags=frozenset({"-c", "--context"}))
+    assert parsed.positionals == ["exec", "mongo-0"]
+    # the flags stay unknown to the policy, so they are still denied
+    assert parsed.flag_denied is True
+
+
+def test_split_targets_reads_both_forms():
+    assert split_targets(["deploy,svc", "web", "api"]) == (["deploy", "svc"], ["web", "api"])
+    assert split_targets(["deploy/web", "svc/api"]) == (["deploy", "svc"], ["web", "api"])
+    assert split_targets(["pods"]) == (["pods"], [])
+
+
+def test_split_verb_prefers_two_words():
+    assert split_verb(["rollout", "restart", "deploy/web"], POLICY) == (
+        "rollout restart",
+        ["deploy/web"],
+    )
+    assert split_verb(["get", "pods"], POLICY) == ("get", ["pods"])
+    assert split_verb(["drain", "web"], POLICY) is None
+    assert split_verb([], POLICY) is None
 
 
 @given(st.text())
