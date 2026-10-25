@@ -1,8 +1,8 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.2 (draft for group review)
-**Date:** 2026-10-19
+**Version:** 1.3 (draft for group review)
+**Date:** 2026-10-26
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
@@ -75,7 +75,7 @@ Freezing a decision before a run protects the results in the way a failing test 
 | G1 | any rollout on the primary pool | The three-problem confirmation slice is created and sealed. |
 | G2 | choosing K and R | A five-rollout pilot has measured the per-rollout time. |
 | G3 | any fine-tuning | The baseline-only run has fixed R, committed a numeric minimum-gain threshold, and run the headroom check (does baseline 5 already solve 12 or more of 16 problems). |
-| G4 | any fine-tuning | The free-form versus template-library decision is made from a scoring pilot, separate from the G2 timing pilot and with its method set by the decision issue (template library if free-form scoring reaches AUROC below 0.65). |
+| G4 | full per-fold gate training | The free-form versus template-library decision is made from a small pilot fine-tune of the real gate, run after training data generation (M2) and separate from the G2 timing pilot, which cannot produce an AUROC. It is scored by grouped cross-validation on training problems only, never on evaluation folds or the confirmation slice, and logged as a touch. The metric is within-incident AUROC over mixed-outcome incidents. The threshold (0.65 in the proposal, with no stated source) and how its uncertainty is handled are committed in the G4 story before the pilot runs. |
 | G5 | any evaluation run | Retrieval configuration (iii) is fixed. Ablation results are reported and never used to change it. |
 
 ### 7.2 Test lanes
@@ -198,7 +198,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
 | R9.5 | Exploratory singleton-type check, and qualitative failure analysis. | Should | M2 |
 | R9.10 | Decision issue: which system stands in for baseline 5 at the headroom check (blocks gate G3). | Must | M1 |
-| R9.11 | Decision issue: what the G4 scoring pilot's AUROC is measured on before a gate exists (blocks gate G4). | Must | M1 |
+| R9.11 | Decision issue: what the G4 scoring pilot's AUROC is measured on before a gate exists (blocks gate G4). Decided 2026-10-26: see gate G4 in section 7.1 and review point 8. Gate G4 moves to M2. | Must | M1 |
 | R9.6 | Open the confirmation slice once, as a qualitative check with no inferential weight. | Must | M2 |
 
 ### E10. Reporting and submission
@@ -232,7 +232,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 5. Training rollouts are stated as 64K but each fold trains on 12 problems, giving 48K (conservative by about 128 rollouts).
 6. The proposal does not state that model name, version and date are recorded for every reported result, which the course requires. This document adds it as a requirement (R1.5).
 7. (Tracked as a decision issue.) The headroom check is run "before any fine-tuning" on baseline 5, but baseline 5 is itself a fine-tuned planner. The group must state which system stands in for it at gate G3 (for example the untuned planner).
-8. (Tracked as a decision issue.) Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point, and the five-rollout timing pilot cannot produce an AUROC. G4 therefore needs its own scoring pilot. The group must state which candidates, which scorer and which uncertainty rule it uses.
+8. (Decided 2026-10-26.) The five-rollout timing pilot cannot produce an AUROC, so G4 uses its own pilot: a small fine-tune of the real gate, scored by grouped cross-validation on training problems by within-incident AUROC over mixed-outcome incidents (pooled AUROC would reward learning which incidents are easy), with the threshold and its uncertainty handling committed first (section 7.1). Rejected: a zero-shot or prompted scorer as a proxy, since Safety Sentry (arXiv 2607.13594) reports 52.02 percent three-way accuracy for Qwen3.5-4B before fine-tuning and 91.02 percent after fine-tuning on 7,767 training records, and our training set is more than an order of magnitude smaller. Also rejected: deciding the fallback by group judgement without an AUROC rule.
 9. The proposal defines no development set, but the course requires training, development and blind sets to be kept separate. This document adds one (R3.8). Candidates are extra instances of existing fault types on other services (TargetPortMisconfig is listed for up to 10 services, 6 are in the pool and 1 in the confirmation slice) or lower task levels of existing injections. The group decides.
 
 **Open questions**
@@ -262,3 +262,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.0 | 2026-10-19 | First draft from proposal version 2 and the course milestone dates. |
 | 1.1 | 2026-10-19 | Added development problems (R3.8), the AIOpsLab pin and layout decision (R1.6), two gate decision issues (R9.10, R9.11), and raised tool-call scoring (R2.7) to Must, after review. |
 | 1.2 | 2026-10-19 | Separated the G4 scoring pilot from the G2 timing pilot, added harm-snapshot timing, oracle reset check, deduplication and mixed-outcome counting, marked the primary interval method provisional, and added a terms section and the TA traceability line, after review. |
+| 1.3 | 2026-10-26 | Recorded the gate G4 decision: a pilot fine-tune scored by grouped cross-validation on training problems with within-incident AUROC, the threshold and its uncertainty committed before the pilot, G4 moved to M2, and R9.11 and review point 8 marked decided. |
