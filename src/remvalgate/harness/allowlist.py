@@ -6,17 +6,28 @@ The policy file holds placeholder contents until the group fixes the lists.
 import json
 import re
 import shlex
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, fields
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 
 DEFAULT_POLICY_PATH = Path(__file__).with_name("allowlist_policy.json")
 
+_POLICY_KEYS = {"binaries", "verbs", "patch_denied_keys"}
+_VERB_KEYS = {"resources", "flags", "name_required"}
+_PATCH_FLAGS = ("-p", "--patch")
+# a namespace is a DNS-1123 label; an object name is a DNS-1123 subdomain
+_LABEL = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+_SUBDOMAIN = re.compile(r"[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?")
+
 
 class Reason(StrEnum):
-    """Rejection reasons, in the order the checks run. The first failure wins."""
+    """Rejection reasons, in the order the checks run. The first failure wins.
+
+    One exception: a flag that no verb allows is rejected before the verb check, but a flag
+    that only the matched verb disallows is rejected after it.
+    """
 
     EMPTY = "EMPTY"
     SHELL_METACHAR = "SHELL_METACHAR"
@@ -35,13 +46,20 @@ class Rejected(Exception):
 
 
 @dataclass(frozen=True)
-class Policy:
-    binaries: frozenset[str]
-    # one word, or two separated by a single space ("rollout restart")
-    verbs: frozenset[str]
+class VerbRule:
     resources: frozenset[str]
     # flag name to False (takes no value), True (takes any value) or the set of allowed values
     flags: Mapping[str, bool | frozenset[str]]
+    name_required: bool
+
+
+@dataclass(frozen=True)
+class Policy:
+    binaries: frozenset[str]
+    # verb (one word, or two separated by a single space) to its rule
+    verbs: Mapping[str, VerbRule]
+    # JSON keys a patch body may not contain, at any depth
+    patch_denied_keys: frozenset[str]
 
 
 def _strings(key: str, value: object) -> frozenset[str]:
@@ -50,29 +68,47 @@ def _strings(key: str, value: object) -> frozenset[str]:
     return frozenset(value)
 
 
+def _verb_rule(verb: str, rule: object) -> VerbRule:
+    if not re.fullmatch(r"\S+( \S+)?", verb):
+        raise ValueError("policy verbs: each verb is one word or two separated by one space")
+    if not isinstance(rule, dict) or rule.keys() != _VERB_KEYS:
+        raise ValueError(f"policy verbs: {verb!r} needs exactly {sorted(_VERB_KEYS)}")
+    if not isinstance(rule["name_required"], bool):
+        raise ValueError(f"policy verbs: {verb!r} name_required must be true or false")
+    if not isinstance(rule["flags"], dict):
+        raise ValueError(f"policy verbs: {verb!r} flags must be an object")
+    flags = {
+        name: value if isinstance(value, bool) else _strings("verbs", value)
+        for name, value in rule["flags"].items()
+    }
+    return VerbRule(
+        resources=_strings("verbs", rule["resources"]),
+        flags=MappingProxyType(flags),
+        name_required=rule["name_required"],
+    )
+
+
 def load_policy(path: str | Path) -> Policy:
     data = json.loads(Path(path).read_text())
     if not isinstance(data, dict):
         raise ValueError("policy: expected a JSON object")
-    keys = {field.name for field in fields(Policy)}
-    missing = keys - data.keys()
-    extra = data.keys() - keys
+    missing = _POLICY_KEYS - data.keys()
+    extra = data.keys() - _POLICY_KEYS
     if missing or extra:
         raise ValueError(f"policy keys: missing {sorted(missing)}, unexpected {sorted(extra)}")
-
-    verbs = _strings("verbs", data["verbs"])
-    if not all(re.fullmatch(r"\S+( \S+)?", verb) for verb in verbs):
-        raise ValueError("policy verbs: each verb is one word or two separated by one space")
-    if not isinstance(data["flags"], dict):
-        raise ValueError("policy flags: expected an object")
-    flags: dict[str, bool | frozenset[str]] = {}
-    for name, rule in data["flags"].items():
-        flags[name] = rule if isinstance(rule, bool) else _strings("flags", rule)
+    if not isinstance(data["verbs"], dict):
+        raise ValueError("policy verbs: expected an object")
+    verbs = {verb: _verb_rule(verb, rule) for verb, rule in data["verbs"].items()}
+    takes_value: dict[str, bool] = {}
+    for rule in verbs.values():
+        for name, value in rule.flags.items():
+            # the parser must know whether a flag takes a value before it knows the verb
+            if takes_value.setdefault(name, value is not False) != (value is not False):
+                raise ValueError(f"policy verbs: flag {name} takes a value for some verbs only")
     return Policy(
         binaries=_strings("binaries", data["binaries"]),
-        verbs=verbs,
-        resources=_strings("resources", data["resources"]),
-        flags=MappingProxyType(flags),
+        verbs=MappingProxyType(verbs),
+        patch_denied_keys=_strings("patch_denied_keys", data["patch_denied_keys"]),
     )
 
 
@@ -86,22 +122,19 @@ class Verdict:
 # Characters bash expands or treats as operators. The scan follows bash quoting because
 # shlex.split performs no expansion: "$(id)" and {a,b} reach it as plain words.
 _UNQUOTED = frozenset(";&|<>(){}$`\\*?[]#~!")
-_DOUBLE_QUOTED = frozenset("$`\\")
+# Rejected in every quoting state, single quotes included: AIOpsLab's kind mode escapes only
+# double quotes and runs the command as sh -c "..." under a host shell, where these expand.
+_ANYWHERE = frozenset("$`\\")
 
 
 def _scan(command: str) -> None:
     quote = None
     for ch in command:
-        if ord(ch) < 0x20 or ord(ch) == 0x7F:
+        if ord(ch) < 0x20 or ord(ch) == 0x7F or ch in _ANYWHERE:
             raise Rejected(Reason.SHELL_METACHAR)
-        if quote == "'":
-            if ch == "'":
+        if quote:
+            if ch == quote:
                 quote = None
-        elif quote == '"':
-            if ch == '"':
-                quote = None
-            elif ch in _DOUBLE_QUOTED:
-                raise Rejected(Reason.SHELL_METACHAR)
         elif ch in "'\"":
             quote = ch
         elif ch in _UNQUOTED:
@@ -128,8 +161,35 @@ def _split_flag(token: str) -> tuple[str, str | None]:
     return token[:2], token[2:].removeprefix("=") if len(token) > 2 else None
 
 
+def _keys(node: object) -> Iterator[str]:
+    # every key at any depth, plus the segments of JSON patch paths such as /spec/hostNetwork
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield key
+            if key == "path" and isinstance(value, str):
+                yield from value.split("/")
+            yield from _keys(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _keys(item)
+
+
+def _patch_allowed(body: str, policy: Policy) -> bool:
+    try:
+        return policy.patch_denied_keys.isdisjoint(_keys(json.loads(body)))
+    except (ValueError, RecursionError):
+        # YAML bodies and unparsable JSON are not inspected, so they are not admitted
+        return False
+
+
 def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
+    takes_value = {
+        name: value is not False
+        for rule in policy.verbs.values()
+        for name, value in rule.flags.items()
+    }
     namespaces: list[str | None] = []
+    flags: list[tuple[str, str | None]] = []
     flag_denied = False
     positionals: list[str] = []
     rest = iter(args)
@@ -142,17 +202,17 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
             raise Rejected(Reason.OUT_OF_SANDBOX)
         if name in ("-n", "--namespace"):
             namespaces.append(value if value is not None else next(rest, None))
-        elif name not in policy.flags:
+        elif name not in takes_value:
             flag_denied = True
-        elif policy.flags[name] is False:
+        elif not takes_value[name]:
             # any attached value is rejected, since pflag reads -wA as -w -A
             flag_denied = flag_denied or value is not None
+            flags.append((name, None))
         else:
             if value is None:
                 value = next(rest, None)
-            allowed = policy.flags[name]
-            if value is None or (allowed is not True and value not in allowed):
-                flag_denied = True
+            flag_denied = flag_denied or value is None
+            flags.append((name, value))
 
     # namespace before flags, so the reason does not depend on token order
     if namespaces != [namespace]:
@@ -161,25 +221,43 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
         raise Rejected(Reason.FLAG_DENIED)
 
     if len(positionals) >= 2 and f"{positionals[0]} {positionals[1]}" in policy.verbs:
-        targets = positionals[2:]
+        rule, targets = policy.verbs[f"{positionals[0]} {positionals[1]}"], positionals[2:]
     elif positionals and positionals[0] in policy.verbs:
-        targets = positionals[1:]
+        rule, targets = policy.verbs[positionals[0]], positionals[1:]
     else:
         raise Rejected(Reason.VERB_NOT_ALLOWED)
+
+    for name, value in flags:
+        allowed = rule.flags.get(name)
+        if allowed is None or (isinstance(allowed, frozenset) and value not in allowed):
+            raise Rejected(Reason.FLAG_DENIED)
+        if name in _PATCH_FLAGS and not _patch_allowed(value, policy):
+            raise Rejected(Reason.FLAG_DENIED)
 
     if not targets:
         raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
     if "/" in targets[0]:
         # type/name form: every argument names its own type
-        types = [target.split("/", 1)[0] for target in targets]
+        pairs = [target.partition("/") for target in targets]
+        types, names = [t for t, _, _ in pairs], [n for _, _, n in pairs]
     else:
-        types = targets[0].split(",")
-    if not set(types) <= policy.resources:
+        types, names = targets[0].split(","), targets[1:]
+    if not set(types) <= rule.resources:
+        raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
+    if rule.name_required and not names:
+        raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
+    if not all(_SUBDOMAIN.fullmatch(name) for name in names):
         raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
 
 
 def check(command: str, policy: Policy, namespace: str) -> Verdict:
-    """Admit the command unchanged, or reject it with the first failing reason."""
+    """Admit the command unchanged, or reject it with the first failing reason.
+
+    Raises ValueError if the target namespace is not a valid sandbox: it must be a DNS-1123
+    label and neither "default" nor a "kube-" system namespace.
+    """
+    if not _LABEL.fullmatch(namespace) or namespace == "default" or namespace.startswith("kube-"):
+        raise ValueError(f"not a sandbox namespace: {namespace!r}")
     try:
         argv = tokenize(command)
         if argv[0] not in policy.binaries:
@@ -190,10 +268,23 @@ def check(command: str, policy: Policy, namespace: str) -> Verdict:
     return Verdict(command=command, admitted=True, reason=None)
 
 
-def reason_counts(verdicts: Iterable[Verdict]) -> dict[Reason, int]:
-    """Rejections per reason, with every reason present. Admitted verdicts are not counted."""
-    counts = {reason: 0 for reason in Reason}
+@dataclass(frozen=True)
+class ReasonCounts:
+    total: int
+    # rejections per reason, with every reason present
+    by_reason: Mapping[Reason, int]
+
+    @property
+    def admitted(self) -> int:
+        return self.total - sum(self.by_reason.values())
+
+
+def reason_counts(verdicts: Iterable[Verdict]) -> ReasonCounts:
+    """Count verdicts, so the share removed by each reason is by_reason[r] / total."""
+    total = 0
+    by_reason = {reason: 0 for reason in Reason}
     for verdict in verdicts:
+        total += 1
         if verdict.reason is not None:
-            counts[verdict.reason] += 1
-    return counts
+            by_reason[verdict.reason] += 1
+    return ReasonCounts(total=total, by_reason=by_reason)

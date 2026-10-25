@@ -1,4 +1,5 @@
 import json
+import shlex
 
 import pytest
 from hypothesis import given
@@ -7,6 +8,7 @@ from hypothesis import strategies as st
 from remvalgate.harness.allowlist import (
     DEFAULT_POLICY_PATH,
     Reason,
+    ReasonCounts,
     Rejected,
     Verdict,
     check,
@@ -19,62 +21,85 @@ POLICY = load_policy(DEFAULT_POLICY_PATH)
 NS = "sandbox-a"
 
 
-def _write_policy(tmp_path, **changes):
-    data = json.loads(DEFAULT_POLICY_PATH.read_text())
+def _policy_data():
+    return json.loads(DEFAULT_POLICY_PATH.read_text())
+
+
+def _write_policy(tmp_path, data):
+    path = tmp_path / "policy.json"
+    path.write_text(json.dumps(data))
+    return path
+
+
+def _with(**changes):
+    data = _policy_data()
     for key, value in changes.items():
         if value is None:
             del data[key]
         else:
             data[key] = value
-    path = tmp_path / "policy.json"
-    path.write_text(json.dumps(data))
-    return path
+    return data
 
 
 def test_placeholder_policy_loads():
     policy = load_policy(DEFAULT_POLICY_PATH)
     assert policy.binaries == {"kubectl"}
     assert "rollout restart" in policy.verbs
-    assert policy.flags["--replicas"] is True
+    assert policy.verbs["scale"].flags["--replicas"] == {"1", "2", "3"}
+    assert policy.verbs["delete"].name_required is True
+    assert "hostNetwork" in policy.patch_denied_keys
 
 
 def test_policy_missing_key_raises(tmp_path):
-    with pytest.raises(ValueError, match="flags"):
-        load_policy(_write_policy(tmp_path, flags=None))
+    with pytest.raises(ValueError, match="patch_denied_keys"):
+        load_policy(_write_policy(tmp_path, _with(patch_denied_keys=None)))
 
 
 def test_policy_extra_key_raises(tmp_path):
     with pytest.raises(ValueError, match="deny"):
-        load_policy(_write_policy(tmp_path, deny=["--all"]))
+        load_policy(_write_policy(tmp_path, _with(deny=["--all"])))
+
+
+RULE = {"resources": ["pods"], "flags": {}, "name_required": False}
 
 
 @pytest.mark.parametrize(
     ("key", "value"),
     [
         ("binaries", "kubectl"),
-        ("resources", ["pods", 1]),
-        ("verbs", ["set  image"]),
-        ("verbs", ["rollout history deploy"]),
-        ("flags", ["-o"]),
-        ("flags", {"-o": "false"}),
-        ("flags", {"-o": ["wide", 1]}),
+        ("patch_denied_keys", ["image", 1]),
+        ("verbs", ["get"]),
+        ("verbs", {"set  image": RULE}),
+        ("verbs", {"rollout history deploy": RULE}),
+        ("verbs", {"get": {"resources": ["pods"]}}),
+        ("verbs", {"get": RULE | {"resources": "pods"}}),
+        ("verbs", {"get": RULE | {"name_required": "no"}}),
+        ("verbs", {"get": RULE | {"flags": ["-o"]}}),
+        ("verbs", {"get": RULE | {"flags": {"-o": "false"}}}),
+        ("verbs", {"get": RULE | {"flags": {"-o": ["wide", 1]}}}),
+        # one flag must not take a value for one verb and none for another
+        (
+            "verbs",
+            {"get": RULE | {"flags": {"-w": False}}, "describe": RULE | {"flags": {"-w": True}}},
+        ),
     ],
 )
 def test_policy_wrong_value_raises(tmp_path, key, value):
     with pytest.raises(ValueError, match=key):
-        load_policy(_write_policy(tmp_path, **{key: value}))
+        load_policy(_write_policy(tmp_path, _with(**{key: value})))
 
 
 def test_policy_not_an_object_raises(tmp_path):
-    path = tmp_path / "policy.json"
-    path.write_text("[]")
     with pytest.raises(ValueError):
-        load_policy(path)
+        load_policy(_write_policy(tmp_path, []))
 
 
-def test_policy_flags_read_only():
+def test_policy_read_only():
+    policy = load_policy(DEFAULT_POLICY_PATH)
     with pytest.raises(TypeError):
-        load_policy(DEFAULT_POLICY_PATH).flags["--kubeconfig"] = True
+        policy.verbs["exec"] = policy.verbs["get"]
+    with pytest.raises(TypeError):
+        policy.verbs["get"].flags["--kubeconfig"] = True
 
 
 def test_reason_set_is_fixed():
@@ -112,6 +137,10 @@ REJECTED = [
     ("kubectl get pods -n sandbox-a#x --all-namespaces", Reason.SHELL_METACHAR),
     ("kubectl delete pods web* -n sandbox-a", Reason.SHELL_METACHAR),
     (r"kubectl get pods -n sandbox\-a", Reason.SHELL_METACHAR),
+    # single quotes are not inert when the command is wrapped in sh -c "..." by a host shell
+    ("kubectl get pods -n sandbox-a -l '$(echo HOST_SUBST_RAN)'", Reason.SHELL_METACHAR),
+    ("kubectl get pods -n sandbox-a -l '`echo HOST_SUBST_RAN`'", Reason.SHELL_METACHAR),
+    (r"""kubectl get pods -n sandbox-a -l 'x\"; echo HOST_CMD_RAN #'""", Reason.SHELL_METACHAR),
     ("kubectl get pods -n 'sandbox-a", Reason.PARSE_ERROR),
     ("KUBECONFIG=/x kubectl get pods -n sandbox-a", Reason.BINARY_NOT_ALLOWED),
     ("env kubectl get pods -n sandbox-a", Reason.BINARY_NOT_ALLOWED),
@@ -128,6 +157,7 @@ REJECTED = [
     ("kubectl get pods -n sandbox-a -n other", Reason.OUT_OF_SANDBOX),
     ("kubectl get pods -n sandbox-a -n sandbox-a", Reason.OUT_OF_SANDBOX),
     ("kubectl get pods -n", Reason.OUT_OF_SANDBOX),
+    ("kubectl get pods -n ''", Reason.OUT_OF_SANDBOX),
     ("kubectl delete pods --all -n sandbox-a", Reason.FLAG_DENIED),
     ("kubectl get pods -n sandbox-a --kubeconfig=/x", Reason.FLAG_DENIED),
     ("kubectl get pods -n sandbox-a --context other", Reason.FLAG_DENIED),
@@ -139,6 +169,7 @@ REJECTED = [
     ("kubectl apply -f m.yaml -n sandbox-a", Reason.FLAG_DENIED),
     ("kubectl apply -k dir -n sandbox-a", Reason.FLAG_DENIED),
     ("kubectl delete pod web-0 -n sandbox-a --grace-period=0", Reason.FLAG_DENIED),
+    # exec stays rejected until the group decides the policy for database-state faults
     ("kubectl exec web-0 -n sandbox-a -- sh", Reason.FLAG_DENIED),
     ("kubectl get pods -n sandbox-a -o", Reason.FLAG_DENIED),
     # an empty attached value must not swallow the next token as the value
@@ -150,6 +181,43 @@ REJECTED = [
     ("kubectl get pods -n sandbox-a -o=go-template-file=x", Reason.FLAG_DENIED),
     ("kubectl get pods -n sandbox-a --output templatefile=x", Reason.FLAG_DENIED),
     ("kubectl get pods -n sandbox-a -o custom-columns-file=x", Reason.FLAG_DENIED),
+    # a match-all selector does what --all does
+    ("kubectl delete pods -l '!x' -n sandbox-a", Reason.FLAG_DENIED),
+    ("kubectl delete pods,deployments -l '!x' -n sandbox-a", Reason.FLAG_DENIED),
+    ("kubectl scale deploy -l '!x' --replicas=1 -n sandbox-a", Reason.FLAG_DENIED),
+    # flags are checked per verb
+    ("kubectl get pods --replicas=3 -n sandbox-a", Reason.FLAG_DENIED),
+    ("kubectl get pods -p x -n sandbox-a", Reason.FLAG_DENIED),
+    # replicas are bounded
+    ("kubectl scale deploy web --replicas=0 -n sandbox-a", Reason.FLAG_DENIED),
+    ("kubectl scale deploy web --replicas=-1 -n sandbox-a", Reason.FLAG_DENIED),
+    ("kubectl scale deploy web --replicas=100000 -n sandbox-a", Reason.FLAG_DENIED),
+    # patch bodies must be JSON without host, privilege, volume, image or exposure settings
+    (
+        "kubectl patch deploy web -n sandbox-a"
+        """ -p '{"spec":{"template":{"spec":{"hostNetwork":true}}}}'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl patch deploy web -n sandbox-a"
+        """ -p '{"spec":{"template":{"spec":{"containers":[{"name":"web","image":"x"}]}}}}'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        """kubectl patch svc api -n sandbox-a -p '{"spec":{"type":"NodePort"}}'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        """kubectl patch svc api -n sandbox-a -p '{"spec":{"externalIPs":["192.0.2.1"]}}'""",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl patch deploy web -n sandbox-a --type json"
+        """ -p '[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true}]'""",
+        Reason.FLAG_DENIED,
+    ),
+    ("kubectl patch deploy web -n sandbox-a -p 'spec: {}'", Reason.FLAG_DENIED),
+    ("kubectl patch deploy web -n sandbox-a --type other -p '{}'", Reason.FLAG_DENIED),
     ("kubectl exec web-0 -n sandbox-a", Reason.VERB_NOT_ALLOWED),
     ("kubectl drain web -n sandbox-a", Reason.VERB_NOT_ALLOWED),
     ("kubectl rollout pause deploy/web -n sandbox-a", Reason.VERB_NOT_ALLOWED),
@@ -161,6 +229,14 @@ REJECTED = [
     ("kubectl get deploy,secrets -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get deploy/web secrets/x -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    # resources are checked per verb, and some verbs need a name
+    ("kubectl scale pods web --replicas=1 -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl delete deploy web -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl delete pods -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl delete pod/ -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl rollout restart deploy -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl get pods 'web x' -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl get pods Web -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     # one command breaking several rules: the earliest check in Reason order wins
     ("kubectl delete ns --all -A; rm x", Reason.SHELL_METACHAR),
     ("sudo kubectl delete ns --all -A", Reason.BINARY_NOT_ALLOWED),
@@ -182,6 +258,8 @@ ADMITTED = [
     "kubectl scale deployment web --replicas 1 -n sandbox-a",
     "kubectl patch svc api -n sandbox-a --type merge"
     ' -p \'{"spec":{"ports":[{"port":9000,"targetPort":9001}]}}\'',
+    "kubectl patch deploy web -n sandbox-a --type json"
+    ' -p \'[{"op":"replace","path":"/spec/replicas","value":2}]\'',
     "kubectl rollout restart deploy/web -n sandbox-a",
     "kubectl delete pod web-0 -n sandbox-a",
 ]
@@ -199,6 +277,19 @@ def test_admitted_unchanged(command):
     assert verdict == Verdict(command=command, admitted=True, reason=None)
 
 
+@pytest.mark.parametrize("char", list(";&|<>(){}$`\\*?[]#~!"))
+def test_each_unquoted_scan_character_rejected(char):
+    command = f"kubectl get pods -n sandbox-a -l web{char}x"
+    assert check(command, POLICY, NS).reason is Reason.SHELL_METACHAR
+
+
+@pytest.mark.parametrize("char", list("$`\\"))
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_expansion_characters_rejected_inside_quotes(char, quote):
+    command = f"kubectl get pods -n sandbox-a -l {quote}web{char}x{quote}"
+    assert check(command, POLICY, NS).reason is Reason.SHELL_METACHAR
+
+
 @pytest.mark.parametrize(
     ("command", "admitted"),
     [
@@ -211,9 +302,16 @@ def test_admitted_unchanged(command):
     ],
 )
 def test_boolean_flag_takes_no_value(tmp_path, command, admitted):
-    flags = json.loads(DEFAULT_POLICY_PATH.read_text())["flags"] | {"-w": False, "--watch": False}
-    policy = load_policy(_write_policy(tmp_path, flags=flags))
+    data = _policy_data()
+    data["verbs"]["get"]["flags"] |= {"-w": False, "--watch": False}
+    policy = load_policy(_write_policy(tmp_path, data))
     assert check(command, policy, NS).admitted is admitted
+
+
+@pytest.mark.parametrize("namespace", ["", "Sandbox", "sandbox_a", "default", "kube-system"])
+def test_invalid_target_namespace_raises(namespace):
+    with pytest.raises(ValueError, match="namespace"):
+        check("kubectl get pods", POLICY, namespace)
 
 
 def test_tokenize_returns_argv():
@@ -230,27 +328,41 @@ def test_tokenize_returns_argv():
 
 
 @given(st.text())
-def test_check_never_raises(command):
-    verdict = check(command, POLICY, NS)
-    assert verdict.command == command
-    assert verdict.admitted == (verdict.reason is None)
+def test_check_never_raises(text):
+    # the prefixed form reaches the argv rules, not only the scan
+    for command in (text, "kubectl " + text):
+        verdict = check(command, POLICY, NS)
+        assert verdict.command == command
+        assert verdict.admitted == (verdict.reason is None)
 
 
 NS_FORMS = ["-n sandbox-a", "-nsandbox-a", "--namespace sandbox-a", "--namespace=sandbox-a"]
+VERB_RESOURCES = sorted((verb, r) for verb, rule in POLICY.verbs.items() for r in rule.resources)
 
 
 @given(
-    verb=st.sampled_from(sorted(POLICY.verbs)),
-    resource=st.sampled_from(sorted(POLICY.resources)),
-    name=st.from_regex(r"[a-z][a-z0-9-]{0,10}", fullmatch=True),
+    verb_resource=st.sampled_from(VERB_RESOURCES),
+    name=st.from_regex(r"[a-z]([a-z0-9-]{0,9}[a-z0-9])?", fullmatch=True),
     ns_form=st.sampled_from(NS_FORMS),
     ns_first=st.booleans(),
 )
-def test_generated_permitted_admitted(verb, resource, name, ns_form, ns_first):
-    parts = [verb, resource, name]
+def test_generated_permitted_admitted(verb_resource, name, ns_form, ns_first):
+    parts = [*verb_resource, name]
     parts = [ns_form, *parts] if ns_first else [*parts, ns_form]
     command = " ".join(["kubectl", *parts])
     assert check(command, POLICY, NS) == Verdict(command=command, admitted=True, reason=None)
+
+
+def _host_wrapper(command):
+    # the form a kind setup uses: double quotes escaped, then sh -c "..." under a host shell
+    return 'sh -c "' + command.replace('"', '\\"') + '"'
+
+
+@given(st.sampled_from(ADMITTED))
+def test_admitted_commands_survive_the_host_wrapper(command):
+    # the host shell must hand sh exactly the admitted text, with nothing to expand
+    assert shlex.split(_host_wrapper(command)) == ["sh", "-c", command]
+    assert not set("$`\\") & set(command)
 
 
 @given(
@@ -263,15 +375,17 @@ def test_operator_suffix_rejected(base, op, tail):
 
 
 def test_reason_counts_empty():
-    assert reason_counts([]) == {reason: 0 for reason in Reason}
+    assert reason_counts([]) == ReasonCounts(total=0, by_reason={reason: 0 for reason in Reason})
 
 
 def test_reason_counts_mixed():
     precedence = [command for command, _ in REJECTED[-5:]]
     verdicts = [check(command, POLICY, NS) for command in [*precedence, *ADMITTED[:2]]]
     counts = reason_counts(verdicts)
-    assert counts.keys() == set(Reason)
-    assert counts[Reason.SHELL_METACHAR] == 1
-    assert counts[Reason.OUT_OF_SANDBOX] == 1
-    assert counts[Reason.EMPTY] == 0
-    assert sum(counts.values()) == 5
+    assert counts.total == 7
+    assert counts.admitted == 2
+    assert counts.by_reason.keys() == set(Reason)
+    assert counts.by_reason[Reason.SHELL_METACHAR] == 1
+    assert counts.by_reason[Reason.OUT_OF_SANDBOX] == 1
+    assert counts.by_reason[Reason.EMPTY] == 0
+    assert sum(counts.by_reason.values()) == 5

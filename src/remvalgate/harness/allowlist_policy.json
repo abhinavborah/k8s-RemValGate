@@ -1,17 +1,49 @@
 {
   "binaries": ["kubectl"],
-  "verbs": ["get", "describe", "scale", "patch", "delete", "rollout restart", "rollout undo"],
-  "resources": [
-    "pods", "pod", "po",
-    "deployments", "deployment", "deploy",
-    "services", "service", "svc",
-    "replicasets", "rs"
-  ],
-  "flags": {
-    "-o": ["wide", "name", "yaml", "json"], "--output": ["wide", "name", "yaml", "json"],
-    "-l": true, "--selector": true,
-    "-p": true, "--patch": true,
-    "--type": true,
-    "--replicas": true
-  }
+  "verbs": {
+    "get": {
+      "resources": ["pods", "pod", "po", "deployments", "deployment", "deploy",
+                    "services", "service", "svc", "replicasets", "rs"],
+      "flags": {
+        "-o": ["wide", "name", "yaml", "json"], "--output": ["wide", "name", "yaml", "json"],
+        "-l": true, "--selector": true
+      },
+      "name_required": false
+    },
+    "describe": {
+      "resources": ["pods", "pod", "po", "deployments", "deployment", "deploy",
+                    "services", "service", "svc", "replicasets", "rs"],
+      "flags": {"-l": true, "--selector": true},
+      "name_required": false
+    },
+    "scale": {
+      "resources": ["deployments", "deployment", "deploy", "replicasets", "rs"],
+      "flags": {"--replicas": ["1", "2", "3"]},
+      "name_required": true
+    },
+    "patch": {
+      "resources": ["deployments", "deployment", "deploy", "services", "service", "svc"],
+      "flags": {"-p": true, "--patch": true, "--type": ["merge", "strategic", "json"]},
+      "name_required": true
+    },
+    "delete": {
+      "resources": ["pods", "pod", "po"],
+      "flags": {},
+      "name_required": true
+    },
+    "rollout restart": {
+      "resources": ["deployments", "deployment", "deploy"],
+      "flags": {},
+      "name_required": true
+    },
+    "rollout undo": {
+      "resources": ["deployments", "deployment", "deploy"],
+      "flags": {},
+      "name_required": true
+    }
+  },
+  "patch_denied_keys": [
+    "hostNetwork", "hostPID", "hostIPC", "hostPath", "privileged", "securityContext",
+    "volumes", "image", "type", "externalIPs"
+  ]
 }
