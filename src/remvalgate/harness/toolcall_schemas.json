@@ -1,0 +1,24 @@
+{
+  "placeholder": "Stub argument names and types until the AIOpsLab commit is pinned (#69). Replace them with the real tool signatures then.",
+  "tools": {
+    "exec_shell": {"command": "str"},
+    "get_logs": {"namespace": "str", "service": "str"},
+    "get_metrics": {"namespace": "str", "duration": "int"},
+    "get_traces": {"namespace": "str", "duration": "int"}
+  },
+  "targets": {
+    "get_logs": {"namespace": "namespace", "name": "service"},
+    "get_metrics": {"namespace": "namespace"},
+    "get_traces": {"namespace": "namespace"}
+  },
+  "kinds": {
+    "pods": "pod", "pod": "pod", "po": "pod",
+    "deployments": "deployment", "deployment": "deployment", "deploy": "deployment",
+    "services": "service", "service": "service", "svc": "service",
+    "replicasets": "replicaset", "replicaset": "replicaset", "rs": "replicaset"
+  },
+  "value_flags": [
+    "-c", "--container", "--context", "--cluster", "--user", "--kubeconfig", "-s", "--server",
+    "--as", "--as-group", "--token", "--timeout", "--request-timeout"
+  ]
+}
