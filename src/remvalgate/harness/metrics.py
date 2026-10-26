@@ -1,11 +1,13 @@
-"""Retrieval and score metrics for the evaluation harness.
+"""Retrieval, score and selective metrics for the evaluation harness.
 
 Retrieval metrics (Hit@k, MRR, Recall@k) take each query with its results, best first.
 Relevance is passed as a function of the query and a result, so the relevance label stays the
 caller's choice: a fault-type match, or a stricter fault type plus target service label.
-Score metrics (AUROC, Brier) take candidate scores with binary labels.
+Score metrics (AUROC, Brier) and selective metrics (AURC, harmful rate at coverage, top-1
+accuracy) take candidate scores with binary labels.
 """
 
+import math
 from collections.abc import Callable, Sequence
 from typing import TypeVar
 
@@ -111,3 +113,77 @@ def brier(probabilities: Sequence[float], labels: Sequence[bool]) -> float:
     if any(not 0.0 <= p <= 1.0 for p in probabilities):
         raise ValueError("probabilities must lie in [0, 1]")
     return sum((p - bool(y)) ** 2 for p, y in zip(probabilities, labels, strict=True)) / len(labels)
+
+
+def _expected_flagged_in_top(scores: Sequence[float], flags: Sequence[bool], m: int) -> float:
+    """Expected number of flagged items among the top m by score.
+
+    Equal scores form a group. A group inside the top m counts fully; the group that straddles
+    the cut contributes its flagged share times the places it fills, which is the expectation
+    over all orderings of the tied items.
+    """
+    groups: dict[float, list[int]] = {}  # score -> [size, flagged]
+    for s, f in zip(scores, flags, strict=True):
+        g = groups.setdefault(s, [0, 0])
+        g[0] += 1
+        g[1] += bool(f)
+    total = 0.0
+    taken = 0
+    for s in sorted(groups, reverse=True):
+        size, flagged = groups[s]
+        if taken + size <= m:
+            total += flagged
+        else:
+            total += (m - taken) * flagged / size
+            break
+        taken += size
+    return total
+
+
+def aurc(scores: Sequence[float], risky: Sequence[bool]) -> float:
+    """Area under the risk-coverage curve, ranking by score, highest first.
+
+    The mean over m = 1..n of the risky share among the top m. Which risk the label marks is
+    a parameter, not fixed here (an open group decision). Ties count in expectation over all
+    orderings of the tied group, as in AUROC. Raises ValueError for empty input or a length
+    mismatch.
+    """
+    _check_pairs(scores, risky)
+    n = len(scores)
+    return sum(_expected_flagged_in_top(scores, risky, m) / m for m in range(1, n + 1)) / n
+
+
+def harmful_rate_at_coverage(
+    scores: Sequence[float], harmful: Sequence[bool], coverage: float
+) -> float:
+    """Expected harmful share among the top m = max(1, ceil(coverage * n)) items by score.
+
+    Coverage lies in (0, 1]; a tiny coverage still keeps one item. Ties at the cut count in
+    expectation over all orderings of the tied group, as in AUROC. Raises ValueError for empty
+    input, a length mismatch, or coverage outside (0, 1].
+    """
+    _check_pairs(scores, harmful)
+    if not 0.0 < coverage <= 1.0:
+        raise ValueError(f"coverage must lie in (0, 1], got {coverage}")
+    # the epsilon stops float noise rounding up: 0.07 * 100 is 7.000000000000001, ceil gives 8
+    m = max(1, math.ceil(coverage * len(scores) - 1e-9))
+    return _expected_flagged_in_top(scores, harmful, m) / m
+
+
+def top1_accuracy(problems: Sequence[Sequence[tuple[float, bool]]]) -> float:
+    """Share of problems whose highest-scored candidate works.
+
+    Each problem is a list of (score, works) pairs. A tie at the top counts the working share of
+    the tied group. Raises ValueError for no problems or a problem with no candidates.
+    """
+    if not problems:
+        raise ValueError("problems are empty")
+    total = 0.0
+    for candidates in problems:
+        if not candidates:
+            raise ValueError("a problem has no candidates")
+        scores = [score for score, _ in candidates]
+        works = [w for _, w in candidates]
+        _check_pairs(scores, works)
+        total += _expected_flagged_in_top(scores, works, 1)
+    return total / len(problems)

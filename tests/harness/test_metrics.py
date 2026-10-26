@@ -1,14 +1,19 @@
+from itertools import pairwise, permutations
+
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from remvalgate.harness.metrics import (
+    aurc,
     auroc,
     brier,
+    harmful_rate_at_coverage,
     hit_at_k,
     mrr,
     recall_at_k,
+    top1_accuracy,
 )
 
 # synthetic fixtures only: three queries by fault type, results tagged by fault type
@@ -197,3 +202,137 @@ def test_brier_properties(rows):
     assert 0.0 <= value <= 1.0
     expected = brier_score_loss([int(y) for y in labels], probs)
     assert value == pytest.approx(expected, abs=1e-9)
+
+
+# Selective metrics: synthetic fixtures, hand-worked values
+S4 = [0.9, 0.8, 0.7, 0.6]
+H4 = [False, True, False, True]
+
+
+# AC: AURC is the mean over m = 1..n of the risky share in the top m by score
+def test_aurc_hand_check():
+    # risks at m=1..4: 0, 1/2, 1/3, 1/2 -> (0 + 1/2 + 1/3 + 1/2) / 4 = 1/3
+    assert aurc(S4, H4) == pytest.approx(1 / 3, abs=1e-9)
+
+
+def test_aurc_ties_count_in_expectation():
+    # m=1: one of the two tied items, 1/2; m=2: both, 1/2 -> 1/2
+    assert aurc([1, 1], [True, False]) == pytest.approx(0.5, abs=1e-9)
+
+
+# AC: harmful rate at coverage c is the harmful share among the top ceil(c * n) by score
+@pytest.mark.parametrize(
+    ("coverage", "expected"),
+    [
+        (0.25, 0.0),  # m=1: the top item is fine
+        (0.5, 0.5),  # m=2: one harmful of two
+        (1.0, 0.5),  # m=4: two harmful of four
+    ],
+)
+def test_harmful_rate_at_coverage_hand_check(coverage, expected):
+    assert harmful_rate_at_coverage(S4, H4, coverage) == pytest.approx(expected, abs=1e-9)
+
+
+def test_harmful_rate_ties_at_the_cut_count_in_expectation():
+    # m=1 of two tied items, one harmful: 1/2
+    assert harmful_rate_at_coverage([1, 1], [True, False], 0.5) == pytest.approx(0.5, abs=1e-9)
+
+
+def test_harmful_rate_float_cut_keeps_exactly_seven_of_a_hundred():
+    # 0.07 * 100 is 7.000000000000001 in floating point; a plain ceil would keep 8.
+    # Harmful at ranks 2, 5 and 8: top 7 gives 2/7, top 8 would give 3/8.
+    scores = [100 - i for i in range(100)]
+    harmful = [i in (1, 4, 7) for i in range(100)]
+    assert harmful_rate_at_coverage(scores, harmful, 0.07) == pytest.approx(2 / 7, abs=1e-9)
+
+
+@pytest.mark.parametrize("coverage", [1e-6, 1e-12])
+def test_harmful_rate_tiny_coverage_keeps_one_item(coverage):
+    # 1e-12 * 4 falls below the epsilon, so the cut must still keep the top item
+    assert harmful_rate_at_coverage(S4, H4, coverage) == 0.0
+
+
+@pytest.mark.parametrize("coverage", [0, 1.5, -0.1])
+def test_harmful_rate_coverage_outside_unit_interval_raises(coverage):
+    with pytest.raises(ValueError, match="coverage"):
+        harmful_rate_at_coverage(S4, H4, coverage)
+
+
+# AC: top-1 accuracy is the working share of the highest-scored candidate, ties shared
+def test_top1_accuracy_hand_check():
+    problems = [
+        [(0.9, True), (0.1, False)],  # top works: 1
+        [(0.8, False), (0.3, True)],  # top fails: 0
+        [(0.5, True), (0.5, False)],  # tie, one of two works: 1/2
+    ]
+    # (1 + 0 + 1/2) / 3 = 1/2
+    assert top1_accuracy(problems) == pytest.approx(0.5, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: aurc([], []),
+        lambda: harmful_rate_at_coverage([], [], 0.5),
+        lambda: top1_accuracy([]),
+    ],
+)
+def test_selective_metrics_reject_empty_input(call):
+    with pytest.raises(ValueError, match="empty"):
+        call()
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: aurc([0.1, 0.2], [True]),
+        lambda: harmful_rate_at_coverage([0.1, 0.2], [True], 0.5),
+    ],
+)
+def test_selective_metrics_reject_mismatched_input(call):
+    with pytest.raises(ValueError, match="but"):
+        call()
+
+
+def test_top1_accuracy_problem_without_candidates_raises():
+    with pytest.raises(ValueError, match="no candidates"):
+        top1_accuracy([[(0.5, True)], []])
+
+
+@given(rows=st.lists(st.tuples(finite, st.booleans()), min_size=1, max_size=40))
+def test_selective_metric_properties(rows):
+    scores = [s for s, _ in rows]
+    risky = [y for _, y in rows]
+    n = len(rows)
+    value = aurc(scores, risky)
+    assert 0.0 <= value <= 1.0
+    rates = [harmful_rate_at_coverage(scores, risky, m / n) for m in range(1, n + 1)]
+    assert all(0.0 <= r <= 1.0 for r in rates)
+    assert value == pytest.approx(sum(rates) / n, abs=1e-9)
+
+
+def _orderings(scores):
+    # every ordering of the items that ranks them by score, highest first; each ordering of a
+    # tied group appears once, so all are equally likely
+    return [
+        order
+        for order in permutations(range(len(scores)))
+        if all(scores[a] >= scores[b] for a, b in pairwise(order))
+    ]
+
+
+@given(rows=st.lists(st.tuples(st.sampled_from([1, 2, 3]), st.booleans()), min_size=1, max_size=6))
+def test_selective_metrics_match_brute_force_over_tie_orderings(rows):
+    # independent reference: average the plain metric over every score-consistent ordering
+    scores = [s for s, _ in rows]
+    flags = [f for _, f in rows]
+    n = len(rows)
+    orders = _orderings(scores)
+    risks = [
+        sum(sum(flags[i] for i in o[:m]) / m for o in orders) / len(orders) for m in range(1, n + 1)
+    ]
+    for m, risk in enumerate(risks, 1):
+        assert harmful_rate_at_coverage(scores, flags, m / n) == pytest.approx(risk, abs=1e-9)
+    assert aurc(scores, flags) == pytest.approx(sum(risks) / n, abs=1e-9)
+    first = sum(flags[o[0]] for o in orders) / len(orders)
+    assert top1_accuracy([list(zip(scores, flags, strict=True))]) == pytest.approx(first, abs=1e-9)
