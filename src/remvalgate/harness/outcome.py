@@ -3,6 +3,7 @@
 The harm result is an input, produced by harm detection, so this module does not compute it.
 """
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -55,3 +56,38 @@ def classify(result: ProblemResult) -> Outcome:
     if result.recovered:
         return Outcome.RECOVERED
     return Outcome.APPLIED_INEFFECTIVE
+
+
+@dataclass(frozen=True)
+class OutcomeCounts:
+    total: int
+    # results per outcome, with every outcome present
+    by_outcome: Mapping[Outcome, int]
+
+    @property
+    def recovery_rate(self) -> float:
+        """Share of results that recovered; 0.0 when there are none.
+
+        Escalations and harmful recoveries count as not recovered.
+        """
+        return self.by_outcome[Outcome.RECOVERED] / self.total if self.total else 0.0
+
+
+def outcome_counts(outcomes: Iterable[Outcome]) -> OutcomeCounts:
+    """Count outcomes, so the share of each is by_outcome[o] / total."""
+    total = 0
+    by_outcome = {outcome: 0 for outcome in Outcome}
+    for outcome in outcomes:
+        total += 1
+        by_outcome[outcome] += 1
+    return OutcomeCounts(total=total, by_outcome=by_outcome)
+
+
+def recovered_labels(outcomes: Iterable[Outcome]) -> list[bool]:
+    """One label per outcome, in order: True for RECOVERED only."""
+    return [outcome is Outcome.RECOVERED for outcome in outcomes]
+
+
+def harmful_labels(outcomes: Iterable[Outcome]) -> list[bool]:
+    """One label per outcome, in order: True for APPLIED_HARMFUL only."""
+    return [outcome is Outcome.APPLIED_HARMFUL for outcome in outcomes]

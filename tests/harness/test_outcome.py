@@ -1,6 +1,13 @@
 import pytest
 
-from remvalgate.harness.outcome import Outcome, ProblemResult, classify
+from remvalgate.harness.outcome import (
+    Outcome,
+    ProblemResult,
+    classify,
+    harmful_labels,
+    outcome_counts,
+    recovered_labels,
+)
 
 # fields: applied, recovered, harmful, any_working_candidate
 
@@ -44,10 +51,39 @@ def test_recovered_with_harm_is_harmful(any_working):
         (False, True, False, True),
         (False, False, True, True),
         (False, True, True, False),
-        # the applied candidate recovered the problem, so a working candidate existed
+        # the applied candidate recovered with no harm, so a working candidate existed
         (True, True, False, False),
     ],
 )
 def test_impossible_input_raises(fields):
     with pytest.raises(ValueError):
         ProblemResult(*fields)
+
+
+def test_counts_empty():
+    counts = outcome_counts([])
+    assert counts.total == 0
+    assert counts.by_outcome == {outcome: 0 for outcome in Outcome}
+    assert counts.recovery_rate == 0.0
+    assert recovered_labels([]) == []
+    assert harmful_labels([]) == []
+
+
+def test_recovery_rate_counts_escalations_as_not_recovered():
+    outcomes = [
+        Outcome.RECOVERED,
+        Outcome.ESCALATED_WITH_WORKING,
+        Outcome.ESCALATED_WITH_NONE,
+        Outcome.APPLIED_INEFFECTIVE,
+    ]
+    # a generator is read once
+    counts = outcome_counts(outcome for outcome in outcomes)
+    assert counts.total == 4
+    assert counts.by_outcome == {outcome: int(outcome in outcomes) for outcome in Outcome}
+    assert counts.recovery_rate == 0.25
+
+
+def test_labels():
+    outcomes = [Outcome.RECOVERED, Outcome.APPLIED_HARMFUL, Outcome.ESCALATED_WITH_NONE]
+    assert recovered_labels(outcomes) == [True, False, False]
+    assert harmful_labels(outcomes) == [False, True, False]
