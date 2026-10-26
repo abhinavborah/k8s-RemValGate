@@ -1,8 +1,9 @@
-"""Retrieval metrics for the evaluation harness.
+"""Retrieval and score metrics for the evaluation harness.
 
 Retrieval metrics (Hit@k, MRR, Recall@k) take each query with its results, best first.
 Relevance is passed as a function of the query and a result, so the relevance label stays the
 caller's choice: a fault-type match, or a stricter fault type plus target service label.
+Score metrics (AUROC, Brier) take candidate scores with binary labels.
 """
 
 from collections.abc import Callable, Sequence
@@ -68,3 +69,45 @@ def recall_at_k(
             raise ValueError(f"total_relevant is {n} but {found} relevant results were found")
         total += found / n
     return total / len(results)
+
+
+def _check_pairs(scores: Sequence[float], labels: Sequence[bool]) -> None:
+    if not scores:
+        raise ValueError("scores are empty")
+    if len(scores) != len(labels):
+        raise ValueError(f"{len(scores)} scores but {len(labels)} labels")
+
+
+def auroc(scores: Sequence[float], labels: Sequence[bool]) -> float:
+    """Probability that a random positive scores above a random negative, ties one half.
+
+    Mann-Whitney U from average ranks, O(n log n). Raises ValueError for empty input, a length
+    mismatch, or labels that do not hold both classes.
+    """
+    _check_pairs(scores, labels)
+    n_pos = sum(bool(y) for y in labels)
+    n_neg = len(labels) - n_pos
+    if n_pos == 0 or n_neg == 0:
+        raise ValueError("labels must hold both classes")
+    order = sorted(range(len(scores)), key=scores.__getitem__)
+    rank_sum = 0.0
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and scores[order[j + 1]] == scores[order[i]]:
+            j += 1
+        average_rank = (i + j) / 2 + 1  # ranks are 1-based; a tied group shares their mean
+        rank_sum += average_rank * sum(bool(labels[order[m]]) for m in range(i, j + 1))
+        i = j + 1
+    return (rank_sum - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+
+
+def brier(probabilities: Sequence[float], labels: Sequence[bool]) -> float:
+    """Mean of (p - y)^2 with y as 1 or 0.
+
+    Raises ValueError for empty input, a length mismatch, or a probability outside [0, 1].
+    """
+    _check_pairs(probabilities, labels)
+    if any(not 0.0 <= p <= 1.0 for p in probabilities):
+        raise ValueError("probabilities must lie in [0, 1]")
+    return sum((p - bool(y)) ** 2 for p, y in zip(probabilities, labels, strict=True)) / len(labels)
