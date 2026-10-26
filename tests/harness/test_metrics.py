@@ -299,6 +299,25 @@ def test_top1_accuracy_problem_without_candidates_raises():
         top1_accuracy([[(0.5, True)], []])
 
 
+NAN = float("nan")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: auroc([0.9, NAN, 0.1, 0.5], [True, False, True, False]),
+        lambda: aurc([NAN, 0.5], [True, False]),
+        lambda: harmful_rate_at_coverage([NAN, 0.5], [True, False], 0.5),
+        lambda: top1_accuracy([[(NAN, True), (0.9, False)]]),
+        lambda: top1_accuracy([[(0.9, False), (NAN, True)]]),
+    ],
+)
+def test_nan_scores_raise(call):
+    # a nan breaks the sort, so the metric would be wrong without an error
+    with pytest.raises(ValueError, match="nan"):
+        call()
+
+
 @given(rows=st.lists(st.tuples(finite, st.booleans()), min_size=1, max_size=40))
 def test_selective_metric_properties(rows):
     scores = [s for s, _ in rows]
@@ -336,3 +355,18 @@ def test_selective_metrics_match_brute_force_over_tie_orderings(rows):
     assert aurc(scores, flags) == pytest.approx(sum(risks) / n, abs=1e-9)
     first = sum(flags[o[0]] for o in orders) / len(orders)
     assert top1_accuracy([list(zip(scores, flags, strict=True))]) == pytest.approx(first, abs=1e-9)
+
+
+@pytest.mark.parametrize("bad", ["false", "0", None, 0.5, 2])
+def test_labels_other_than_bool_or_zero_one_raise(bad):
+    # bool("false") is True, so a label read as text would count as a positive
+    with pytest.raises(ValueError, match="bool or 0/1"):
+        auroc([0.1, 0.2, 0.3], [True, False, bad])
+    with pytest.raises(ValueError, match="bool or 0/1"):
+        brier([0.1, 0.2, 0.3], [True, False, bad])
+    with pytest.raises(ValueError, match="bool or 0/1"):
+        aurc([0.1, 0.2, 0.3], [True, False, bad])
+    with pytest.raises(ValueError, match="bool or 0/1"):
+        harmful_rate_at_coverage([0.1, 0.2, 0.3], [True, False, bad], 0.5)
+    with pytest.raises(ValueError, match="bool or 0/1"):
+        top1_accuracy([[(0.1, True), (0.2, bad)]])

@@ -4,7 +4,8 @@ Retrieval metrics (Hit@k, MRR, Recall@k) take each query with its results, best 
 Relevance is passed as a function of the query and a result, so the relevance label stays the
 caller's choice: a fault-type match, or a stricter fault type plus target service label.
 Score metrics (AUROC, Brier) and selective metrics (AURC, harmful rate at coverage, top-1
-accuracy) take candidate scores with binary labels.
+accuracy) take candidate scores with binary labels: a label must equal 0 or 1, as a bool or
+an int; any other label raises ValueError.
 """
 
 import math
@@ -78,13 +79,20 @@ def _check_pairs(scores: Sequence[float], labels: Sequence[bool]) -> None:
         raise ValueError("scores are empty")
     if len(scores) != len(labels):
         raise ValueError(f"{len(scores)} scores but {len(labels)} labels")
+    # a nan breaks the sort order, so it would give a wrong metric with no error
+    if any(math.isnan(s) for s in scores):
+        raise ValueError("scores hold nan")
+    # "false" or None read from a file would pass bool() as a positive or a negative
+    if any(y not in (0, 1) for y in labels):
+        raise ValueError("labels must be bool or 0/1")
 
 
 def auroc(scores: Sequence[float], labels: Sequence[bool]) -> float:
     """Probability that a random positive scores above a random negative, ties one half.
 
     Mann-Whitney U from average ranks, O(n log n). Raises ValueError for empty input, a length
-    mismatch, or labels that do not hold both classes.
+    mismatch, a nan score, a label not equal to 0 or 1, or labels that do not hold both
+    classes.
     """
     _check_pairs(scores, labels)
     n_pos = sum(bool(y) for y in labels)
@@ -107,7 +115,8 @@ def auroc(scores: Sequence[float], labels: Sequence[bool]) -> float:
 def brier(probabilities: Sequence[float], labels: Sequence[bool]) -> float:
     """Mean of (p - y)^2 with y as 1 or 0.
 
-    Raises ValueError for empty input, a length mismatch, or a probability outside [0, 1].
+    Raises ValueError for empty input, a length mismatch, a label not equal to 0 or 1, or a nan
+    or a probability outside [0, 1].
     """
     _check_pairs(probabilities, labels)
     if any(not 0.0 <= p <= 1.0 for p in probabilities):
@@ -145,8 +154,8 @@ def aurc(scores: Sequence[float], risky: Sequence[bool]) -> float:
 
     The mean over m = 1..n of the risky share among the top m. Which risk the label marks is
     a parameter, not fixed here (an open group decision). Ties count in expectation over all
-    orderings of the tied group, as in AUROC. Raises ValueError for empty input or a length
-    mismatch.
+    orderings of the tied group, as in AUROC. Raises ValueError for empty input, a length
+    mismatch, a nan score, or a label not equal to 0 or 1.
     """
     _check_pairs(scores, risky)
     n = len(scores)
@@ -160,7 +169,8 @@ def harmful_rate_at_coverage(
 
     Coverage lies in (0, 1]; a tiny coverage still keeps one item. Ties at the cut count in
     expectation over all orderings of the tied group, as in AUROC. Raises ValueError for empty
-    input, a length mismatch, or coverage outside (0, 1].
+    input, a length mismatch, a nan score, a label not equal to 0 or 1, or coverage outside
+    (0, 1].
     """
     _check_pairs(scores, harmful)
     if not 0.0 < coverage <= 1.0:
@@ -174,7 +184,8 @@ def top1_accuracy(problems: Sequence[Sequence[tuple[float, bool]]]) -> float:
     """Share of problems whose highest-scored candidate works.
 
     Each problem is a list of (score, works) pairs. A tie at the top counts the working share of
-    the tied group. Raises ValueError for no problems or a problem with no candidates.
+    the tied group. Raises ValueError for no problems, a problem with no candidates, a nan
+    score, or a works flag not equal to 0 or 1.
     """
     if not problems:
         raise ValueError("problems are empty")
