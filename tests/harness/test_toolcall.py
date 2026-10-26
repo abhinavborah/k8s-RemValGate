@@ -43,10 +43,20 @@ def _with(**changes):
 
 def test_default_schemas_load():
     schemas = load_schemas(DEFAULT_SCHEMAS_PATH)
-    assert schemas.tools.keys() == {"exec_shell", "get_logs", "get_metrics", "get_traces"}
-    assert schemas.tools["exec_shell"] == {"command": str}
+    assert schemas.tools.keys() == {
+        "exec_shell",
+        "get_logs",
+        "get_metrics",
+        "get_traces",
+        "read_metrics",
+        "read_traces",
+    }
+    assert schemas.tools["exec_shell"] == {"command": str, "timeout": int}
+    assert schemas.required["exec_shell"] == {"command"}
+    assert schemas.required["get_metrics"] == {"namespace"}
     assert schemas.tools["get_metrics"]["duration"] is int
     assert schemas.targets["get_logs"] == {"namespace": "namespace", "name": "service"}
+    assert "not pinned" in schemas.placeholder
     assert schemas.kinds["deploy"] == "deployment"
     assert schemas.kinds["po"] == "pod"
     assert {"-c", "--context"} <= schemas.value_flags
@@ -55,6 +65,10 @@ def test_default_schemas_load():
 def test_schemas_missing_key_raises(tmp_path):
     with pytest.raises(ValueError, match="kinds"):
         load_schemas(_write_schemas(tmp_path, _with(kinds=None)))
+
+
+def test_schemas_without_placeholder_load(tmp_path):
+    assert load_schemas(_write_schemas(tmp_path, _with(placeholder=None))).placeholder is None
 
 
 def test_schemas_extra_key_raises(tmp_path):
@@ -68,8 +82,12 @@ def test_schemas_extra_key_raises(tmp_path):
         ("placeholder", True),
         ("tools", ["exec_shell"]),
         ("tools", {"exec_shell": ["command"]}),
-        ("tools", {"exec_shell": {"command": "string"}}),
+        ("tools", {"exec_shell": {"command": "str"}}),
+        ("tools", {"exec_shell": {"required": {"command": "string"}, "optional": {}}}),
+        ("tools", {"exec_shell": {"required": {"command": "str"}, "optional": {"command": "str"}}}),
         ("targets", {"get_logs": {"namespace": "ns"}}),
+        # a target must be a required argument, or a call could leave it out
+        ("targets", {"get_metrics": {"namespace": "namespace", "name": "file"}}),
         ("targets", {"get_logs": {"pod": "service"}}),
         ("targets", {"get_status": {"namespace": "namespace"}}),
         ("targets", {"get_metrics": {"namespace": "duration"}}),
@@ -79,6 +97,8 @@ def test_schemas_extra_key_raises(tmp_path):
         ("kinds", {"Deploy": "deployment"}),
         ("value_flags", "-c"),
         ("value_flags", ["-c", 1]),
+        ("excluded", "submit"),
+        ("excluded", ["exec_shell"]),
     ],
 )
 def test_schemas_wrong_value_raises(tmp_path, key, value):
@@ -142,12 +162,32 @@ OK_CASES = [
     ),
     (ToolCall("get_logs", {"namespace": "sandbox-a", "service": "api"}), LOGS_API),
     (ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": 60}), METRICS),
+    # an optional argument may be left out or given
+    (ToolCall("get_metrics", {"namespace": "sandbox-a"}), METRICS),
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a", timeout=60), SCALE_WEB),
+    (ToolCall("read_metrics", {"file_path": "metrics_output/web.csv"}), Gold("read_metrics")),
+    # flag values from the kubectl reference must not be read as names
+    (
+        _shell("kubectl delete pod web --grace-period 0 -n sandbox-a"),
+        Gold("exec_shell", "delete", "sandbox-a", "pod", "web"),
+    ),
+    (
+        _shell("kubectl get pod web --field-selector status.phase=Running -n sandbox-a"),
+        Gold("exec_shell", "get", "sandbox-a", "pod", "web"),
+    ),
+    (
+        _shell("kubectl rollout undo deploy/web --to-revision 2 -n sandbox-a"),
+        Gold("exec_shell", "rollout undo", "sandbox-a", "deployment", "web"),
+    ),
 ]
 
 # AC: a malformed schema is mapped to BAD_SCHEMA
 BAD_SCHEMA_CASES = [
     (ToolCall("exec_shell", {}), SCALE_WEB),
-    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a", timeout=5), SCALE_WEB),
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a", retries=5), SCALE_WEB),
+    (_shell("kubectl scale deploy web --replicas=1 -n sandbox-a", timeout="5"), SCALE_WEB),
+    # submit ends the episode and is not scored as a tool call
+    (ToolCall("submit", {}), SCALE_WEB),
     (ToolCall("exec_shell", {"command": 1}), SCALE_WEB),
     (ToolCall("get_metrics", {"namespace": "sandbox-a", "duration": "60"}), METRICS),
     # bool is a subclass of int, but not a valid int argument
@@ -181,6 +221,11 @@ WRONG_TARGET_CASES = [
         _shell("kubectl exec deploy/mongo-0 -n sandbox-a -- mongo --eval 'db.getUsers()'"),
         Gold("exec_shell", "exec", "sandbox-a", "pod", "mongo-0"),
     ),
+    # an exec that names no pod has no kind
+    (
+        _shell("kubectl exec -n sandbox-a -- mongosh --eval 'db.getUsers()'"),
+        Gold("exec_shell", "exec", "sandbox-a", "pod"),
+    ),
     (ToolCall("get_logs", {"namespace": "sandbox-a", "service": "web"}), LOGS_API),
     (ToolCall("get_logs", {"namespace": "other", "service": "api"}), LOGS_API),
 ]
@@ -193,7 +238,7 @@ PRECEDENCE_CASES = [
         ErrorType.BAD_SCHEMA,
     ),
     (
-        _shell("kubectl scale deploy api --replicas=1 -n other", timeout=5),
+        _shell("kubectl scale deploy api --replicas=1 -n other", retries=5),
         SCALE_WEB,
         ErrorType.BAD_SCHEMA,
     ),
@@ -222,9 +267,9 @@ def test_score_never_raises(text, gold):
 
 
 @given(case=st.sampled_from(OK_CASES), data=st.data())
-def test_dropped_argument_is_bad_schema(case, data):
+def test_dropped_required_argument_is_bad_schema(case, data):
     call, gold = case
-    dropped = data.draw(st.sampled_from(sorted(call.arguments)))
+    dropped = data.draw(st.sampled_from(sorted(SCHEMAS.required[call.tool])))
     broken = ToolCall(call.tool, {k: v for k, v in call.arguments.items() if k != dropped})
     assert score(broken, gold, SCHEMAS, POLICY).error is ErrorType.BAD_SCHEMA
 
@@ -267,9 +312,21 @@ def test_counts_sum_and_accuracy_bounds(rows):
         Gold("get_metrics", namespace="sandbox-a", name="web"),
         Gold("get_logs", operation="get"),
         Gold("get_logs", kind="service"),
+        # an exec_shell kind is compared in its canonical form, so an alias never matches
+        Gold("exec_shell", kind="pods"),
+        Gold("exec_shell", kind="Pod"),
+        # a two-word operation outside the policy is never read as one operation
+        Gold("exec_shell", operation="rollout status"),
     ],
 )
 def test_gold_the_tool_cannot_match_raises(gold):
     call = ToolCall("get_logs", {"namespace": "sandbox-a", "service": "api"})
     with pytest.raises(ValueError, match="gold"):
         score(call, gold, SCHEMAS, POLICY)
+
+
+@pytest.mark.parametrize("flag", sorted(SCHEMAS.value_flags))
+def test_each_value_flag_keeps_the_target(flag):
+    call = _shell(f"kubectl delete pod web {flag} x -n sandbox-a")
+    gold = Gold("exec_shell", "delete", "sandbox-a", "pod", "web")
+    assert score(call, gold, SCHEMAS, POLICY).error is ErrorType.OK

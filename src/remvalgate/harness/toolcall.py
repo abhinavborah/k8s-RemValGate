@@ -21,7 +21,10 @@ from remvalgate.harness.allowlist import (
 
 DEFAULT_SCHEMAS_PATH = Path(__file__).with_name("toolcall_schemas.json")
 
-_SCHEMAS_KEYS = {"placeholder", "tools", "targets", "kinds", "value_flags"}
+_SCHEMAS_KEYS = {"tools", "excluded", "targets", "kinds", "value_flags"}
+# the placeholder note is optional: it is removed once the signatures are confirmed
+_OPTIONAL_KEYS = {"placeholder"}
+_TOOL_KEYS = {"required", "optional"}
 _TARGET_KEYS = {"namespace", "name"}
 _TYPES = {"str": str, "int": int}
 
@@ -37,14 +40,18 @@ class ErrorType(StrEnum):
 
 @dataclass(frozen=True)
 class Schemas:
-    # tool to argument name to its type
+    # tool to argument name to its type, required and optional arguments alike
     tools: Mapping[str, Mapping[str, type]]
+    # tool to the arguments a call must give
+    required: Mapping[str, frozenset[str]]
     # tool to the argument that names its target namespace and object, where it has one
     targets: Mapping[str, Mapping[str, str]]
     # kubectl resource alias to its canonical kind
     kinds: Mapping[str, str]
     # kubectl flags outside the allow-list policy that take a value
     value_flags: frozenset[str]
+    # the note that the signatures are not confirmed yet, so a run can record it
+    placeholder: str | None
 
 
 def _str_map(key: str, value: object) -> dict[str, str]:
@@ -58,19 +65,32 @@ def load_schemas(path: str | Path) -> Schemas:
     if not isinstance(data, dict):
         raise ValueError("schemas: expected a JSON object")
     missing = _SCHEMAS_KEYS - data.keys()
-    extra = data.keys() - _SCHEMAS_KEYS
+    extra = data.keys() - _SCHEMAS_KEYS - _OPTIONAL_KEYS
     if missing or extra:
         raise ValueError(f"schemas keys: missing {sorted(missing)}, unexpected {sorted(extra)}")
-    if not isinstance(data["placeholder"], str):
+    placeholder = data.get("placeholder")
+    if placeholder is not None and not isinstance(placeholder, str):
         raise ValueError("schemas placeholder: expected a note")
     if not isinstance(data["tools"], dict):
         raise ValueError("schemas tools: expected an object")
-    tools = {}
-    for tool, arguments in data["tools"].items():
-        arguments = _str_map("tools", arguments)
+    tools, required = {}, {}
+    for tool, schema in data["tools"].items():
+        if not isinstance(schema, dict) or schema.keys() != _TOOL_KEYS:
+            raise ValueError(f"schemas tools: {tool!r} needs exactly {sorted(_TOOL_KEYS)}")
+        needed = _str_map("tools", schema["required"])
+        optional = _str_map("tools", schema["optional"])
+        if needed.keys() & optional.keys():
+            raise ValueError(f"schemas tools: {tool!r} lists an argument as required and optional")
+        arguments = needed | optional
         if not set(arguments.values()) <= _TYPES.keys():
             raise ValueError(f"schemas tools: {tool!r} types must be one of {sorted(_TYPES)}")
         tools[tool] = MappingProxyType({name: _TYPES[t] for name, t in arguments.items()})
+        required[tool] = frozenset(needed)
+    excluded = data["excluded"]
+    if not isinstance(excluded, list) or not all(isinstance(t, str) for t in excluded):
+        raise ValueError("schemas excluded: expected a list of tool names")
+    if not tools.keys().isdisjoint(excluded):
+        raise ValueError("schemas excluded: a tool cannot be both scored and excluded")
     if not isinstance(data["targets"], dict):
         raise ValueError("schemas targets: expected an object")
     targets = {}
@@ -78,8 +98,11 @@ def load_schemas(path: str | Path) -> Schemas:
         target = _str_map("targets", target)
         if tool not in tools or not target.keys() <= _TARGET_KEYS:
             raise ValueError(f"schemas targets: {tool!r} needs a tool and {sorted(_TARGET_KEYS)}")
-        if any(tools[tool].get(argument) is not str for argument in target.values()):
-            raise ValueError(f"schemas targets: {tool!r} must name its string arguments")
+        if any(
+            argument not in required[tool] or tools[tool][argument] is not str
+            for argument in target.values()
+        ):
+            raise ValueError(f"schemas targets: {tool!r} must name its required string arguments")
         targets[tool] = MappingProxyType(target)
     kinds = _str_map("kinds", data["kinds"])
     if any(alias != alias.lower() for alias in kinds):
@@ -89,9 +112,11 @@ def load_schemas(path: str | Path) -> Schemas:
         raise ValueError("schemas value_flags: expected a list of strings")
     return Schemas(
         tools=MappingProxyType(tools),
+        required=MappingProxyType(required),
         targets=MappingProxyType(targets),
         kinds=MappingProxyType(kinds),
         value_flags=frozenset(value_flags),
+        placeholder=placeholder,
     )
 
 
@@ -134,10 +159,18 @@ class _Target:
 
 def _schema_valid(call: ToolCall, schemas: Schemas) -> bool:
     arguments = schemas.tools.get(call.tool)
-    if arguments is None or call.arguments.keys() != arguments.keys():
+    if arguments is None or not schemas.required[call.tool] <= call.arguments.keys():
+        return False
+    if not call.arguments.keys() <= arguments.keys():
         return False
     # type() and not isinstance(), so a bool is not taken for an int
-    return all(type(call.arguments[name]) is t for name, t in arguments.items())
+    return all(type(value) is arguments[name] for name, value in call.arguments.items())
+
+
+def _canonical_kind(kind: str, schemas: Schemas) -> str:
+    # kubectl reads kinds case-insensitively, with an optional API group as in deployment.apps
+    base = kind.lower().partition(".")[0]
+    return schemas.kinds.get(base, base)
 
 
 def _shell_target(command: str, schemas: Schemas, policy: Policy) -> _Target | None:
@@ -156,8 +189,8 @@ def _shell_target(command: str, schemas: Schemas, policy: Policy) -> _Target | N
     positionals = parsed.positionals
     if positionals[:1] == ["exec"]:
         operation, targets = "exec", positionals[1:]
-        # exec names a pod unless the type/name form says otherwise
-        types, names = ["pod"], targets
+        # exec names a pod unless the type/name form says otherwise; no target, no kind
+        types, names = (["pod"] if targets else []), targets
         if targets and "/" in targets[0]:
             types, names = split_targets(targets)
     else:
@@ -166,9 +199,7 @@ def _shell_target(command: str, schemas: Schemas, policy: Policy) -> _Target | N
             verb = (positionals[0], positionals[1:]) if positionals else (None, [])
         operation, targets = verb
         types, names = split_targets(targets) if targets else ([], [])
-    # kubectl reads kinds case-insensitively, with an optional API group as in deployment.apps
-    bases = [t.lower().partition(".")[0] for t in types]
-    kinds = {schemas.kinds.get(base, base) for base in bases}
+    kinds = {_canonical_kind(t, schemas) for t in types}
     # several kinds or names do not match one gold kind or name
     kind = kinds.pop() if len(kinds) == 1 else None
     name = names[0] if len(names) == 1 else None
@@ -182,11 +213,16 @@ def _tool_target(call: ToolCall, schemas: Schemas) -> _Target:
     return _Target(None, namespace, None, name)
 
 
-def _check_gold(gold: Gold, schemas: Schemas) -> None:
+def _check_gold(gold: Gold, schemas: Schemas, policy: Policy) -> None:
     # a gold record no call can match would silently score every call as an error
     if gold.tool not in schemas.tools:
         raise ValueError(f"gold tool {gold.tool!r} is not in the schemas")
     if gold.tool == "exec_shell":
+        if gold.kind is not None and _canonical_kind(gold.kind, schemas) != gold.kind:
+            raise ValueError(f"gold kind {gold.kind!r} is not a canonical kind")
+        # a two-word verb is read as one operation only when the policy names it
+        if gold.operation and " " in gold.operation and gold.operation not in policy.verbs:
+            raise ValueError(f"gold operation {gold.operation!r} is not a policy verb")
         return
     target = schemas.targets.get(gold.tool, {})
     if gold.operation is not None or gold.kind is not None:
@@ -206,7 +242,7 @@ def score(call: ToolCall, gold: Gold, schemas: Schemas, policy: Policy) -> Score
 
     Raises ValueError for a gold record that no call of its tool could match.
     """
-    _check_gold(gold, schemas)
+    _check_gold(gold, schemas, policy)
     if not _schema_valid(call, schemas):
         return Score(call=call, error=ErrorType.BAD_SCHEMA)
     if call.tool != gold.tool:
@@ -232,7 +268,11 @@ class ErrorCounts:
 
     @property
     def accuracy(self) -> float:
-        """Tool-call accuracy, the share of calls scored OK; 0.0 when there are no calls."""
+        """Tool-call accuracy, the share of calls scored OK; 0.0 when there are no calls.
+
+        OK means a valid schema, the right tool and operation, and the right target. Parameter
+        values, such as a replica count, a patch body or an exec script, are not scored.
+        """
         return self.by_type[ErrorType.OK] / self.total if self.total else 0.0
 
 
