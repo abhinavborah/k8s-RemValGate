@@ -1,8 +1,8 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.2 (draft for group review)
-**Date:** 2026-10-19
+**Version:** 1.4 (draft for group review)
+**Date:** 2026-10-26
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
@@ -74,7 +74,7 @@ Freezing a decision before a run protects the results in the way a failing test 
 |---|---|---|
 | G1 | any rollout on the primary pool | The three-problem confirmation slice is created and sealed. |
 | G2 | choosing K and R | A five-rollout pilot has measured the per-rollout time. |
-| G3 | any fine-tuning | The baseline-only run has fixed R, committed a numeric minimum-gain threshold, and run the headroom check (does baseline 5 already solve 12 or more of 16 problems). |
+| G3 | any gate or planner training | The baseline-only run has fixed R, committed a numeric minimum-gain threshold, and run the headroom check on baseline 3c standing in for baseline 5 (stop if 3c's top pick already solves 12 or more of 16 problems, and require at least 5 recoverable problems, both counted from the oracle labels, see R6.6). |
 | G4 | any fine-tuning | The free-form versus template-library decision is made from a scoring pilot, separate from the G2 timing pilot and with its method set by the decision issue (template library if free-form scoring reaches AUROC below 0.65). |
 | G5 | any evaluation run | Retrieval configuration (iii) is fixed. Ablation results are reported and never used to change it. |
 
@@ -136,7 +136,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R3.2 | Extend TargetPortMisconfig from 3 to 6 instances and ScalePod and AssignNonExistentNode from 1 to 3 each, giving a 16-problem primary pool. | Must | M1 |
 | R3.3 | Create and seal the three-problem confirmation slice (gate G1) before the pool extension and before any system run on a pool problem. The new problems are validated with a scripted known-fix command only and logged as a creation touch. | Must | M1 |
 | R3.4 | Grouped 4-fold assignment at incident level, with the stated invariants and an automated check. | Must | M1 |
-| R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates, checked against the saved post-injection state. Deduplicate near-identical candidates and report how many problems have mixed outcomes. | Must | M2 |
+| R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates, checked against the saved post-injection state. Deduplicate near-identical candidates and report how many problems have mixed outcomes. Needed before gate G3 for the recoverable-problem count (R6.6): in M1 it labels baseline 3c's candidates on the primary pool only, never the confirmation slice, and each use is logged as a touch. The labelling of the candidates the gate scores follows in M2. | Must | M1 |
 | R3.6 | Singleton fault types set aside for the exploratory generalization check. | Should | M2 |
 | R3.7 | Record one post-injection telemetry query per pool incident (16 injections, after gate G1), reused later by oracle labelling, so intrinsic retrieval metrics do not wait for it. | Must | M1 |
 | R3.8 | Designate development problems, disjoint from the evaluation pool, the confirmation slice and the singleton types, for prompt iteration, smoke tests and the pilot. | Must | M1 |
@@ -169,7 +169,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R6.3 | Baseline 4, a non-LM classifier over structured features. | Must | M2 |
 | R6.4 | Baseline 5, the LoRA-fine-tuned planner choosing by log-probability, trained on the same triples as the gate. | Must | M2 |
 | R6.5 | Baseline 6, a prompted judge in place of the gate, and baseline 7, the planner told to escalate when unsure. | Must | M2 |
-| R6.6 | Headroom check (gate G3, tracked inside the baseline-only run story): decide before fine-tuning whether the baseline already solves 12 or more of 16 problems. See review point 7. | Must | M1 |
+| R6.6 | Headroom check (gate G3, tracked inside the baseline-only run story), before any gate or planner training, with baseline 3c (the untuned planner with retrieval configuration (iii)) standing in for baseline 5. Both counts come from one set of executions, the oracle labels of 3c's K candidates including the top pick's own outcome (R3.5, about 128 rollouts at K = 8). Stop if 3c's top pick already solves 12 or more of 16 problems. Also require at least 5 recoverable problems: problems where 3c's top pick fails but at least one of its K candidates works. With one set of executions, a pool that triggers the 12 stop also fails the 5 minimum, and the stop is kept as the proposal's rule. The proposal's power arithmetic, with the McNemar mid-p test, needs about 5 net wins with no losses or 7 with one loss at n = 16 (two-sided), and this count bounds what any selector can gain. Passing is a necessary condition, not evidence that headroom exists. If baseline 5 uses a fine-tuned planner, the 3c candidates are only a proxy for the pool the gate will score, and the direction of the difference is not known, so the count is reported again from the M2 labels of the gate's candidates. See review point 7. | Must | M1 |
 
 ### E7. Gate fine-tuning
 
@@ -197,7 +197,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R9.3 | Primary analysis: gate against baseline 5 at candidate level with the confirmed interval method, plus descriptive problem-level recovery, and the number of problems with mixed outcomes. | Must | M2 |
 | R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
 | R9.5 | Exploratory singleton-type check, and qualitative failure analysis. | Should | M2 |
-| R9.10 | Decision issue: which system stands in for baseline 5 at the headroom check (blocks gate G3). | Must | M1 |
+| R9.10 | Decision issue: which system stands in for baseline 5 at the headroom check (blocks gate G3). Decided 2026-10-26: baseline 3c, with the rule in R6.6. | Must | M1 |
 | R9.11 | Decision issue: what the G4 scoring pilot's AUROC is measured on before a gate exists (blocks gate G4). | Must | M1 |
 | R9.6 | Open the confirmation slice once, as a qualitative check with no inferential weight. | Must | M2 |
 
@@ -213,7 +213,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 ## 9. Risks and open questions
 
-**Schedule.** The proposal's compute plan (about 832 rollouts, 69 hours serial or 17 hours at four-way parallelism, plus roughly 150 to 240 GPU-hours of fine-tuning) must fit in the 27 days from 2026-10-19 to the final submission, and the mid-submission needs baselines, ablations and results within the 11 days from 2026-10-19. Agent assistance shortens coding but not live rollouts or training, which this estimate counts. Feasibility is unconfirmed. The pilot (G2) is the first test. The proposal already says K is cut before R is raised. Candidate cuts for the group to decide, in this order: the Gemma gate and classification-head ablations, extrinsic retrieval ablation of configuration (iv), the singleton generalization check.
+**Schedule.** The proposal's compute plan (about 832 rollouts, 69 hours serial or 17 hours at four-way parallelism, plus roughly 150 to 240 GPU-hours of fine-tuning) must fit in the 27 days from 2026-10-19 to the final submission, and the mid-submission needs baselines, ablations and results within the 11 days from 2026-10-19. Agent assistance shortens coding but not live rollouts or training, which this estimate counts. Feasibility is unconfirmed. The pilot (G2) is the first test. The proposal already says K is cut before R is raised. Candidate cuts for the group to decide, in this order: the Gemma gate and classification-head ablations, extrinsic retrieval ablation of configuration (iv), the singleton generalization check. Oracle labelling of baseline 3c's candidates (about 128 rollouts, roughly 11 hours serial at the rate above) now runs before gate G3, so it is on the critical path to the mid-submission.
 
 **Carried from the proposal**
 - Small dataset (11 to 14 problems today, 24 planned). Fallback: inject further faults.
@@ -231,7 +231,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 4. Section X names "a prompted large model" among the standard baselines, but none of the seven baselines is one.
 5. Training rollouts are stated as 64K but each fold trains on 12 problems, giving 48K (conservative by about 128 rollouts).
 6. The proposal does not state that model name, version and date are recorded for every reported result, which the course requires. This document adds it as a requirement (R1.5).
-7. (Tracked as a decision issue.) The headroom check is run "before any fine-tuning" on baseline 5, but baseline 5 is itself a fine-tuned planner. The group must state which system stands in for it at gate G3 (for example the untuned planner).
+7. (Decided 2026-10-26, see R6.6 and R9.10.) The headroom check used baseline 5, itself a fine-tuned planner, "before any fine-tuning". Baseline 3c now stands in for it, before any gate or planner training, with a recoverable-problem minimum. A lightly tuned stand-in was rejected because it is fine-tuning before the check that must precede it. Skipping the check was rejected because nothing would then stop gate training when no gain is possible. Still open: the proposal defines baseline 5 both as ranking by log-probability and as sequence-classification fine-tuning.
 8. (Tracked as a decision issue.) Gate G4 decides free-form versus template scoring from a pilot AUROC, but a gate does not yet exist at that point, and the five-rollout timing pilot cannot produce an AUROC. G4 therefore needs its own scoring pilot. The group must state which candidates, which scorer and which uncertainty rule it uses.
 9. The proposal defines no development set, but the course requires training, development and blind sets to be kept separate. This document adds one (R3.8). Candidates are extra instances of existing fault types on other services (TargetPortMisconfig is listed for up to 10 services, 6 are in the pool and 1 in the confirmation slice) or lower task levels of existing injections. The group decides.
 
@@ -262,3 +262,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.0 | 2026-10-19 | First draft from proposal version 2 and the course milestone dates. |
 | 1.1 | 2026-10-19 | Added development problems (R3.8), the AIOpsLab pin and layout decision (R1.6), two gate decision issues (R9.10, R9.11), and raised tool-call scoring (R2.7) to Must, after review. |
 | 1.2 | 2026-10-19 | Separated the G4 scoring pilot from the G2 timing pilot, added harm-snapshot timing, oracle reset check, deduplication and mixed-outcome counting, marked the primary interval method provisional, and added a terms section and the TA traceability line, after review. |
+| 1.4 | 2026-10-26 | Recorded the headroom check decision: baseline 3c stands in for baseline 5 at gate G3, the check runs before any gate or planner training, at least 5 recoverable problems are required, and oracle labelling (R3.5) moves to M1. Updated G3, R3.5, R6.6, R9.10 and review point 7. After review: both counts come from the oracle labels, the test behind the 5 net wins is named, the M1 scope of R3.5 and the schedule risk are stated, and 3c's retrieval configuration is named. |
