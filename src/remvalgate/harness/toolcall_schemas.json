@@ -1,0 +1,32 @@
+{
+  "placeholder": "Signatures read from AIOpsLab commit 576c3f0 (orchestrator/actions/base.py), which is not pinned yet (#69). Confirm or replace them when it is, then remove this key.",
+  "tools": {
+    "exec_shell": {"required": {"command": "str"}, "optional": {"timeout": "int"}},
+    "get_logs": {"required": {"namespace": "str", "service": "str"}, "optional": {}},
+    "get_metrics": {"required": {"namespace": "str"}, "optional": {"duration": "int"}},
+    "get_traces": {"required": {"namespace": "str"}, "optional": {"duration": "int"}},
+    "read_metrics": {"required": {"file_path": "str"}, "optional": {}},
+    "read_traces": {"required": {"file_path": "str"}, "optional": {}}
+  },
+  "excluded": ["submit"],
+  "targets": {
+    "get_logs": {"namespace": "namespace", "name": "service"},
+    "get_metrics": {"namespace": "namespace"},
+    "get_traces": {"namespace": "namespace"}
+  },
+  "kinds": {
+    "pods": "pod", "pod": "pod", "po": "pod",
+    "deployments": "deployment", "deployment": "deployment", "deploy": "deployment",
+    "services": "service", "service": "service", "svc": "service",
+    "replicasets": "replicaset", "replicaset": "replicaset", "rs": "replicaset"
+  },
+  "value_flags": [
+    "--context", "--cluster", "--user", "--kubeconfig", "-s", "--server",
+    "--as", "--as-group", "--token", "--request-timeout",
+    "-f", "--filename", "-k", "--kustomize", "--raw", "--template", "--subresource",
+    "--field-selector", "--sort-by", "--chunk-size", "-L", "--label-columns",
+    "--grace-period", "--timeout", "--current-replicas", "--resource-version",
+    "--field-manager", "--patch-file", "--to-revision",
+    "-c", "--container", "--pod-running-timeout"
+  ]
+}
