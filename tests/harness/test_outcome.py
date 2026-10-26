@@ -1,4 +1,6 @@
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from remvalgate.harness.outcome import (
     Outcome,
@@ -87,3 +89,45 @@ def test_labels():
     outcomes = [Outcome.RECOVERED, Outcome.APPLIED_HARMFUL, Outcome.ESCALATED_WITH_NONE]
     assert recovered_labels(outcomes) == [True, False, False]
     assert harmful_labels(outcomes) == [False, True, False]
+
+
+FIELDS = st.tuples(st.booleans(), st.booleans(), st.booleans(), st.booleans())
+
+
+def _impossible(applied, recovered, harmful, any_working):
+    if not applied:
+        return recovered or harmful
+    return recovered and not harmful and not any_working
+
+
+VALID = FIELDS.filter(lambda fields: not _impossible(*fields))
+
+
+@given(FIELDS)
+def test_invalid_inputs_raise(fields):
+    if _impossible(*fields):
+        with pytest.raises(ValueError):
+            ProblemResult(*fields)
+    else:
+        ProblemResult(*fields)
+
+
+@given(VALID)
+def test_classify_matches_definitions(fields):
+    applied, recovered, harmful, any_working = fields
+    outcome = classify(ProblemResult(*fields))
+    assert (outcome is Outcome.APPLIED_HARMFUL) == (applied and harmful)
+    assert (outcome is Outcome.RECOVERED) == (applied and recovered and not harmful)
+    assert (outcome is Outcome.APPLIED_INEFFECTIVE) == (applied and not recovered and not harmful)
+    assert (outcome is Outcome.ESCALATED_WITH_WORKING) == (not applied and any_working)
+    assert (outcome is Outcome.ESCALATED_WITH_NONE) == (not applied and not any_working)
+
+
+@given(st.lists(VALID))
+def test_counts_and_rate_bounds(rows):
+    outcomes = [classify(ProblemResult(*fields)) for fields in rows]
+    counts = outcome_counts(outcomes)
+    assert counts.total == len(rows) == sum(counts.by_outcome.values())
+    assert 0.0 <= counts.recovery_rate <= 1.0
+    if rows:
+        assert counts.recovery_rate == sum(recovered_labels(outcomes)) / len(rows)
