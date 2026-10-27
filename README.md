@@ -88,8 +88,8 @@ their digests are recorded here (BRD 7.3):
 - node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
 - `jacksonarthurclark/media-frontend` (Social Network on ARM): `sha256:825c601f648aadd5eec08bf0cf2b4154712deec9dcd331796852c879dc658039`
 
-Docker Desktop was set to 12 GB of memory. Social Network (27 pods) used about 2.0 GiB across both
-nodes at steady state, measured once all pods were Ready. The peak during the image pull was not
+Docker Desktop was set to 12 GB of memory. Social Network (27 pods) used 2.0 GiB across both
+nodes shortly after all pods were Ready and 2.3 GiB about an hour later. The peak during the image pull was not
 sampled.
 
 **The checkout path must contain no spaces.** At the pinned commit AIOpsLab builds `helm` and
@@ -97,6 +97,20 @@ sampled.
 `helm install` reporting `expected at most two arguments`. Quoted, `helm` itself handles spaces. A
 symlink does not help, because AIOpsLab resolves its own path. Clone or move this repository to a
 path without spaces before running anything against the cluster.
+
+### Deploy and health check
+
+Deploy the sample application with the script, which calls `SocialNetwork().deploy()` and injects
+no fault. Never use `Orchestrator.init_problem` for this, because it also injects a fault.
+
+```
+uv run python scripts/deploy_social_network.py
+kubectl --context kind-kind wait --for=condition=Ready pods --all -n test-social-network --timeout=900s
+```
+
+The health check passes when `kubectl wait` exits 0. AIOpsLab's own `deploy()` waits 300 s and
+raises on a slow first image pull (see microsoft/AIOpsLab#138), which is not a failure. A first
+pull took about 5 minutes, and a repeat about one. All 27 pods were Ready with no restarts.
 
 ## Large files
 
