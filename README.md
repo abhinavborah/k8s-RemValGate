@@ -182,5 +182,6 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   does not ignore (new files included). Development runs are not logged and may run with neither a
   pin nor a clean tree. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  9 current pool problems and the 5 singleton problems. The pool extension, the confirmation slice
-  and the development problems are not in it yet.
+  9 current pool problems, the 5 singleton problems and the development problems designated in
+  [docs/development_problems.md](docs/development_problems.md). The pool extension and the
+  confirmation slice are not in it yet.

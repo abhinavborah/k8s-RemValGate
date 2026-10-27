@@ -1,5 +1,5 @@
 {
-  "placeholder": "Partial. The pool holds the 9 current problems; #24 adds its new problems and #25 the confirmation slice. Development problems come from #66.",
+  "placeholder": "Partial. The pool holds the 9 current problems; #24 adds its new problems and #25 the confirmation slice. Development problems are designated in docs/development_problems.md and authored in #70.",
   "pool": [
     "k8s_target_port-misconfig-mitigation-1",
     "k8s_target_port-misconfig-mitigation-2",
@@ -12,7 +12,11 @@
     "assign_to_non_existent_node_social_net-mitigation-1"
   ],
   "confirmation": [],
-  "development": [],
+  "development": [
+    "dev-k8s_target_port-misconfig-mitigation-1",
+    "dev-scale_pod_zero_social_net-mitigation-1",
+    "dev-assign_to_non_existent_node_social_net-mitigation-1"
+  ],
   "singleton": [
     "auth_miss_mongodb-mitigation-1",
     "misconfig_app_hotel_res-mitigation-1",
