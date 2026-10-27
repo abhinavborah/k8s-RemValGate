@@ -1,5 +1,6 @@
 from itertools import pairwise, permutations
 
+import numpy as np
 import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
@@ -114,6 +115,48 @@ def test_hit_at_k_monotone_and_retrieval_metrics_bounded(results, k):
     low, high = hit_at_k(rows, relevant, k), hit_at_k(rows, relevant, k + 1)
     assert 0.0 <= low <= high <= 1.0
     assert 0.0 <= mrr(rows, relevant) <= 1.0
+
+
+def _reference_retrieval(results, relevant, total_relevant, k):
+    # independent reference: list the 0-based positions of the relevant results once, then read
+    # each metric off that list, rather than scanning the ranking per metric
+    hit = rr = recall = 0.0
+    for q, ranked in results:
+        positions = [i for i, t in enumerate(ranked) if relevant(q, t)]
+        hit += bool(positions) and positions[0] < k
+        rr += 1 / (positions[0] + 1) if positions else 0.0
+        recall += len([i for i in positions if i < k]) / total_relevant(q)
+    n = len(results)
+    return hit / n, rr / n, recall / n
+
+
+@pytest.mark.parametrize("k", [1, 3])
+def test_retrieval_metrics_match_the_reference_on_the_fixture(k):
+    hit, rr, recall = _reference_retrieval(R, _match, _total, k)
+    assert hit_at_k(R, _match, k) == pytest.approx(hit, abs=1e-9)
+    assert mrr(R, _match) == pytest.approx(rr, abs=1e-9)
+    assert recall_at_k(R, _match, _total, k) == pytest.approx(recall, abs=1e-9)
+
+
+@given(
+    results=st.lists(st.lists(st.booleans(), min_size=1, max_size=8), min_size=1, max_size=6),
+    k=st.integers(min_value=1, max_value=10),
+    extra=st.integers(min_value=0, max_value=3),
+)
+def test_retrieval_metrics_match_the_reference(results, k, extra):
+    rows = [(i, flags) for i, flags in enumerate(results)]
+
+    def relevant(_, flag):
+        return flag
+
+    def total(q):
+        # at least the relevant results in the list, so recall stays defined
+        return max(1, sum(results[q])) + extra
+
+    hit, rr, recall = _reference_retrieval(rows, relevant, total, k)
+    assert hit_at_k(rows, relevant, k) == pytest.approx(hit, abs=1e-9)
+    assert mrr(rows, relevant) == pytest.approx(rr, abs=1e-9)
+    assert recall_at_k(rows, relevant, total, k) == pytest.approx(recall, abs=1e-9)
 
 
 # AUROC and Brier: scikit-learn is the reference, in tests only
@@ -355,6 +398,16 @@ def test_selective_metrics_match_brute_force_over_tie_orderings(rows):
     assert aurc(scores, flags) == pytest.approx(sum(risks) / n, abs=1e-9)
     first = sum(flags[o[0]] for o in orders) / len(orders)
     assert top1_accuracy([list(zip(scores, flags, strict=True))]) == pytest.approx(first, abs=1e-9)
+
+
+def test_numpy_arrays_are_accepted_and_empty_ones_raise_clearly():
+    scores, labels = np.array(SCORES), np.array(LABELS)
+    assert auroc(scores, labels) == pytest.approx(0.875, abs=1e-9)
+    assert aurc(scores, labels) == pytest.approx(aurc(SCORES, LABELS), abs=1e-9)
+    with pytest.raises(ValueError, match="scores are empty"):
+        auroc(np.array([]), np.array([]))
+    with pytest.raises(ValueError, match="results are empty"):
+        hit_at_k(np.array([]), _match, 1)
 
 
 @pytest.mark.parametrize("bad", ["false", "0", None, 0.5, 2])

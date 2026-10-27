@@ -17,7 +17,7 @@ T = TypeVar("T")
 
 
 def _check(results: Sequence[object], k: int | None = None) -> None:
-    if not results:
+    if len(results) == 0:
         raise ValueError("results are empty")
     if k is not None and k < 1:
         raise ValueError(f"k must be at least 1, got {k}")
@@ -75,7 +75,7 @@ def recall_at_k(
 
 
 def _check_pairs(scores: Sequence[float], labels: Sequence[bool]) -> None:
-    if not scores:
+    if len(scores) == 0:
         raise ValueError("scores are empty")
     if len(scores) != len(labels):
         raise ValueError(f"{len(scores)} scores but {len(labels)} labels")
@@ -124,6 +124,16 @@ def brier(probabilities: Sequence[float], labels: Sequence[bool]) -> float:
     return sum((p - bool(y)) ** 2 for p, y in zip(probabilities, labels, strict=True)) / len(labels)
 
 
+def _tie_groups(scores: Sequence[float], flags: Sequence[bool]) -> list[tuple[int, int]]:
+    """(size, flagged) per group of equal scores, highest score first."""
+    groups: dict[float, list[int]] = {}  # score -> [size, flagged]
+    for s, f in zip(scores, flags, strict=True):
+        g = groups.setdefault(s, [0, 0])
+        g[0] += 1
+        g[1] += bool(f)
+    return [(groups[s][0], groups[s][1]) for s in sorted(groups, reverse=True)]
+
+
 def _expected_flagged_in_top(scores: Sequence[float], flags: Sequence[bool], m: int) -> float:
     """Expected number of flagged items among the top m by score.
 
@@ -131,15 +141,9 @@ def _expected_flagged_in_top(scores: Sequence[float], flags: Sequence[bool], m: 
     the cut contributes its flagged share times the places it fills, which is the expectation
     over all orderings of the tied items.
     """
-    groups: dict[float, list[int]] = {}  # score -> [size, flagged]
-    for s, f in zip(scores, flags, strict=True):
-        g = groups.setdefault(s, [0, 0])
-        g[0] += 1
-        g[1] += bool(f)
     total = 0.0
     taken = 0
-    for s in sorted(groups, reverse=True):
-        size, flagged = groups[s]
+    for size, flagged in _tie_groups(scores, flags):
         if taken + size <= m:
             total += flagged
         else:
@@ -158,8 +162,17 @@ def aurc(scores: Sequence[float], risky: Sequence[bool]) -> float:
     mismatch, a nan score, or a label not equal to 0 or 1.
     """
     _check_pairs(scores, risky)
-    n = len(scores)
-    return sum(_expected_flagged_in_top(scores, risky, m) / m for m in range(1, n + 1)) / n
+    # one pass over the sorted groups, O(n log n): within a group each place adds its flagged
+    # share, the same expectation _expected_flagged_in_top gives for every m
+    area = 0.0
+    m = 0
+    flagged_before = 0
+    for size, flagged in _tie_groups(scores, risky):
+        for j in range(1, size + 1):
+            m += 1
+            area += (flagged_before + j * flagged / size) / m
+        flagged_before += flagged
+    return area / m
 
 
 def harmful_rate_at_coverage(
@@ -187,11 +200,11 @@ def top1_accuracy(problems: Sequence[Sequence[tuple[float, bool]]]) -> float:
     the tied group. Raises ValueError for no problems, a problem with no candidates, a nan
     score, or a works flag not equal to 0 or 1.
     """
-    if not problems:
+    if len(problems) == 0:
         raise ValueError("problems are empty")
     total = 0.0
     for candidates in problems:
-        if not candidates:
+        if len(candidates) == 0:
             raise ValueError("a problem has no candidates")
         scores = [score for score, _ in candidates]
         works = [w for _, w in candidates]
