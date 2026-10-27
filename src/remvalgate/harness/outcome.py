@@ -20,8 +20,9 @@ class Outcome(StrEnum):
 class ProblemResult:
     """One problem's result. Raises ValueError for a combination that cannot happen.
 
-    An escalated result can be neither recovered nor harmful, since nothing was applied. An
-    applied result that recovered without harm implies a working candidate.
+    An escalated result can be neither recovered nor harmful, since nothing was applied, and
+    needs an oracle label to be split. An applied result ignores the label, which may be
+    missing or disagree with the run.
     """
 
     # False means the system escalated instead of applying a candidate
@@ -30,14 +31,20 @@ class ProblemResult:
     recovered: bool
     # a previously healthy pod is unhealthy after the action
     harmful: bool
-    # oracle labelling found at least one candidate that would have recovered the problem
-    any_working_candidate: bool
+    # oracle labelling found at least one candidate that would have recovered the problem;
+    # None when the problem was not labelled
+    any_working_candidate: bool | None
 
     def __post_init__(self) -> None:
+        # type() and not truthiness, so a None or "False" read from a log is not taken as a bool
+        if not all(type(value) is bool for value in (self.applied, self.recovered, self.harmful)):
+            raise ValueError("applied, recovered and harmful must each be a bool")
+        if self.any_working_candidate is not None and type(self.any_working_candidate) is not bool:
+            raise ValueError("any_working_candidate must be a bool or None")
         if not self.applied and (self.recovered or self.harmful):
             raise ValueError("an escalated result cannot be recovered or harmful")
-        if self.applied and self.recovered and not self.harmful and not self.any_working_candidate:
-            raise ValueError("a result that recovered without harm needs a working candidate")
+        if not self.applied and self.any_working_candidate is None:
+            raise ValueError("an escalated result needs an oracle label")
 
 
 def classify(result: ProblemResult) -> Outcome:
@@ -85,9 +92,9 @@ def outcome_counts(outcomes: Iterable[Outcome]) -> OutcomeCounts:
 
 def recovered_labels(outcomes: Iterable[Outcome]) -> list[bool]:
     """One label per outcome, in order: True for RECOVERED only."""
-    return [outcome is Outcome.RECOVERED for outcome in outcomes]
+    return [outcome == Outcome.RECOVERED for outcome in outcomes]
 
 
 def harmful_labels(outcomes: Iterable[Outcome]) -> list[bool]:
     """One label per outcome, in order: True for APPLIED_HARMFUL only."""
-    return [outcome is Outcome.APPLIED_HARMFUL for outcome in outcomes]
+    return [outcome == Outcome.APPLIED_HARMFUL for outcome in outcomes]

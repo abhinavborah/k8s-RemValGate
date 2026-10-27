@@ -39,11 +39,25 @@ def test_classify(fields, expected):
     assert classify(ProblemResult(*fields)) is expected
 
 
-@pytest.mark.parametrize("any_working", [True, False])
+@pytest.mark.parametrize("any_working", [True, False, None])
 def test_recovered_with_harm_is_harmful(any_working):
-    # a harmful candidate is not a working one, so harm with no working candidate is valid
     result = ProblemResult(True, True, True, any_working)
     assert classify(result) is Outcome.APPLIED_HARMFUL
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        # the oracle label may be missing or disagree with the run, as for an action outside
+        # the labelled candidates; an applied result does not need it
+        ((True, True, False, False), Outcome.RECOVERED),
+        ((True, True, False, None), Outcome.RECOVERED),
+        ((True, False, False, None), Outcome.APPLIED_INEFFECTIVE),
+        ((True, False, True, None), Outcome.APPLIED_HARMFUL),
+    ],
+)
+def test_applied_ignores_the_oracle_label(fields, expected):
+    assert classify(ProblemResult(*fields)) is expected
 
 
 @pytest.mark.parametrize(
@@ -53,8 +67,8 @@ def test_recovered_with_harm_is_harmful(any_working):
         (False, True, False, True),
         (False, False, True, True),
         (False, True, True, False),
-        # the applied candidate recovered with no harm, so a working candidate existed
-        (True, True, False, False),
+        # an escalation cannot be split without an oracle label
+        (False, False, False, None),
     ],
 )
 def test_impossible_input_raises(fields):
@@ -91,13 +105,14 @@ def test_labels():
     assert harmful_labels(outcomes) == [False, True, False]
 
 
-FIELDS = st.tuples(st.booleans(), st.booleans(), st.booleans(), st.booleans())
+# None as the oracle label means the problem was not labelled
+FIELDS = st.tuples(
+    st.booleans(), st.booleans(), st.booleans(), st.sampled_from([True, False, None])
+)
 
 
 def _impossible(applied, recovered, harmful, any_working):
-    if not applied:
-        return recovered or harmful
-    return recovered and not harmful and not any_working
+    return not applied and (recovered or harmful or any_working is None)
 
 
 VALID = FIELDS.filter(lambda fields: not _impossible(*fields))
@@ -119,8 +134,8 @@ def test_classify_matches_definitions(fields):
     assert (outcome is Outcome.APPLIED_HARMFUL) == (applied and harmful)
     assert (outcome is Outcome.RECOVERED) == (applied and recovered and not harmful)
     assert (outcome is Outcome.APPLIED_INEFFECTIVE) == (applied and not recovered and not harmful)
-    assert (outcome is Outcome.ESCALATED_WITH_WORKING) == (not applied and any_working)
-    assert (outcome is Outcome.ESCALATED_WITH_NONE) == (not applied and not any_working)
+    assert (outcome is Outcome.ESCALATED_WITH_WORKING) == (not applied and any_working is True)
+    assert (outcome is Outcome.ESCALATED_WITH_NONE) == (not applied and any_working is False)
 
 
 @given(st.lists(VALID))
@@ -131,3 +146,23 @@ def test_counts_and_rate_bounds(rows):
     assert 0.0 <= counts.recovery_rate <= 1.0
     if rows:
         assert counts.recovery_rate == sum(recovered_labels(outcomes)) / len(rows)
+
+
+def test_labels_match_counts_for_plain_strings():
+    # outcomes reloaded from a results log arrive as plain strings
+    outcomes = ["RECOVERED", "APPLIED_HARMFUL"]
+    assert outcome_counts(outcomes).recovery_rate == 0.5
+    assert recovered_labels(outcomes) == [True, False]
+    assert harmful_labels(outcomes) == [False, True]
+
+
+@pytest.mark.parametrize("value", [None, "False", 0, 1])
+def test_non_bool_field_raises(value):
+    with pytest.raises(ValueError, match="bool"):
+        ProblemResult(True, False, value, True)
+
+
+@pytest.mark.parametrize("value", ["True", 1])
+def test_non_bool_oracle_label_raises(value):
+    with pytest.raises(ValueError, match="bool"):
+        ProblemResult(False, False, False, value)
