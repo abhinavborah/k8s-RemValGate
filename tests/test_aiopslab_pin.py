@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -35,4 +36,4 @@ def test_refuses_when_head_has_no_submodule_link(tmp_path):
 
 
 def test_the_repository_pin_is_a_commit_hash():
-    assert len(pinned_commit(".")) == 40
+    assert len(pinned_commit(Path(__file__).resolve().parents[1])) == 40

@@ -81,13 +81,30 @@ A two node kind cluster from AIOpsLab's ARM config on Docker Desktop:
 cd external/AIOpsLab
 kind create cluster --config kind/kind-config-arm.yaml    # context kind-kind; do not pass --name
 cp aiopslab/config.yml.example aiopslab/config.yml        # then set k8s_host: kind (gitignored upstream)
+cd ../..                                                  # back to the repository root
 ```
 
-`helm`, `kind` and `kubectl` must be installed. The cluster images are third-party mutable tags, so
-their digests are recorded here (BRD 7.3):
+Only the ARM config was run. Upstream also ships `kind/kind-config-x86.yaml`, which was not run
+here, and its node image digest is not recorded.
+
+`helm`, `kind` and `kubectl` must be installed. The cluster images are mutable tags, several of
+them `latest`, so a later pull can differ. Their digests are recorded here (BRD 7.3): the node
+image, and the `imageID` the cluster reported for every container of the 27 Social Network pods
+after the verified run on 2026-10-27.
 
 - node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
-- `jacksonarthurclark/media-frontend` (Social Network on ARM): `sha256:825c601f648aadd5eec08bf0cf2b4154712deec9dcd331796852c879dc658039`
+- `deathstarbench/social-network-microservices:latest`: `sha256:a845266e98ce15d204ee7b98d41a2a95820af525013ce70f14104f5b9b5e92b6`
+- `jacksonarthurclark/media-frontend:latest` (Social Network on ARM): `sha256:825c601f648aadd5eec08bf0cf2b4154712deec9dcd331796852c879dc658039`
+- `jaegertracing/all-in-one:1.57`: `sha256:8f165334f418ca53691ce358c19b4244226ed35c5d18408c5acf305af2065fb9`
+- `library/memcached:1.6.7`: `sha256:007b9ca55759c6ef3dcc9a08be6b45b31147bdd1db28358280fd62360387b9dd`
+- `library/mongo:4.4.6`: `sha256:6efa052039903e731e4a5550c68a13c4869ddc93742c716332883fd9c77eb79b`
+- `library/redis:6.2.4`: `sha256:6bc98f513258e0c17bd150a7a26f38a8ce3e7d584f0c451cf31df70d461a200a`
+- `yg397/openresty-thrift:xenial`: `sha256:6c295fda3c2f6b941d85ebf16421bafac0dcf72450c96f53a2d031b29d8c81ef`
+- `alpine/git:latest` (init container): `sha256:e8ceedc73bd80992ae8d58a7d24c58b8322146c354f1d2e81a97db4452068ec0`
+
+Regenerate the list after a redeploy with
+`kubectl --context kind-kind get pods -n test-social-network -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u`
+(and `initContainerStatuses` for the init containers).
 
 Docker Desktop was set to 12 GB of memory. Social Network (27 pods) used 2.0 GiB across both
 nodes shortly after all pods were Ready and 2.3 GiB about an hour later. The peak during the image pull was not
@@ -110,8 +127,15 @@ kubectl --context kind-kind wait --for=condition=Ready pods --all -n test-social
 ```
 
 The health check passes when `kubectl wait` exits 0. AIOpsLab's own `deploy()` waits 300 s and
-raises on a slow first image pull (see microsoft/AIOpsLab#138), which is not a failure. A first
-pull took about 5 minutes, and a repeat about one. All 27 pods were Ready with no restarts.
+raises on a slow first image pull, which is not a failure: `SocialNetwork.deploy` calls
+`Helm.assert_if_deployed`, which calls `KubeCtl.wait_for_ready(namespace)` with `max_wait=300`. A
+first pull took about 5 minutes, and a repeat about one. All 27 pods were Ready with no restarts.
+
+`Helm.install` runs `helm dependency update` inside the nested `aiopslab-applications` chart
+folder. After the deploy, `git status --porcelain -- external/AIOpsLab` at the repository root
+printed nothing (checked 2026-10-27), so the deploy does not dirty the pin. The run manifest also
+refuses a pool or confirmation run while the repository has any uncommitted or untracked file, so
+check `git status --porcelain` before such a run.
 
 ### Overlay
 
