@@ -5,7 +5,7 @@ description = "A fine-tuned validity gate for agentic Kubernetes incident remedi
 readme = "README.md"
 # matches the range AIOpsLab supports
 requires-python = ">=3.11,<3.13"
-dependencies = []
+dependencies = ["aiopslab"]
 
 [dependency-groups]
 dev = [
@@ -16,6 +16,9 @@ dev = [
     "scipy>=1.17.1",
 ]
 
+[tool.uv.sources]
+aiopslab = { path = "external/AIOpsLab", editable = true }
+
 [build-system]
 requires = ["hatchling>=1.32,<2"]
 build-backend = "hatchling.build"
@@ -24,6 +27,7 @@ build-backend = "hatchling.build"
 testpaths = ["tests"]
 
 [tool.ruff]
+extend-exclude = ["external"]
 line-length = 100
 target-version = "py311"
 

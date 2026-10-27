@@ -29,6 +29,17 @@ requirements.txt  plain pip export of the lockfile, for Colab
 Python 3.11 or 3.12 is required, the range AIOpsLab supports. `.python-version` selects 3.12.
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) and locked in `uv.lock`.
 
+AIOpsLab is a git submodule at `external/AIOpsLab` and is installed as an editable path
+dependency, so the environment cannot be built without it. Clone with the nested submodules, which
+hold the application charts a cluster run needs:
+
+```
+git clone --recurse-submodules <repository url>
+git submodule update --init --recursive   # in an existing clone, and after pulling a pin change
+```
+
+Unit tests and lint only need `external/AIOpsLab` itself, which is what CI checks out.
+
 ```
 uv sync --locked                 # install from the lockfile; fails if the lock is stale
 uv run pytest                    # unit tests
