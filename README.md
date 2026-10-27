@@ -87,10 +87,11 @@ cd ../..                                                  # back to the reposito
 Only the ARM config was run. Upstream also ships `kind/kind-config-x86.yaml`, which was not run
 here, and its node image digest is not recorded.
 
-`helm`, `kind` and `kubectl` must be installed. The cluster images are mutable tags, several of
-them `latest`, so a later pull can differ. Their digests are recorded here (BRD 7.3): the node
-image, and the `imageID` the cluster reported for every container of the 27 Social Network pods
-after the verified run on 2026-10-27.
+`helm`, `kind` and `kubectl` must be installed. Versions of the verified run: kind v0.33.0,
+kubectl client v1.36.1, helm v4.3.1, Docker Desktop 4.96.0 (engine 29.9.1, aarch64). The cluster
+images are mutable tags, several of them `latest`, so a later pull can differ. Their digests are
+recorded here (BRD 7.3): the node image, and the `imageID` the cluster reported for every container
+of the 27 Social Network pods after the verified run on 2026-10-27.
 
 - node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
 - `deathstarbench/social-network-microservices:latest`: `sha256:a845266e98ce15d204ee7b98d41a2a95820af525013ce70f14104f5b9b5e92b6`
@@ -101,6 +102,15 @@ after the verified run on 2026-10-27.
 - `library/redis:6.2.4`: `sha256:6bc98f513258e0c17bd150a7a26f38a8ce3e7d584f0c451cf31df70d461a200a`
 - `yg397/openresty-thrift:xenial`: `sha256:6c295fda3c2f6b941d85ebf16421bafac0dcf72450c96f53a2d031b29d8c81ef`
 - `alpine/git:latest` (init container): `sha256:e8ceedc73bd80992ae8d58a7d24c58b8322146c354f1d2e81a97db4452068ec0`
+
+Two of these images have no `linux/arm64` build: `deathstarbench/social-network-microservices` and
+`yg397/openresty-thrift`. On the arm64 kind nodes they run under x86 emulation: `crictl inspecti`
+reports `amd64` for both, and a `UserService` process maps `/run/rosetta/rosetta`. The other
+images, and `media-frontend` which AIOpsLab swaps for an ARM build, are `arm64`. The timing and
+memory figures below were measured under that emulation, so Docker Desktop's amd64 emulation is
+part of the cluster configuration. The Rosetta handler was registered in the Docker VM and in use,
+and no Rosetta key was set in Docker's `settings-store.json`, so the setting was at its default.
+Without amd64 emulation in Docker, these pods were not tried and are expected not to start.
 
 Regenerate the list after a redeploy with
 `kubectl --context kind-kind get pods -n test-social-network -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u`
