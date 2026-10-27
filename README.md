@@ -18,6 +18,7 @@ are in place; the system itself is not written yet.
 ```
 src/remvalgate/   the package
 tests/            unit tests (pytest)
+scripts/          standalone scripts run outside the package, such as the GPU smoke test
 docs/             requirements and project notes
 pyproject.toml    project metadata, dependencies, pytest and ruff settings
 uv.lock           the dependency lockfile
