@@ -2,12 +2,18 @@
 
 McNemar mid-p compares two systems run once each on the same problems, using only the
 discordant pairs. Wilson gives an interval for one proportion. Bonett-Price gives an interval
-for the difference of two paired proportions.
+for the difference of two paired proportions. The incident-clustered bootstrap is provisional:
+which interval is primary for the candidate-level comparison is still open for the group.
 Counts must be non-negative ints; anything else raises ValueError.
 """
 
 import math
+import random
+from collections.abc import Callable, Sequence
 from statistics import NormalDist
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
 def _check_counts(**counts: int) -> None:
@@ -73,3 +79,35 @@ def bonett_price(n12: int, n21: int, n: int, conf: float = 0.95) -> tuple[float,
     diff = p12 - p21
     half = _z(conf) * math.sqrt((p12 + p21 - diff * diff) / (n + 2))
     return max(-1.0, diff - half), min(1.0, diff + half)
+
+
+def cluster_bootstrap(
+    clusters: Sequence[Sequence[T]],
+    stat: Callable[[list[T]], float],
+    n_resamples: int = 2000,
+    conf: float = 0.95,
+    seed: int = 0,
+) -> tuple[float, float]:
+    """Percentile bootstrap interval that resamples whole clusters (incidents).
+
+    Each resample draws len(clusters) clusters with replacement and passes all their items,
+    flattened, to stat, so no item is split from its cluster. Provisional: the percentile
+    bootstrap may under-cover at about 16 clusters. Raises ValueError for no clusters,
+    n_resamples < 1 or conf outside (0, 1).
+    """
+    if len(clusters) == 0:
+        raise ValueError("clusters are empty")
+    if n_resamples < 1:
+        raise ValueError(f"n_resamples must be at least 1, got {n_resamples}")
+    _z(conf)
+    rng = random.Random(seed)
+    values = sorted(
+        stat([item for c in rng.choices(clusters, k=len(clusters)) for item in c])
+        for _ in range(n_resamples)
+    )
+    alpha = 1 - conf
+    # shortcut: nearest-rank percentiles, no interpolation; fine at thousands of resamples
+    return (
+        values[math.floor(alpha / 2 * (n_resamples - 1))],
+        values[math.ceil((1 - alpha / 2) * (n_resamples - 1))],
+    )

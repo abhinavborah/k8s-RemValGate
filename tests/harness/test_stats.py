@@ -1,9 +1,11 @@
+from collections import Counter
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from scipy.stats import binomtest
 
-from remvalgate.harness.stats import bonett_price, mcnemar_midp, wilson
+from remvalgate.harness.stats import bonett_price, cluster_bootstrap, mcnemar_midp, wilson
 
 
 def _exact(n12, n21):
@@ -97,3 +99,30 @@ def test_neighbouring_splits_fail_at_16(wins, losses):
 def test_invalid_inputs(call):
     with pytest.raises(ValueError):
         call()
+
+
+# synthetic fixture: three incidents with candidate labels, tagged by incident
+INCIDENTS = [[("a", 1), ("a", 0)], [("b", 1)], [("c", 0), ("c", 0), ("c", 1)]]
+
+
+# AC: the clustered bootstrap resamples whole incidents, no candidate split from its incident
+def test_cluster_bootstrap_resamples_whole_incidents():
+    sizes = {c[0][0]: len(c) for c in INCIDENTS}
+
+    def stat(items):
+        counts = Counter(tag for tag, _ in items)
+        # every incident appears a whole number of times, and 3 incidents are drawn
+        assert all(counts[tag] % sizes[tag] == 0 for tag in counts)
+        assert sum(counts[tag] // sizes[tag] for tag in counts) == len(INCIDENTS)
+        return sum(label for _, label in items) / len(items)
+
+    low, high = cluster_bootstrap(INCIDENTS, stat, n_resamples=500, seed=1)
+    assert 0 <= low <= high <= 1
+    assert cluster_bootstrap(INCIDENTS, stat, n_resamples=500, seed=1) == (low, high)
+
+
+def test_cluster_bootstrap_invalid():
+    with pytest.raises(ValueError):
+        cluster_bootstrap([], len)
+    with pytest.raises(ValueError):
+        cluster_bootstrap(INCIDENTS, len, n_resamples=0)
