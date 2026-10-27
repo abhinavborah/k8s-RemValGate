@@ -7,6 +7,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+.hypothesis/
 
 # environment and secrets
 .env
@@ -21,3 +22,7 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# run manifests and rollout outputs live on shared drive storage; only the touch log is committed
+runs/*
+!runs/touch_log.jsonl
