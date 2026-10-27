@@ -377,6 +377,15 @@ def test_unpinned_aiopslab_refused_for_logged_slice(tmp_path):
     assert read_touches(repo / "runs" / "touch_log.jsonl") == []
 
 
+@pytest.mark.parametrize("problem_id", [POOL, CONF, DEV])
+@pytest.mark.parametrize("pin", ["main", "B" * 40, "b" * 39])
+def test_malformed_aiopslab_pin_refused_before_touch(tmp_path, problem_id, pin):
+    repo = _repo(tmp_path)
+    with pytest.raises(RunRefused, match="not a pinned commit"):
+        _start(tmp_path, problem_id, aiopslab_commit=pin, repo=repo)
+    assert read_touches(repo / "runs" / "touch_log.jsonl") == []
+
+
 def test_unpinned_aiopslab_allowed_for_development(tmp_path):
     start, _, _ = _start(tmp_path, DEV, aiopslab_commit=None)
     assert start.slice is Slice.DEVELOPMENT

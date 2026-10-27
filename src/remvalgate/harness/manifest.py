@@ -147,7 +147,9 @@ class Manifest:
         _int("r", self.r, 1, _MAX_R)
         pin = self.aiopslab_commit
         if pin is not None and (not isinstance(pin, str) or not _HEX40.fullmatch(pin)):
-            raise ValueError("manifest aiopslab_commit: expected 40 hex characters or null")
+            raise ValueError(
+                "manifest aiopslab_commit: expected 40 lowercase hex characters or null"
+            )
         try:
             # the round trip rejects NaN, tuples and other values JSON does not keep
             exact = json.loads(json.dumps(self.cluster, allow_nan=False)) == self.cluster
@@ -270,6 +272,14 @@ def start_run(
         commit, dirty = git_state(repo, log_path)
     except (OSError, subprocess.CalledProcessError) as error:
         raise RunRefused(f"cannot read the git state of {repo}: {error}") from error
+    # checked before any touch entry, so a value Manifest would reject never takes a run id
+    if aiopslab_commit is not None and (
+        not isinstance(aiopslab_commit, str) or not _HEX40.fullmatch(aiopslab_commit)
+    ):
+        raise RunRefused(
+            f"AIOpsLab commit {aiopslab_commit!r} is not a pinned commit: "
+            "expected 40 lowercase hex characters"
+        )
     if slice_ in LOGGED and aiopslab_commit is None:
         raise RunRefused(f"a {slice_} run needs a pinned AIOpsLab commit")
     if slice_ in LOGGED and dirty:
