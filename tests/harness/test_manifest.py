@@ -2,6 +2,7 @@ import dataclasses
 import json
 import subprocess
 import tempfile
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -133,10 +134,12 @@ def _recorded(manifest):
 # registry
 
 
-def test_default_registry_is_placeholder():
+def test_default_registry_counts():
+    # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    assert registry.placeholder
-    assert dict(registry.slices) == {}
+    counts = Counter(registry.slices.values())
+    assert counts == {Slice.POOL: 9, Slice.SINGLETON: 5}
+
 
 
 def test_registry_maps_problems_to_slices(tmp_path):

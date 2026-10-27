@@ -181,5 +181,6 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
   does not ignore (new files included). Development runs are not logged and may run with neither a
   pin nor a clean tree. Run ids are lowercase.
-- **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds no
-  ids yet.
+- **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
+  9 current pool problems and the 5 singleton problems. The pool extension, the confirmation slice
+  and the development problems are not in it yet.
