@@ -1,0 +1,2 @@
+# the touch log is append only: keep both sides on merge, LF on every system
+runs/touch_log.jsonl merge=union eol=lf

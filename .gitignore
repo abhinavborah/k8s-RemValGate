@@ -22,3 +22,7 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# run manifests and rollout outputs live on shared drive storage; only the touch log is committed
+runs/*
+!runs/touch_log.jsonl
