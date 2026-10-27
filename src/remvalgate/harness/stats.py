@@ -92,11 +92,11 @@ def cluster_bootstrap(
 
     Each resample draws len(clusters) clusters with replacement and passes all their items,
     flattened, to stat, so no item is split from its cluster. Provisional: the percentile
-    bootstrap may under-cover at about 16 clusters. Raises ValueError for no clusters,
-    n_resamples < 1 or conf outside (0, 1).
+    bootstrap may under-cover at about 16 clusters. Raises ValueError for no clusters, an
+    empty cluster, n_resamples < 1 or conf outside (0, 1).
     """
-    if len(clusters) == 0:
-        raise ValueError("clusters are empty")
+    if len(clusters) == 0 or any(len(c) == 0 for c in clusters):
+        raise ValueError("clusters are empty or contain an empty cluster")
     if n_resamples < 1:
         raise ValueError(f"n_resamples must be at least 1, got {n_resamples}")
     _z(conf)

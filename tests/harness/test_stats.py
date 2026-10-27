@@ -125,4 +125,6 @@ def test_cluster_bootstrap_invalid():
     with pytest.raises(ValueError):
         cluster_bootstrap([], len)
     with pytest.raises(ValueError):
+        cluster_bootstrap([[], [("a", 1)]], len)
+    with pytest.raises(ValueError):
         cluster_bootstrap(INCIDENTS, len, n_resamples=0)
