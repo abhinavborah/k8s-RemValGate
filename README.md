@@ -19,6 +19,8 @@ are in place; the system itself is not written yet.
 src/remvalgate/   the package
 tests/            unit tests (pytest)
 docs/             requirements and project notes
+external/         AIOpsLab, a pinned submodule, unmodified
+scripts/          hand-run cluster scripts, not run by CI
 pyproject.toml    project metadata, dependencies, pytest and ruff settings
 uv.lock           the dependency lockfile
 requirements.txt  plain pip export of the lockfile, for Colab
