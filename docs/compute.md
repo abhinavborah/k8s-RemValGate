@@ -13,14 +13,16 @@ the compute plan for training (BRD section 9, open questions).
 | GPU | NVIDIA Tesla T4, 2 visible per session; the model runs on one |
 | Memory limit | 14.56 GiB total per T4, as reported by torch |
 | Cost | none (free tier) |
-| Hours | weekly GPU quota, "30 hours or sometimes higher depending on demand and resources" ([Kaggle docs](https://www.kaggle.com/docs/efficient-gpu-usage), read 2026-10-26); the quota on the assignee's account was not recorded |
-| Software | Python 3.13, torch 2.11.0+cu128, CUDA 12.8, transformers 5.20.2 |
+| Hours | 30 GPU-hours per week on the assignee's account, 1 hour used (Kaggle account settings, read 2026-10-27); the documented weekly quota is "30 hours or sometimes higher depending on demand and resources" ([Kaggle docs](https://www.kaggle.com/docs/efficient-gpu-usage), read 2026-10-26) |
+| Software | Python 3.13, torch 2.11.0+cu128, CUDA 12.8, transformers 5.20.2; accelerate, torchvision and pillow were installed unpinned and this run did not record their versions (the script now prints them) |
 
 ## Smoke run, 2026-10-26
 
 `scripts/smoke_qwen.py` loads `Qwen/Qwen3.5-4B` at revision
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a` on GPU 0 and generates one completion with thinking
-turned off. Torch reported bfloat16 support, so the run used bfloat16.
+turned off. Torch reported bfloat16 support, so the run used bfloat16. The T4 has compute
+capability 7.5 and no native bfloat16: torch counts emulated support by default, so this was
+emulated bfloat16. Training dtype and speed on a T4 stay open (see Limits).
 
 | Measure | Value |
 |---|---|
