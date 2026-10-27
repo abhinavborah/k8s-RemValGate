@@ -1,8 +1,22 @@
+cloudpickle==3.1.2
+    # via joblib
 colorama==0.4.6 ; sys_platform == 'win32'
     # via pytest
 hypothesis==6.170.9
 iniconfig==2.3.1
     # via pytest
+joblib==1.6.0
+    # via scikit-learn
+narwhals==2.27.1
+    # via scikit-learn
+numpy==2.4.6 ; python_full_version < '3.12'
+    # via
+    #   scikit-learn
+    #   scipy
+numpy==2.5.4 ; python_full_version >= '3.12'
+    # via
+    #   scikit-learn
+    #   scipy
 packaging==26.3
     # via pytest
 pluggy==1.7.0
@@ -11,5 +25,12 @@ pygments==2.21.0
     # via pytest
 pytest==9.1.1
 ruff==0.17.2
+scikit-learn==1.9.1
+scipy==1.17.1 ; python_full_version < '3.12'
+    # via scikit-learn
+scipy==1.18.1 ; python_full_version >= '3.12'
+    # via scikit-learn
 sortedcontainers==2.4.0
     # via hypothesis
+threadpoolctl==3.7.0
+    # via scikit-learn
