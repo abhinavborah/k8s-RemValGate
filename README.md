@@ -112,6 +112,17 @@ The health check passes when `kubectl wait` exits 0. AIOpsLab's own `deploy()` w
 raises on a slow first image pull (see microsoft/AIOpsLab#138), which is not a failure. A first
 pull took about 5 minutes, and a repeat about one. All 27 pods were Ready with no restarts.
 
+### Overlay
+
+New problem definitions go in `src/remvalgate/overlay/`. AIOpsLab builds its problem registry
+inside each `Orchestrator` and has no hook for outside entries, so an overlay entry exists only in
+an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
+AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
+refused. The shipped overlay is empty.
+
+`scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
+constructed Orchestrator. It needs the cluster, so CI does not run it.
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
