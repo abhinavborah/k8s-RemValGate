@@ -3,7 +3,7 @@
 Run on a GPU notebook (story E1-S4). Not part of the package or the tests: torch and
 transformers are installed in the notebook, not from the lockfile.
 
-    pip install "transformers==5.20.2" torchvision pillow accelerate
+    pip install "transformers==5.20.2" "accelerate==1.14.0" "torchvision==0.26.0" "pillow==13.0.0"
     python smoke_qwen.py
 """
 
@@ -72,13 +72,18 @@ def main() -> int:
 
     allocated = torch.cuda.max_memory_allocated(0) / 2**30
     reserved = torch.cuda.max_memory_reserved(0) / 2**30
+    # device wide, so it includes the CUDA context the torch peaks leave out; current, not a peak
+    free, total = torch.cuda.mem_get_info(0)
     print(f"load_s: {load_s:.1f}, generate_s: {gen_s:.1f}, new_tokens: {len(new_tokens)}")
+    print("seed: n/a (do_sample=False, greedy)")
     print(f"peak_allocated_gib: {allocated:.2f}, peak_reserved_gib: {reserved:.2f}")
+    print(f"device_used_after_generate_gib: {(total - free) / 2**30:.2f}")
     print(f"completion: {text}")
 
     # no memory condition: an out-of-memory error raises before this point, so the only memory
-    # limit checked is the card capacity
-    ok = bool(text) and any(c.isalpha() for c in text)
+    # limit checked is the card capacity. The text check is a sanity check, not a relevance check:
+    # <think> and </think> are not special tokens here, so leaked thinking survives decoding
+    ok = len(text.split()) >= 5 and "think>" not in text and any(c.isalpha() for c in text)
     print("result: PASS" if ok else "result: FAIL")
     return 0 if ok else 1
 
