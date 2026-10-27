@@ -64,12 +64,39 @@ pytest
 
 ## AIOpsLab
 
-Decided in #65: AIOpsLab will be added as an unmodified git submodule pinned at a commit, and new
-problem definitions will live in an overlay in this repository. No tracked file inside the
-submodule will be changed. A fork was rejected because our code would then live in a second
-repository, against R1.6.
+Decided in #65: AIOpsLab is an unmodified git submodule pinned at a commit, and new problem
+definitions live in an overlay in this repository. No tracked file inside the submodule is
+changed. A fork was rejected because our code would then live in a second repository, against R1.6.
 
-AIOpsLab commit: not pinned yet. It is recorded here when the install story (#69) pins it.
+AIOpsLab commit: `576c3f080c7ae2459a972afd4a2f8d5f01828430` (upstream `main` on 2026-10-20), at
+`external/AIOpsLab`. Its nested `aiopslab-applications` is pinned by AIOpsLab at `8038be6`. The
+run manifest records this hash once the manifest writer (#15) lands.
+
+### Local cluster
+
+A two node kind cluster from AIOpsLab's ARM config on Docker Desktop:
+
+```
+cd external/AIOpsLab
+kind create cluster --config kind/kind-config-arm.yaml    # context kind-kind; do not pass --name
+cp aiopslab/config.yml.example aiopslab/config.yml        # then set k8s_host: kind (gitignored upstream)
+```
+
+`helm`, `kind` and `kubectl` must be installed. The cluster images are third-party mutable tags, so
+their digests are recorded here (BRD 7.3):
+
+- node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
+- `jacksonarthurclark/media-frontend` (Social Network on ARM): `sha256:825c601f648aadd5eec08bf0cf2b4154712deec9dcd331796852c879dc658039`
+
+Docker Desktop was set to 12 GB of memory. Social Network (27 pods) used about 2.0 GiB across both
+nodes at steady state, measured once all pods were Ready. The peak during the image pull was not
+sampled.
+
+**The checkout path must contain no spaces.** At the pinned commit AIOpsLab builds `helm` and
+`kubectl` commands as unquoted shell strings, so a space in the path fails, for example with
+`helm install` reporting `expected at most two arguments`. Quoted, `helm` itself handles spaces. A
+symlink does not help, because AIOpsLab resolves its own path. Clone or move this repository to a
+path without spaces before running anything against the cluster.
 
 ## Large files
 
