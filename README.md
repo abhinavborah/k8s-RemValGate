@@ -70,7 +70,8 @@ changed. A fork was rejected because our code would then live in a second reposi
 
 AIOpsLab commit: `576c3f080c7ae2459a972afd4a2f8d5f01828430` (upstream `main` on 2026-10-20), at
 `external/AIOpsLab`. Its nested `aiopslab-applications` is pinned by AIOpsLab at `8038be6`. The
-run manifest records this hash once the manifest writer (#15) lands.
+run manifest records this hash: callers pass `remvalgate.aiopslab_pin.pinned_commit(repo)` as
+`aiopslab_commit` to `start_run`, which reads the committed link and not the checkout.
 
 ### Local cluster
 
