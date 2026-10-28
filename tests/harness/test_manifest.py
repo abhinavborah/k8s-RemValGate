@@ -10,6 +10,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from remvalgate import overlay
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
     Manifest,
@@ -473,13 +474,14 @@ def test_log_creation_logs_development(tmp_path):
     assert entry["slice"] is Slice.DEVELOPMENT
 
 
-def test_log_creation_accepts_every_committed_development_id(tmp_path):
+def test_log_creation_accepts_every_overlay_id(tmp_path):
+    # the validation script logs a creation touch for each overlay problem, pool variant included
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     log = tmp_path / "touch_log.jsonl"
-    dev = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
-    for problem_id in dev:
+    ids = list(overlay.PROBLEMS)
+    for problem_id in ids:
         log_creation(problem_id, registry, log, NOW)
-    assert [e["problem_id"] for e in read_touches(log)] == dev
+    assert [e["problem_id"] for e in read_touches(log)] == ids
 
 
 def test_log_creation_refuses_a_repeat_in_the_same_second(tmp_path):
