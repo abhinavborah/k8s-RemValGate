@@ -124,7 +124,9 @@ scheduled is not scored as a failure. The submodule is unchanged.
 As a new problem it is validated like the development problems (BRD R3.3), in the same run of
 `scripts/validate_overlay_problems.py`: the eval must fail with the fault in place and pass after the
 known fix, removing the `nodeSelector` of `user-service`. The run logs a creation touch for it. A
-creation touch is not a system run, so gate G1 does not refuse it. Not yet run on the cluster.
+creation touch is not a system run, so gate G1 does not refuse it. It is not the pool extension
+(#24) that R3.3 orders after the confirmation slice: it replaces row 11 with the same fault and
+service, so the pool keeps the same count and the same faults. Not yet run on the cluster.
 
 Status: changed by a group member on 2026-10-28 in response to review, pending group
 confirmation. If the group keeps the upstream eval, the pool entry reverts to row 11's id.
