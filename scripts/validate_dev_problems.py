@@ -10,7 +10,8 @@ runs and the LLM judge must be off. For each development problem in the slice re
 4. runs the known-fix kubectl command, and
 5. checks that the mitigation eval passes.
 
-If a check fails, the fault is recovered with AIOpsLab's own recover step and the script stops.
+After each problem, passed or not, the fault is recovered with AIOpsLab's own recover step;
+if a check fails, the script stops.
 
     uv run python scripts/validate_dev_problems.py
 """
@@ -24,31 +25,11 @@ from aiopslab.paths import config
 
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry, log_creation
 from remvalgate.overlay import new_orchestrator
+from remvalgate.overlay.fixes import FIXES
 
 NS = "test-social-network"
 TOUCH_LOG = Path(__file__).resolve().parents[1] / "runs" / "touch_log.jsonl"
 KUBECTL = ["kubectl", "--context", "kind-kind", "-n", NS]
-
-# problem id -> the known fix, as kubectl argument lists run in order
-FIXES = {
-    "dev-k8s_target_port-misconfig-mitigation-1": [
-        [
-            "patch", "service", "user-mention-service", "--type=json",
-            "-p", '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]',
-        ],
-    ],
-    "dev-scale_pod_zero_social_net-mitigation-1": [
-        ["scale", "deployment", "media-service", "--replicas=1"],
-        ["rollout", "status", "deployment/media-service", "--timeout=300s"],
-    ],
-    "dev-assign_to_non_existent_node_social_net-mitigation-1": [
-        [
-            "patch", "deployment", "unique-id-service", "--type=json",
-            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
-        ],
-        ["rollout", "status", "deployment/unique-id-service", "--timeout=300s"],
-    ],
-}  # fmt: skip
 
 
 def _eval(prob, settle: str) -> bool:
@@ -70,9 +51,9 @@ def validate(problem_id: str, probs, registry) -> None:
             subprocess.run(KUBECTL + args, check=True)
         if not _eval(prob, "120"):
             raise AssertionError("the eval fails after the known fix")
-    except BaseException:
+    finally:
+        # also after a pass, so the next problem starts from AIOpsLab's recovered state
         prob.recover_fault()
-        raise
     print(f"{problem_id}: PASS")
 
 

@@ -2,6 +2,7 @@ import ast
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import given
@@ -9,17 +10,24 @@ from hypothesis import strategies as st
 
 from remvalgate import overlay
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
+from remvalgate.overlay.checks import has_available_replica
+from remvalgate.overlay.fixes import FIXES
 
 
 def _factory():
     return object()
 
 
-def test_shipped_overlay_is_the_development_slice():
+def test_shipped_overlay_covers_the_development_slice_and_is_registered():
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     dev = {i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT}
-    assert set(overlay.PROBLEMS) == dev
+    assert dev <= set(overlay.PROBLEMS) <= set(registry.slices)
     assert overlay.register({"upstream-1": _factory}) == list(overlay.PROBLEMS)
+
+
+def test_known_fixes_match_the_development_slice():
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    assert set(FIXES) == {i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT}
 
 
 def test_register_adds_entries_and_returns_their_ids():
@@ -62,9 +70,33 @@ def test_importing_the_overlay_does_not_load_aiopslab():
     subprocess.run([sys.executable, "-I", "-c", code], check=True)
 
 
-def test_every_overlay_factory_names_a_dev_problem():
+def test_every_overlay_id_builds_its_intended_problem():
     # dev_problems imports aiopslab, so its top-level names are read from the source
     tree = ast.parse(Path(overlay.__file__).with_name("dev_problems.py").read_text())
     defined = {n.name for n in tree.body if isinstance(n, (ast.ClassDef, ast.FunctionDef))}
-    names = {f.__closure__[0].cell_contents for f in overlay.PROBLEMS.values()}
-    assert names <= defined
+    built = {i: f.problem for i, f in overlay.PROBLEMS.items()}
+    assert built == {
+        "dev-k8s_target_port-misconfig-mitigation-1": "target_port_user_mention",
+        "dev-scale_pod_zero_social_net-mitigation-1": "ScalePodMediaMitigation",
+        "dev-assign_to_non_existent_node_social_net-mitigation-1": (
+            "AssignNonExistentNodeUniqueIdMitigation"
+        ),
+        "pool-assign_to_non_existent_node_social_net-mitigation-1": (
+            "AssignNonExistentNodeAvailableMitigation"
+        ),
+    }
+    assert set(built.values()) <= defined
+
+
+@pytest.mark.parametrize(
+    ("deployment", "expected"),
+    [
+        (None, False),
+        (SimpleNamespace(status=None), False),
+        (SimpleNamespace(status=SimpleNamespace(available_replicas=None)), False),
+        (SimpleNamespace(status=SimpleNamespace(available_replicas=0)), False),
+        (SimpleNamespace(status=SimpleNamespace(available_replicas=1)), True),
+    ],
+)
+def test_has_available_replica(deployment, expected):
+    assert has_available_replica(deployment) is expected

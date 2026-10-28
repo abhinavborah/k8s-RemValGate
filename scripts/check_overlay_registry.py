@@ -19,7 +19,7 @@ def _never_called():
 
 
 def main() -> int:
-    # an empty overlay, so the shipped development problems do not shift the count
+    # an empty overlay, so the shipped overlay problems do not shift the count
     baseline = new_orchestrator({}).probs.get_problem_ids()
     orch = new_orchestrator({TEST_ID: _never_called})
     ids = orch.probs.get_problem_ids()

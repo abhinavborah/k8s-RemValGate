@@ -9,7 +9,7 @@
     "user_unregistered_mongodb-mitigation-1",
     "user_unregistered_mongodb-mitigation-2",
     "scale_pod_zero_social_net-mitigation-1",
-    "assign_to_non_existent_node_social_net-mitigation-1"
+    "pool-assign_to_non_existent_node_social_net-mitigation-1"
   ],
   "confirmation": [],
   "development": [

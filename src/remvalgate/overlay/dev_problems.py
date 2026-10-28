@@ -1,4 +1,6 @@
-"""Development problems designated in docs/development_problems.md (E3-S8), authored in E3-S9.
+"""Problems authored in this repository: the development problems designated in
+docs/development_problems.md (E3-S8, authored in E3-S9), and the pool variant of
+AssignNonExistentNode described in docs/problem_inventory.md.
 
 Imports aiopslab at module level, so only the overlay factories import this module.
 """
@@ -10,6 +12,9 @@ from aiopslab.orchestrator.problems.k8s_target_port_misconfig import (
     K8STargetPortMisconfigMitigation,
 )
 from aiopslab.orchestrator.problems.scale_pod import ScalePodSocialNetMitigation
+from kubernetes.client.exceptions import ApiException
+
+from remvalgate.overlay.checks import has_available_replica
 
 
 class ScalePodMediaMitigation(ScalePodSocialNetMitigation):
@@ -19,18 +24,27 @@ class ScalePodMediaMitigation(ScalePodSocialNetMitigation):
         self.faulty_service = "media-service"
 
 
-class AssignNonExistentNodeUniqueIdMitigation(AssignNonExistentNodeSocialNetMitigation):
-    def __init__(self):
-        super().__init__()
-        self.faulty_service = "unique-id-service"
+class AssignNonExistentNodeAvailableMitigation(AssignNonExistentNodeSocialNetMitigation):
+    """The upstream task on user-service, with an eval that also needs an available replica."""
 
     def eval(self, soln, trace, duration):
         # a Pending pod has no container statuses, so the base eval passes with the fault in place
         results = super().eval(soln, trace, duration)
         if results["success"]:
-            dep = self.kubectl.get_deployment(self.faulty_service, self.namespace)
-            results["success"] = bool(dep.status.available_replicas)
+            try:
+                dep = self.kubectl.get_deployment(self.faulty_service, self.namespace)
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                dep = None
+            results["success"] = has_available_replica(dep)
         return results
+
+
+class AssignNonExistentNodeUniqueIdMitigation(AssignNonExistentNodeAvailableMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "unique-id-service"
 
 
 def target_port_user_mention() -> K8STargetPortMisconfigMitigation:

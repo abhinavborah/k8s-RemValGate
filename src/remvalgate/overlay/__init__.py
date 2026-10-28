@@ -10,22 +10,27 @@ from collections.abc import Callable, Mapping, MutableMapping
 Factory = Callable[[], object]
 
 
-def _dev(name: str) -> Factory:
+def _local(name: str) -> Factory:
     # dev_problems imports aiopslab, so it is imported only when a problem is built
     def factory():
         from remvalgate.overlay import dev_problems
 
         return getattr(dev_problems, name)()
 
+    factory.problem = name
     return factory
 
 
 # problem id -> zero argument factory; each factory imports aiopslab inside its own body
 PROBLEMS: dict[str, Factory] = {
-    "dev-k8s_target_port-misconfig-mitigation-1": _dev("target_port_user_mention"),
-    "dev-scale_pod_zero_social_net-mitigation-1": _dev("ScalePodMediaMitigation"),
-    "dev-assign_to_non_existent_node_social_net-mitigation-1": _dev(
+    "dev-k8s_target_port-misconfig-mitigation-1": _local("target_port_user_mention"),
+    "dev-scale_pod_zero_social_net-mitigation-1": _local("ScalePodMediaMitigation"),
+    "dev-assign_to_non_existent_node_social_net-mitigation-1": _local(
         "AssignNonExistentNodeUniqueIdMitigation"
+    ),
+    # stands in for the upstream id in the pool, whose eval passes with the fault in place
+    "pool-assign_to_non_existent_node_social_net-mitigation-1": _local(
+        "AssignNonExistentNodeAvailableMitigation"
     ),
 }
 

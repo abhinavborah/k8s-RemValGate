@@ -75,12 +75,20 @@ logged too. The run refusals are unchanged.
 
 `scripts/validate_dev_problems.py`, run by hand with Social Network deployed and Ready. For each
 problem it logs the creation touch, injects the fault, checks that the mitigation eval fails, runs
-the known fix and checks that the eval passes. The known fixes:
+the known fix, checks that the eval passes, and recovers the fault with AIOpsLab's own recover
+step whether the problem passed or not, so each problem starts from the same state. The known
+fixes, kept in `src/remvalgate/overlay/fixes.py` so a test checks them against this slice:
 
 | Problem id | Known fix |
 |---|---|
 | `dev-k8s_target_port-misconfig-mitigation-1` | patch `targetPort` of `user-mention-service` back to 9090 |
 | `dev-scale_pod_zero_social_net-mitigation-1` | scale `media-service` to 1 replica |
 | `dev-assign_to_non_existent_node_social_net-mitigation-1` | remove the `nodeSelector` of `unique-id-service` |
+
+The AssignNonExistentNode problem uses a stricter eval than upstream: it also requires at least 1
+available replica of `unique-id-service`. Upstream, the Pending pod the fault leaves has no
+container statuses, so the base eval passes with the fault in place. The pool problem of the same
+type uses the same stricter eval (see "Pool eval override for row 11" in the problem inventory),
+so development runs and pool runs apply the same success rule.
 
 Not yet run: no result is recorded here until the script passes on the cluster.
