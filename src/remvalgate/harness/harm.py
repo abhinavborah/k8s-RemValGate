@@ -14,6 +14,7 @@ Job's pods can be cleaned up. A restart that recovers is not harm.
 
 import json
 import math
+import subprocess
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -205,3 +206,18 @@ def detect_harm(
         fault_remains=remains,
         settle_seconds=settle_seconds,
     )
+
+
+def kubectl_pods(namespace: str) -> str:
+    """Return kubectl get pods -n <namespace> -o json from the current cluster context.
+
+    Not unit tested and never run by CI. Its live check against a cluster waits for the first
+    problem run end to end (#13).
+    """
+    return subprocess.run(
+        ["kubectl", "get", "pods", "-n", namespace, "-o", "json"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout
