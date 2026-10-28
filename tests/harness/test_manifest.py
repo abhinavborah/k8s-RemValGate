@@ -2,6 +2,7 @@ import dataclasses
 import json
 import subprocess
 import tempfile
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -133,10 +134,17 @@ def _recorded(manifest):
 # registry
 
 
-def test_default_registry_is_placeholder():
+def test_default_registry_counts():
+    # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    assert registry.placeholder
-    assert dict(registry.slices) == {}
+    counts = Counter(registry.slices.values())
+    assert counts == {Slice.POOL: 9, Slice.DEVELOPMENT: 3}
+
+
+def test_development_ids_cannot_clash_with_upstream():
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    for problem_id, slice_ in registry.slices.items():
+        assert problem_id.startswith("dev-") == (slice_ is Slice.DEVELOPMENT)
 
 
 def test_registry_maps_problems_to_slices(tmp_path):
@@ -368,6 +376,15 @@ def test_touch_line_format(tmp_path):
 def test_unknown_problem_refused(tmp_path):
     with pytest.raises(RunRefused, match="not in the slice registry"):
         _start(tmp_path, "p-synth-unknown")
+
+
+def test_pool_run_refused_without_confirmation_slice(tmp_path):
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    registry = load_registry(_write_registry(tmp_path, {**_registry_data(), "confirmation": []}))
+    with pytest.raises(RunRefused, match="gate G1"):
+        start_run("run-0001", POOL, registry, log, repo, PIN, NOW)
+    assert read_touches(log) == []
 
 
 def test_unpinned_aiopslab_refused_for_logged_slice(tmp_path):
