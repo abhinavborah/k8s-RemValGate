@@ -1,4 +1,4 @@
-"""Known fixes of the development problems, used by scripts/validate_dev_problems.py.
+"""Known fixes of the overlay problems, used by scripts/validate_overlay_problems.py.
 
 Kept apart from that script, which imports aiopslab, so a test checks the keys in CI.
 """
@@ -21,5 +21,12 @@ FIXES = {
             "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
         ],
         ["rollout", "status", "deployment/unique-id-service", "--timeout=300s"],
+    ],
+    "pool-assign_to_non_existent_node_social_net-mitigation-1": [
+        [
+            "patch", "deployment", "user-service", "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", "deployment/user-service", "--timeout=300s"],
     ],
 }  # fmt: skip

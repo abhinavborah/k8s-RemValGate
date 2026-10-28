@@ -25,9 +25,8 @@ def test_shipped_overlay_covers_the_development_slice_and_is_registered():
     assert overlay.register({"upstream-1": _factory}) == list(overlay.PROBLEMS)
 
 
-def test_known_fixes_match_the_development_slice():
-    registry = load_registry(DEFAULT_REGISTRY_PATH)
-    assert set(FIXES) == {i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT}
+def test_every_overlay_problem_has_a_known_fix():
+    assert set(FIXES) == set(overlay.PROBLEMS)
 
 
 def test_register_adds_entries_and_returns_their_ids():

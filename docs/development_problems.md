@@ -2,7 +2,7 @@
 
 Story E3-S8, requirement R3.8. The designation ran nothing and touched no evaluation slice. The
 problems are authored in E3-S9 (#70), in `src/remvalgate/overlay/dev_problems.py`, and validated
-with `scripts/validate_dev_problems.py`.
+with `scripts/validate_overlay_problems.py`.
 
 Status: proposed by a group member on 2026-10-28, pending group confirmation (BRD review
 point 9).
@@ -73,11 +73,13 @@ logged too. The run refusals are unchanged.
 
 ## Validation
 
-`scripts/validate_dev_problems.py`, run by hand with Social Network deployed and Ready. For each
-problem it logs the creation touch, injects the fault, checks that the mitigation eval fails, runs
+`scripts/validate_overlay_problems.py`, run by hand with Social Network deployed and Ready. It
+validates every overlay problem: these three and the pool variant of AssignNonExistentNode (see
+"Pool eval override for row 11" in the problem inventory). For each problem it logs the creation touch, injects the fault, checks that the mitigation eval fails, runs
 the known fix, checks that the eval passes, and recovers the fault with AIOpsLab's own recover
 step whether the problem passed or not, so each problem starts from the same state. The known
-fixes, kept in `src/remvalgate/overlay/fixes.py` so a test checks them against this slice:
+fixes of the three development problems, kept in `src/remvalgate/overlay/fixes.py` so a test
+checks that every overlay problem has one:
 
 | Problem id | Known fix |
 |---|---|

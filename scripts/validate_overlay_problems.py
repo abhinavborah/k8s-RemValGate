@@ -1,8 +1,9 @@
-"""Hand check for story E3-S9: validate each development problem with a known-fix command.
+"""Hand check for story E3-S9: validate each overlay problem with a known-fix command.
 
 Needs aiopslab/config.yml, the kind cluster and Social Network deployed and Ready (README,
 Deploy and health check), so it is run by hand and never by CI or the tests. No system or model
-runs and the LLM judge must be off. For each development problem in the slice registry it:
+runs and the LLM judge must be off. For each problem in the overlay (the development problems and
+the pool variant of AssignNonExistentNode) it:
 
 1. appends a creation touch to runs/touch_log.jsonl,
 2. builds the problem through the overlay registry and injects its fault,
@@ -13,7 +14,10 @@ runs and the LLM judge must be off. For each development problem in the slice re
 After each problem, passed or not, the fault is recovered with AIOpsLab's own recover step;
 if a check fails, the script stops.
 
-    uv run python scripts/validate_dev_problems.py
+A creation touch is not a system run, so it is logged for the pool variant too and gate G1 does
+not apply to it.
+
+    uv run python scripts/validate_overlay_problems.py
 """
 
 import os
@@ -23,8 +27,8 @@ from pathlib import Path
 
 from aiopslab.paths import config
 
-from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry, log_creation
-from remvalgate.overlay import new_orchestrator
+from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, load_registry, log_creation
+from remvalgate.overlay import PROBLEMS, new_orchestrator
 from remvalgate.overlay.fixes import FIXES
 
 NS = "test-social-network"
@@ -73,11 +77,10 @@ def main() -> int:
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    dev = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
-    if sorted(dev) != sorted(FIXES):
-        raise AssertionError("the known fixes do not match the development slice")
+    if sorted(PROBLEMS) != sorted(FIXES):
+        raise AssertionError("the known fixes do not match the overlay problems")
     probs = new_orchestrator().probs
-    for problem_id in dev:
+    for problem_id in PROBLEMS:
         validate(problem_id, probs, registry)
     print("result: PASS")
     return 0

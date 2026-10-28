@@ -163,10 +163,10 @@ AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), 
 `src/remvalgate/overlay/fixes.py`.
 
 `scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. `scripts/validate_dev_problems.py` validates each development problem:
-it logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the
-known-fix `kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network deployed
-and Ready. Both need the cluster, so CI does not run them.
+constructed Orchestrator. `scripts/validate_overlay_problems.py` validates each overlay problem: it
+logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
+`kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network
+deployed and Ready. Both need the cluster, so CI does not run them.
 
 ## Large files
 
@@ -192,6 +192,8 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   confirmation-slice id (gate G1). Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  9 current pool problems and the development problems designated in
+  9 current pool problems, one of them the overlay variant of AssignNonExistentNode
+  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the development problems designated
+  in
   [docs/development_problems.md](docs/development_problems.md). The pool extension, the
   confirmation slice and the singleton problems are not in it yet.
