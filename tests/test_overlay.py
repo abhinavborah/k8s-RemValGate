@@ -1,5 +1,7 @@
+import ast
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from hypothesis import given
@@ -58,3 +60,11 @@ def test_importing_the_overlay_does_not_load_aiopslab():
         "assert not any(m.startswith('aiopslab') for m in sys.modules)"
     )
     subprocess.run([sys.executable, "-I", "-c", code], check=True)
+
+
+def test_every_overlay_factory_names_a_dev_problem():
+    # dev_problems imports aiopslab, so its top-level names are read from the source
+    tree = ast.parse(Path(overlay.__file__).with_name("dev_problems.py").read_text())
+    defined = {n.name for n in tree.body if isinstance(n, (ast.ClassDef, ast.FunctionDef))}
+    names = {f.__closure__[0].cell_contents for f in overlay.PROBLEMS.values()}
+    assert names <= defined

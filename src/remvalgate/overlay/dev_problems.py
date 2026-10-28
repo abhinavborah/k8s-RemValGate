@@ -24,6 +24,14 @@ class AssignNonExistentNodeUniqueIdMitigation(AssignNonExistentNodeSocialNetMiti
         super().__init__()
         self.faulty_service = "unique-id-service"
 
+    def eval(self, soln, trace, duration):
+        # a Pending pod has no container statuses, so the base eval passes with the fault in place
+        results = super().eval(soln, trace, duration)
+        if results["success"]:
+            dep = self.kubectl.get_deployment(self.faulty_service, self.namespace)
+            results["success"] = bool(dep.status.available_replicas)
+        return results
+
 
 def target_port_user_mention() -> K8STargetPortMisconfigMitigation:
     return K8STargetPortMisconfigMitigation(faulty_service="user-mention-service")
