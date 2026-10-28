@@ -27,9 +27,10 @@ AssignNonExistentNode base tasks set `faulty_service = "user-service"` in their 
 
 The ids start with `dev-`, which no upstream id does, so the overlay registration never clashes.
 The ids are in `src/remvalgate/harness/slices.json` under `development`, beside the 9 current
-pool problems and the 5 singleton problems. The split follows BRD R3.2 (`docs/brd.md`), which
-puts ScalePod and AssignNonExistentNode in the pool; the inventory (`docs/problem_inventory.md`)
-still labels those two as singletons and counts 7. The
+pool problems. The pool follows BRD R3.2 (`docs/brd.md`), which puts ScalePod and
+AssignNonExistentNode in the pool; the inventory (`docs/problem_inventory.md`) still labels those
+two as singletons and counts 7 (#92). The singleton ids are not listed until the exploratory check
+(R3.6) sets how their runs are pinned and logged, so the harness refuses them for now. The
 registry loader refuses an id in more than one slice, and a test loads the committed registry.
 
 ## Reserved services
