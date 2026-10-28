@@ -124,7 +124,7 @@ SHA-256 `decf844a80f89c3b162e79b6e74285978e7010cbda37b8e2f4d8a69b6fb1fcf7`, and 
 of the same name ending `.timings.json` has SHA-256
 `90942bbda5cca3e6c2e5b168c979265b025baaa966a527ae985477ca8c026708`. Both are in `runs/manifests/`,
 which git ignores, and were copied on 2026-10-28 to the shared Google Drive folder
-`k8s-RemValGate`, under `manifests/`, with the session trace. Its `CONTEXT.md` lists them.
+`k8s-RemValGate`, under `manifests/`, with the session trace. A read-first file at its root lists them.
 
 The times are a floor for the G2 timing pilot, not an estimate of a rollout. They exclude model
 latency, the one-off OpenEBS and Prometheus install, and the Social Network deploy (7 min 9 s for

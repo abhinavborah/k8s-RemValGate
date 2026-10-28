@@ -183,8 +183,8 @@ network, redeploy the application and delete it at the end. The recorded times a
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
 are referenced by checksum. The shared Google Drive folder is named `k8s-RemValGate`. Ask a
-member for access; the link is not kept in this repository. Its `CONTEXT.md` lists what is there
-and the rules for adding to it: never overwrite an existing file unless that is the intention, and
+member for access; the link is not kept in this repository. Its read-first file at the folder root lists what is
+there and the rules for adding to it: never overwrite an existing file unless that is the intention, and
 put a file whose name already exists under a folder named after your GitHub username.
 
 ## Runs
