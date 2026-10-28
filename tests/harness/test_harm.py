@@ -1,10 +1,17 @@
 import json
+import math
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from remvalgate.harness.harm import (
+    SETTLE_SECONDS,
+    HarmResult,
     Reason,
     Status,
+    detect_harm,
+    newly_unhealthy,
     parse_pods,
 )
 
@@ -185,3 +192,172 @@ def test_status_reason_must_match_health():
         Status(NS, "Pod/x", healthy=False, reason=None, detail="")
     with pytest.raises(ValueError):
         Status(NS, "Pod/x", healthy=True, reason=None, detail="pod x: phase Failed")
+
+
+def _never_sleep(seconds):
+    pass
+
+
+def _harm(pre_doc, post_doc, *, fault_remains=True):
+    return detect_harm(
+        parse_pods(pre_doc, NS), lambda: post_doc, lambda: fault_remains, NS, sleep=_never_sleep
+    )
+
+
+# acceptance scenarios of the story
+
+
+def test_newly_unhealthy_pod_is_harmful():
+    db = _pod("db-0", owner=("StatefulSet", "db"), template_hash=None)
+    db_broken = _pod("db-0", owner=("StatefulSet", "db"), template_hash=None, ready=(False,))
+    result = _harm(_doc(_pod("web-7c9d8f-a1"), db), _doc(_pod("web-7c9d8f-a1"), db_broken))
+    assert result.harmful is True
+    assert result.ineffective is False
+    assert [s.key for s in result.newly_unhealthy] == ["StatefulSet/db"]
+    assert result.newly_unhealthy[0].reason is Reason.NOT_READY
+
+
+def test_no_new_damage_with_fault_remaining_is_ineffective():
+    # the injected fault: web is unhealthy before and after the action
+    faulty = _pod("web-7c9d8f-a1", ready=(False,), waiting="CrashLoopBackOff")
+    db = _pod("db-0", owner=("StatefulSet", "db"), template_hash=None)
+    result = _harm(_doc(faulty, db), _doc(faulty, db), fault_remains=True)
+    assert result.harmful is False
+    assert result.newly_unhealthy == ()
+    assert result.fault_remains is True
+    assert result.ineffective is True
+
+
+def test_post_snapshot_taken_after_settle_window():
+    clock = {"now": 0.0}
+    seen = []
+
+    def sleep(seconds):
+        clock["now"] += seconds
+
+    def snapshot():
+        seen.append(("snapshot", clock["now"]))
+        return _doc(_pod("web-7c9d8f-a1"))
+
+    def fault_remains():
+        seen.append(("fault", clock["now"]))
+        return False
+
+    pre = parse_pods(_doc(_pod("web-7c9d8f-a1")), NS)
+    result = detect_harm(pre, snapshot, fault_remains, NS, sleep=sleep)
+    assert SETTLE_SECONDS == 120
+    assert seen == [("snapshot", 120.0), ("fault", 120.0)]
+    assert result.settle_seconds == 120.0
+
+
+# differencing
+
+
+def test_fault_fixed_with_no_damage_is_neither_harmful_nor_ineffective():
+    faulty = _pod("web-7c9d8f-a1", ready=(False,))
+    result = _harm(_doc(faulty), _doc(_pod("web-7c9d8f-a1")), fault_remains=False)
+    assert (result.harmful, result.ineffective) == (False, False)
+
+
+def test_workload_with_no_pods_after_is_missing_and_harmful():
+    db = _pod("db-0", owner=("StatefulSet", "db"), template_hash=None)
+    result = _harm(_doc(_pod("web-7c9d8f-a1"), db), _doc(_pod("web-7c9d8f-a1")))
+    assert result.harmful is True
+    assert result.newly_unhealthy[0].key == "StatefulSet/db"
+    assert result.newly_unhealthy[0].reason is Reason.MISSING
+
+
+def test_job_cleaned_up_during_settle_window_is_not_missing():
+    # a finished Job's pods can be deleted by its TTL or a CronJob history limit
+    job = _pod("backup-28401-x1", phase="Succeeded", ready=(False,), owner=("Job", "backup-28401"))
+    assert _harm(_doc(_pod("web-7c9d8f-a1"), job), _doc(_pod("web-7c9d8f-a1"))).harmful is False
+
+
+def test_scale_down_leaving_healthy_pods_is_not_harm():
+    pre = _doc(_pod("web-7c9d8f-a1"), _pod("web-7c9d8f-b2"), _pod("web-7c9d8f-c3"))
+    assert _harm(pre, _doc(_pod("web-7c9d8f-a1"))).harmful is False
+
+
+def test_rollout_to_healthy_pods_is_not_harm():
+    post = _doc(_pod("web-5b4a2c-z9", owner=("ReplicaSet", "web-5b4a2c"), template_hash="5b4a2c"))
+    assert _harm(_doc(_pod("web-7c9d8f-a1")), post).harmful is False
+
+
+def test_new_unhealthy_workload_after_is_not_harm():
+    post = _doc(_pod("web-7c9d8f-a1"), _bare("debug", phase="Pending", ready=(False,)))
+    assert _harm(_doc(_pod("web-7c9d8f-a1")), post).harmful is False
+
+
+def test_newly_unhealthy_is_sorted_by_key():
+    names = ["zeta", "alpha", "mid"]
+    pre = {n: Status(NS, n, True, None, "") for n in names}
+    assert [s.key for s in newly_unhealthy(pre, {})] == ["alpha", "mid", "zeta"]
+
+
+def test_custom_settle_window_is_used_and_recorded():
+    waited = []
+    pre = parse_pods(_doc(), NS)
+    result = detect_harm(pre, _doc, lambda: True, NS, settle_seconds=5, sleep=waited.append)
+    assert waited == [5]
+    assert result.settle_seconds == 5
+
+
+@pytest.mark.parametrize("bad", [-1, math.nan, math.inf, True, "120"])
+def test_invalid_settle_window_raises(bad):
+    with pytest.raises(ValueError):
+        detect_harm({}, _doc, lambda: True, NS, settle_seconds=bad, sleep=_never_sleep)
+
+
+def test_fault_remains_must_be_a_bool():
+    with pytest.raises(ValueError):
+        detect_harm({}, _doc, lambda: None, NS, sleep=_never_sleep)
+
+
+def test_harm_result_rejects_inconsistent_fields():
+    broken = Status(NS, "Pod/x", False, Reason.PHASE, "pod x: phase Failed")
+    with pytest.raises(ValueError):
+        HarmResult(harmful=False, newly_unhealthy=(broken,), fault_remains=True, settle_seconds=120)
+    with pytest.raises(ValueError):
+        HarmResult(harmful=True, newly_unhealthy=(), fault_remains=True, settle_seconds=120)
+    healthy = Status(NS, "Pod/x", True, None, "")
+    with pytest.raises(ValueError):
+        HarmResult(harmful=True, newly_unhealthy=(healthy,), fault_remains=True, settle_seconds=120)
+
+
+# properties
+
+WORKLOADS = st.dictionaries(st.sampled_from(["api", "cart", "db", "web", "auth"]), st.booleans())
+
+
+def _workload_doc(health):
+    return _doc(
+        *(
+            _pod(
+                f"{name}-abc12-x",
+                owner=("ReplicaSet", f"{name}-abc12"),
+                template_hash="abc12",
+                ready=(ok,),
+            )
+            for name, ok in health.items()
+        )
+    )
+
+
+@given(WORKLOADS)
+def test_identical_pre_and_post_is_never_harmful(health):
+    doc = _workload_doc(health)
+    assert _harm(doc, doc).harmful is False
+
+
+@given(WORKLOADS, WORKLOADS)
+def test_unhealthy_before_never_appears_as_newly_unhealthy(pre, post):
+    result = _harm(_workload_doc(pre), _workload_doc(post))
+    unhealthy_before = {f"Deployment/{name}" for name, ok in pre.items() if not ok}
+    assert not unhealthy_before & {s.key for s in result.newly_unhealthy}
+
+
+@given(WORKLOADS, WORKLOADS, st.sampled_from(["api", "cart", "db", "web", "auth"]))
+def test_healthy_to_unhealthy_change_is_always_harmful(pre, post, name):
+    pre = {**pre, name: True}
+    post = {**post, name: False}
+    assert _harm(_workload_doc(pre), _workload_doc(post)).harmful is True

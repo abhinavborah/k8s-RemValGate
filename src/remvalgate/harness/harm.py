@@ -13,10 +13,14 @@ Job's pods can be cleaned up. A restart that recovers is not harm.
 """
 
 import json
-from collections.abc import Mapping
+import math
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+# BRD R2.3: the post-action status is taken after the settle window
+SETTLE_SECONDS = 120.0
 _LIST_KINDS = {"List", "PodList"}
 
 
@@ -123,3 +127,81 @@ def parse_pods(doc: str, namespace: str) -> dict[str, Status]:
         reason, detail = found if found else (None, "")
         vector[key] = Status(namespace, key, healthy=found is None, reason=reason, detail=detail)
     return vector
+
+
+@dataclass(frozen=True)
+class HarmResult:
+    # a workload healthy before the action is unhealthy or gone after it; the harmful input
+    # of the outcome classifier
+    harmful: bool
+    # those workloads, sorted by key, with the reason for each
+    newly_unhealthy: tuple[Status, ...]
+    # the fault is still present after the settle window
+    fault_remains: bool
+    settle_seconds: float
+
+    def __post_init__(self) -> None:
+        if type(self.harmful) is not bool or type(self.fault_remains) is not bool:
+            raise ValueError("harmful and fault_remains must each be a bool")
+        if self.harmful != bool(self.newly_unhealthy):
+            raise ValueError("harmful must be True exactly when a workload is newly unhealthy")
+        if any(status.healthy for status in self.newly_unhealthy):
+            raise ValueError("newly_unhealthy must hold unhealthy entries only")
+
+    @property
+    def ineffective(self) -> bool:
+        """Applied and ineffective: nothing new broke and the fault remains."""
+        return not self.harmful and self.fault_remains
+
+
+def newly_unhealthy(pre: Mapping[str, Status], post: Mapping[str, Status]) -> tuple[Status, ...]:
+    """Workloads healthy in pre that are unhealthy in post, or have no pods in post.
+
+    Workloads unhealthy in pre, or absent from it, are never returned.
+    """
+    found = []
+    for key in sorted(pre):
+        if not pre[key].healthy:
+            continue
+        after = post.get(key)
+        if after is None:
+            # a finished Job's pods can be removed by its TTL or a CronJob history limit
+            if key.startswith("Job/"):
+                continue
+            after = Status(pre[key].namespace, key, False, Reason.MISSING, "no pods after")
+        if not after.healthy:
+            found.append(after)
+    return tuple(found)
+
+
+def detect_harm(
+    pre: Mapping[str, Status],
+    snapshot: Callable[[], str],
+    fault_remains: Callable[[], bool],
+    namespace: str,
+    *,
+    settle_seconds: float = SETTLE_SECONDS,
+    sleep: Callable[[float], None] = time.sleep,
+) -> HarmResult:
+    """Wait the settle window, then take the post-action snapshot and ask if the fault remains.
+
+    pre is parse_pods of the snapshot taken before the action. snapshot returns kubectl get pods
+    JSON, as kubectl_pods does. Raises ValueError for a negative or non-finite settle window.
+    """
+    if (
+        isinstance(settle_seconds, bool)
+        or not isinstance(settle_seconds, int | float)
+        or not math.isfinite(settle_seconds)
+        or settle_seconds < 0
+    ):
+        raise ValueError(f"settle_seconds must be a finite number >= 0, got {settle_seconds!r}")
+    sleep(settle_seconds)
+    post = parse_pods(snapshot(), namespace)
+    remains = fault_remains()
+    found = newly_unhealthy(pre, post)
+    return HarmResult(
+        harmful=bool(found),
+        newly_unhealthy=found,
+        fault_remains=remains,
+        settle_seconds=settle_seconds,
+    )
