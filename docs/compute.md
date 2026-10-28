@@ -123,7 +123,8 @@ The run manifest is `e2e-dev-k8s_target_port-misconfig-mitigation-1-20261028t203
 SHA-256 `decf844a80f89c3b162e79b6e74285978e7010cbda37b8e2f4d8a69b6fb1fcf7`, and its timings file
 of the same name ending `.timings.json` has SHA-256
 `90942bbda5cca3e6c2e5b168c979265b025baaa966a527ae985477ca8c026708`. Both are in `runs/manifests/`,
-which git ignores, and have not been copied to the shared drive yet.
+which git ignores, and were copied on 2026-10-28 to the shared Google Drive folder
+`k8s-RemValGate`, under `manifests/`, with the session trace. Its `CONTEXT.md` lists them.
 
 The times are a floor for the G2 timing pilot, not an estimate of a rollout. They exclude model
 latency, the one-off OpenEBS and Prometheus install, and the Social Network deploy (7 min 9 s for
