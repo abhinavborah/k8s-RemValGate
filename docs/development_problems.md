@@ -93,4 +93,8 @@ container statuses, so the base eval passes with the fault in place. The pool pr
 type uses the same stricter eval (see "Pool eval override for row 11" in the problem inventory),
 so development runs and pool runs apply the same success rule.
 
-Not yet run: no result is recorded here until the script passes on the cluster.
+Run on 2026-10-28 (UTC) on a fresh two node kind cluster at AIOpsLab
+`576c3f080c7ae2459a972afd4a2f8d5f01828430`: all 4 overlay problems passed. Each failed the eval with
+the fault injected, passed it after the known fix, and was recovered, and Social Network was Ready
+afterwards. The 4 creation touches are in `runs/touch_log.jsonl`. The upstream AssignNonExistentNode
+eval was not run, so its pass with the fault in place stays read from the code.
