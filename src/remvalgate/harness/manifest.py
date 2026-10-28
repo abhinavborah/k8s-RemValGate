@@ -6,7 +6,7 @@ the AIOpsLab commit is not pinned, the work tree has changes git does not ignore
 is already in the log. write_manifest checks the entry again and compares the manifest with what
 start_run recorded, so a run without an entry gets no manifest.
 
-The slice registry holds no problem ids until the pool and confirmation slice are defined.
+A pool run is refused while the registry holds no confirmation-slice id (gate G1).
 """
 
 import dataclasses
@@ -267,6 +267,9 @@ def start_run(
         raise ValueError("start_run now: expected an aware datetime, converted to UTC")
     _check_run_id(run_id, "start_run")
     slice_ = _slice_of(problem_id, registry)
+    # gate G1: the confirmation slice exists before any pool run (BRD 7.1, R3.3)
+    if slice_ is Slice.POOL and Slice.CONFIRMATION not in registry.slices.values():
+        raise RunRefused("a pool run needs the confirmation slice in the registry (gate G1)")
     log_path = Path(log_path)
     try:
         commit, dirty = git_state(repo, log_path)

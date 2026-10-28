@@ -378,6 +378,15 @@ def test_unknown_problem_refused(tmp_path):
         _start(tmp_path, "p-synth-unknown")
 
 
+def test_pool_run_refused_without_confirmation_slice(tmp_path):
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    registry = load_registry(_write_registry(tmp_path, {**_registry_data(), "confirmation": []}))
+    with pytest.raises(RunRefused, match="gate G1"):
+        start_run("run-0001", POOL, registry, log, repo, PIN, NOW)
+    assert read_touches(log) == []
+
+
 def test_unpinned_aiopslab_refused_for_logged_slice(tmp_path):
     repo = _repo(tmp_path)
     with pytest.raises(RunRefused, match="AIOpsLab commit"):
