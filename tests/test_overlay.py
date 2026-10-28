@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 
 from remvalgate import overlay
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
-from remvalgate.overlay.checks import has_available_replica
+from remvalgate.overlay.checks import has_available_replica, poll_until
 from remvalgate.overlay.fixes import FIXES
 
 
@@ -100,3 +100,35 @@ def test_every_overlay_id_builds_its_intended_problem():
 )
 def test_has_available_replica(deployment, expected):
     assert has_available_replica(deployment) is expected
+
+
+class _Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+@pytest.mark.parametrize(
+    ("ready_at", "deadline", "expected", "calls"),
+    [
+        (0, 10.0, True, 1),  # ready at once
+        (2, 10.0, True, 3),  # ready on the third check, before the deadline
+        (None, 10.0, False, 3),  # checks at 0, 5 and 10, then gives up
+        (None, 0.0, False, 1),  # deadline already passed: one check, no wait
+    ],
+)
+def test_poll_until(ready_at, deadline, expected, calls):
+    clock = _Clock()
+    seen = []
+
+    def check():
+        seen.append(clock.now)
+        return ready_at is not None and len(seen) > ready_at
+
+    assert poll_until(check, deadline, 5.0, clock, clock.sleep) is expected
+    assert len(seen) == calls

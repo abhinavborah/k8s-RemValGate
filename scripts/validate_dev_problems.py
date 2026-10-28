@@ -54,6 +54,11 @@ def validate(problem_id: str, probs, registry) -> None:
     finally:
         # also after a pass, so the next problem starts from AIOpsLab's recovered state
         prob.recover_fault()
+    # AssignNonExistentNode recovers by deleting and applying the deployment again
+    subprocess.run(
+        KUBECTL + ["rollout", "status", f"deployment/{prob.faulty_service}", "--timeout=300s"],
+        check=True,
+    )
     print(f"{problem_id}: PASS")
 
 

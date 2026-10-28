@@ -117,7 +117,9 @@ the cluster.
 
 The pool therefore holds `pool-assign_to_non_existent_node_social_net-mitigation-1` in place of
 row 11's id. It is an overlay problem with the same fault and service, and an eval that also
-requires at least 1 available replica of `user-service`. The submodule is unchanged.
+requires at least 1 available replica of `user-service`, polled within the same settle window as
+the base eval (`AIOPSLAB_MITIGATION_SETTLE_SECONDS`), so a correct fix whose new pod is not yet
+scheduled is not scored as a failure. The submodule is unchanged.
 
 Status: changed by a group member on 2026-10-28 in response to review, pending group
 confirmation. If the group keeps the upstream eval, the pool entry reverts to row 11's id.
