@@ -1,7 +1,8 @@
 # Compute record
 
 GPU environment and model hosting for the planner and gate (story E1-S4, BRD R1.4, proposal
-section XII). Every number below comes from the smoke run unless a source is given.
+section XII), and the harness timing of one end to end run (story E1-S3, last section).
+Every number comes from the smoke run unless a source is given.
 
 ## Environment
 
@@ -89,3 +90,48 @@ Whether those kernels install and run on a T4 is unchecked.
   `pip install -e .` fails there. Code that imports the package on Kaggle needs a 3.12
   environment or a change to the supported range.
 - Weights are downloaded per session (about a minute here); they are not stored in git.
+
+## Harness timing, one development problem, 2026-10-28 (UTC)
+
+Story E1-S3 (#13), BRD R1.3. `scripts/run_dev_end_to_end.py` ran
+`dev-k8s_target_port-misconfig-mitigation-1` on `user-mention-service` once, on a fresh two node
+kind cluster (kind v0.33.0, Kubernetes server v1.32.1, Social Network with all 27 pods Ready) at
+AIOpsLab `576c3f080c7ae2459a972afd4a2f8d5f01828430`, on repository commit `1ebee77`. After the
+redeploy, the node image digest and the 8 container image digests all matched the list in the
+README. The manifest says `dirty: true` because two untracked handoff files were in the work
+tree. The agent was a script, so no model ran and no tokens were spent.
+
+Seconds, wall clock (`time.perf_counter`), one run of each cycle:
+
+| Phase | Run with the known fix | Reset only |
+|---|---|---|
+| Inject the fault | 6.1 | 6.1 |
+| Fix and submit through `exec_shell` and `submit` | 0.1 | none |
+| Evaluate (settle wait included) | 0.1 | none |
+| Reset (`recover_fault`, then all pods Ready) | 2.9 | 2.9 |
+| Sum of the phases | 9.1 | 8.9 |
+| Wall, from building the problem to the last check | 9.4 | 9.2 |
+
+The phase times are rounded and the sums are taken from the unrounded values.
+
+The evaluator reported success, and in both cycles the specs and labels of the Services and
+Deployments after the reset equalled the snapshot taken before the injection, with all pods Ready.
+The first cycle resets a cluster the fix had already repaired, so the second cycle is the one that
+tests the reset.
+
+The run manifest is `e2e-dev-k8s_target_port-misconfig-mitigation-1-20261028t203314z.json`, with
+SHA-256 `decf844a80f89c3b162e79b6e74285978e7010cbda37b8e2f4d8a69b6fb1fcf7`, and its timings file
+of the same name ending `.timings.json` has SHA-256
+`90942bbda5cca3e6c2e5b168c979265b025baaa966a527ae985477ca8c026708`. Both are in `runs/manifests/`,
+which git ignores, and have not been copied to the shared drive yet.
+
+The times are a floor for the G2 timing pilot, not an estimate of a rollout. They exclude model
+latency, the one-off OpenEBS and Prometheus install, and the Social Network deploy (7 min 9 s for
+the deploy script here, which stopped at its own 300 s wait; the pods became Ready after a
+further `kubectl wait`; the share spent on image pulls was not measured). The evaluator's settle
+wait is included, and it returned on its first poll because the Service was already fixed. The
+ScalePod and AssignNonExistentNode fixes wait for a rollout, and AssignNonExistentNode recovers by
+deleting and reapplying its deployment, so their times will be larger. In the validation of the
+overlay problems, the gaps between creation touches were about 37 s and 34 s for them. One run of
+each cycle gives no spread; it was made 4 times on this cluster, and the sums of the phases were 9.1 s and 8.9 s each time.
+The wall time was measured in the last 2 runs only, at 9.3 s to 9.4 s and 9.1 s to 9.2 s.
