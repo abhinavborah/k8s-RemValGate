@@ -156,10 +156,17 @@ New problem definitions go in `src/remvalgate/overlay/`. AIOpsLab builds its pro
 inside each `Orchestrator` and has no hook for outside entries, so an overlay entry exists only in
 an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
 AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
-refused. The shipped overlay is empty.
+refused. The shipped overlay holds the three development problems
+([docs/development_problems.md](docs/development_problems.md)) and the pool variant of
+AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), defined in
+`src/remvalgate/overlay/dev_problems.py`. The known fixes are in
+`src/remvalgate/overlay/fixes.py`.
 
 `scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. It needs the cluster, so CI does not run it.
+constructed Orchestrator. `scripts/validate_overlay_problems.py` validates each overlay problem: it
+logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
+`kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network
+deployed and Ready. Both need the cluster, so CI does not run them.
 
 ## Large files
 
@@ -174,15 +181,19 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
 - **Run manifests** (`<run_id>.json`) are written next to the rollout's logs on shared drive storage.
   The `runs/` folder is ignored by git, except for the touch log.
 - **The evaluation-set touch log** is `runs/touch_log.jsonl`, committed, one JSON line per use of a
-  primary-pool or confirmation-slice problem. Lines are only appended, never edited or removed.
+  primary-pool or confirmation-slice problem, and one per creation touch: `log_creation` logs the
+  validation of a new problem in any slice, with a run id that starts with `create-`, a prefix
+  `start_run` refuses. Lines are only appended, never edited or removed.
   `.gitattributes` merges it as a union, so appends from two branches keep both lines. A union merge
   may put the added lines in any order; each entry carries its own timestamp, so order is not used.
 - **Refusals.** A pool or confirmation run is refused when it has no touch entry, when its run id is
   already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
   does not ignore (new files included). A pool run is also refused while the registry holds no
   confirmation-slice id (gate G1). Development runs are not logged and may run with neither a
-  pin nor a clean tree. Run ids are lowercase.
+  pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  9 current pool problems and the development problems designated in
+  9 current pool problems, one of them the overlay variant of AssignNonExistentNode
+  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the development problems designated
+  in
   [docs/development_problems.md](docs/development_problems.md). The pool extension, the
   confirmation slice and the singleton problems are not in it yet.

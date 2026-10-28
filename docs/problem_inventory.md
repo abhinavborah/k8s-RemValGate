@@ -105,6 +105,32 @@ The restore state recorded here is what the AIOpsLab `recover_*` code does. It i
 - Row 12: after the ConfigMap update the injector restarts the `flagd` Deployment (otel:48-50).
   Whether restoring the ConfigMap alone takes effect was not checked.
 
+## Pool eval override for row 11
+
+Upstream, the eval of row 11 passes with the fault in place. The fault leaves `user-service` with
+one Pending pod, which has no container statuses, and `pods_unhealthy_reasons` skips such pods
+(`orchestrator/tasks/mitigation.py:101`). The eval's other check only asks that some pod name
+contains the service name, which the Pending pod satisfies. A candidate that does nothing would
+therefore count as recovered, which would distort the oracle labels (BRD R3.5), the
+recoverable-problem count of gate G3 and the outcome classes. Read from the code, not yet seen on
+the cluster.
+
+The pool therefore holds `pool-assign_to_non_existent_node_social_net-mitigation-1` in place of
+row 11's id. It is an overlay problem with the same fault and service, and an eval that also
+requires at least 1 available replica of `user-service`, polled within the same settle window as
+the base eval (`AIOPSLAB_MITIGATION_SETTLE_SECONDS`), so a correct fix whose new pod is not yet
+scheduled is not scored as a failure. The submodule is unchanged.
+
+As a new problem it is validated like the development problems (BRD R3.3), in the same run of
+`scripts/validate_overlay_problems.py`: the eval must fail with the fault in place and pass after the
+known fix, removing the `nodeSelector` of `user-service`. The run logs a creation touch for it. A
+creation touch is not a system run, so gate G1 does not refuse it. It is not the pool extension
+(#24) that R3.3 orders after the confirmation slice: it replaces row 11 with the same fault and
+service, so the pool keeps the same count and the same faults. Not yet run on the cluster.
+
+Status: changed by a group member on 2026-10-28 in response to review, pending group
+confirmation. If the group keeps the upstream eval, the pool entry reverts to row 11's id.
+
 ## Observations
 
 - Proposal version 2 limits rollback to the three fault types whose state is a Kubernetes object

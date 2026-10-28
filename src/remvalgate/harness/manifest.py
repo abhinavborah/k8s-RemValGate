@@ -7,6 +7,8 @@ is already in the log. write_manifest checks the entry again and compares the ma
 start_run recorded, so a run without an entry gets no manifest.
 
 A pool run is refused while the registry holds no confirmation-slice id (gate G1).
+
+log_creation appends a creation touch for a problem validated with a known fix, in any slice.
 """
 
 import dataclasses
@@ -266,6 +268,8 @@ def start_run(
     if now.tzinfo is None:
         raise ValueError("start_run now: expected an aware datetime, converted to UTC")
     _check_run_id(run_id, "start_run")
+    if run_id.startswith("create-"):
+        raise RunRefused("run ids starting with create- are kept for creation touches")
     slice_ = _slice_of(problem_id, registry)
     # gate G1: the confirmation slice exists before any pool run (BRD 7.1, R3.3)
     if slice_ is Slice.POOL and Slice.CONFIRMATION not in registry.slices.values():
@@ -305,6 +309,32 @@ def start_run(
         aiopslab_commit=aiopslab_commit,
         timestamp=timestamp,
     )
+
+
+def log_creation(
+    problem_id: str, registry: Registry, log_path: str | Path, now: datetime | None = None
+) -> dict:
+    """Append a creation touch: a problem was created and validated with a known fix, which is
+    not a system run. Any slice is logged, development included (R3.3, R3.8).
+
+    The run id is create-<problem id>-<UTC time>, so a creation entry is told apart from a run
+    entry by its prefix and a repeated validation gets a new id.
+    """
+    now = now or datetime.now(UTC)
+    if now.tzinfo is None:
+        raise ValueError("log_creation now: expected an aware datetime, converted to UTC")
+    slice_ = _slice_of(problem_id, registry)
+    now = now.astimezone(UTC)
+    run_id = f"create-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    _check_run_id(run_id, "log_creation")
+    entry = {
+        "problem_id": problem_id,
+        "run_id": run_id,
+        "slice": slice_,
+        "timestamp": now.strftime(_TIMESTAMP),
+    }
+    _append_touch(Path(log_path), entry)
+    return entry
 
 
 def write_manifest(
