@@ -18,6 +18,7 @@ from remvalgate.harness.manifest import (
     Slice,
     git_state,
     load_registry,
+    log_creation,
     read_manifest,
     read_touches,
     require_touch,
@@ -456,6 +457,51 @@ def test_require_touch_passes_after_start(tmp_path):
 
 def test_require_touch_ignores_development(tmp_path):
     require_touch("run-0001", DEV, _registry(tmp_path), tmp_path / "touch_log.jsonl")
+
+
+def test_log_creation_logs_development(tmp_path):
+    log = tmp_path / "runs" / "touch_log.jsonl"
+    entry = log_creation(DEV, _registry(tmp_path), log, NOW)
+    assert read_touches(log) == [
+        {
+            "problem_id": DEV,
+            "run_id": "create-p-synth-dev-20261027t101500z",
+            "slice": "development",
+            "timestamp": "2026-10-27T10:15:00Z",
+        }
+    ]
+    assert entry["slice"] is Slice.DEVELOPMENT
+
+
+def test_log_creation_accepts_every_committed_development_id(tmp_path):
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    log = tmp_path / "touch_log.jsonl"
+    dev = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
+    for problem_id in dev:
+        log_creation(problem_id, registry, log, NOW)
+    assert [e["problem_id"] for e in read_touches(log)] == dev
+
+
+def test_log_creation_refuses_a_repeat_in_the_same_second(tmp_path):
+    log = tmp_path / "touch_log.jsonl"
+    log_creation(CONF, _registry(tmp_path), log, NOW)
+    with pytest.raises(RunRefused, match="already in the touch log"):
+        log_creation(CONF, _registry(tmp_path), log, NOW)
+    assert len(read_touches(log)) == 1
+
+
+def test_log_creation_refuses_an_unregistered_id_and_a_naive_time(tmp_path):
+    log = tmp_path / "touch_log.jsonl"
+    with pytest.raises(RunRefused, match="not in the slice registry"):
+        log_creation("p-unknown", _registry(tmp_path), log, NOW)
+    with pytest.raises(ValueError, match="aware"):
+        log_creation(DEV, _registry(tmp_path), log, datetime(2026, 10, 27))
+    assert not log.exists()
+
+
+def test_start_run_refuses_a_creation_run_id(tmp_path):
+    with pytest.raises(RunRefused, match="creation touches"):
+        _start(tmp_path, DEV, run_id="create-run-0001")
 
 
 def test_manifest_refused_without_touch(tmp_path):
