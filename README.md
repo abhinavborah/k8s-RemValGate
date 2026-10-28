@@ -156,10 +156,15 @@ New problem definitions go in `src/remvalgate/overlay/`. AIOpsLab builds its pro
 inside each `Orchestrator` and has no hook for outside entries, so an overlay entry exists only in
 an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
 AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
-refused. The shipped overlay is empty.
+refused. The shipped overlay holds the three development problems
+([docs/development_problems.md](docs/development_problems.md)), defined in
+`src/remvalgate/overlay/dev_problems.py`.
 
 `scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. It needs the cluster, so CI does not run it.
+constructed Orchestrator. `scripts/validate_dev_problems.py` validates each development problem:
+it logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the
+known-fix `kubectl` command and checks that the eval passes. Run it with Social Network deployed
+and Ready. Both need the cluster, so CI does not run them.
 
 ## Large files
 

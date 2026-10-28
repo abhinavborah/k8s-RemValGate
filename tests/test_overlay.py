@@ -6,17 +6,18 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from remvalgate import overlay
+from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
 
 
 def _factory():
     return object()
 
 
-def test_shipped_overlay_is_empty_and_adds_nothing():
-    registry = {"upstream-1": _factory}
-    assert overlay.PROBLEMS == {}
-    assert overlay.register(registry) == []
-    assert list(registry) == ["upstream-1"]
+def test_shipped_overlay_is_the_development_slice():
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    dev = {i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT}
+    assert set(overlay.PROBLEMS) == dev
+    assert overlay.register({"upstream-1": _factory}) == list(overlay.PROBLEMS)
 
 
 def test_register_adds_entries_and_returns_their_ids():

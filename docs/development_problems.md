@@ -1,7 +1,8 @@
 # Development problems
 
-Story E3-S8, requirement R3.8. Designation only: nothing was instantiated, injected or run, and
-no evaluation slice is touched. The problems are authored and validated in E3-S9 (#70).
+Story E3-S8, requirement R3.8. The designation ran nothing and touched no evaluation slice. The
+problems are authored in E3-S9 (#70), in `src/remvalgate/overlay/dev_problems.py`, and validated
+with `scripts/validate_dev_problems.py`.
 
 Status: proposed by a group member on 2026-10-28, pending group confirmation (BRD review
 point 9).
@@ -23,7 +24,7 @@ Social Network (`test-social-network`), each on a service that no pool or single
 
 `K8STargetPortMisconfigMitigation` takes the service as an argument. The ScalePod and
 AssignNonExistentNode base tasks set `faulty_service = "user-service"` in their constructor, so
-#70 adds a small subclass for each that sets the service.
+#70 adds a small subclass for each that sets the service after the base constructor.
 
 The ids start with `dev-`, which no upstream id does, so the overlay registration never clashes.
 The ids are in `src/remvalgate/harness/slices.json` under `development`, beside the 9 current
@@ -61,9 +62,25 @@ for those 4: `compose-post-service`, `home-timeline-service`, `social-graph-serv
   They also cannot be fixed with a known command, which #13 and #70 need.
 - Singleton types. They are set aside for the exploratory check (R3.6).
 
-## Open point
+## Creation touches
 
-The eval block of E3-S8 and E3-S9 says "touch logged: yes". The harness logs only pool and
-confirmation uses (`LOGGED` in `src/remvalgate/harness/manifest.py`, and the Runs section of the
-README), so development runs write no touch entry. This designation runs nothing and writes no
-entry. Which of the two is intended is for the group to decide.
+The eval block of E3-S8 and E3-S9 says "touch logged: yes", while the harness logs only pool and
+confirmation runs (`LOGGED` in `src/remvalgate/harness/manifest.py`). Decided in #70 by a group
+member, pending group confirmation: the creation of a development problem is logged, and its later
+runs are not. `log_creation` appends the entry, with a run id of the form
+`create-<problem id>-<UTC time>`, before each problem is validated, so a failed validation is
+logged too. The run refusals are unchanged.
+
+## Validation
+
+`scripts/validate_dev_problems.py`, run by hand with Social Network deployed and Ready. For each
+problem it logs the creation touch, injects the fault, checks that the mitigation eval fails, runs
+the known fix and checks that the eval passes. The known fixes:
+
+| Problem id | Known fix |
+|---|---|
+| `dev-k8s_target_port-misconfig-mitigation-1` | patch `targetPort` of `user-mention-service` back to 9090 |
+| `dev-scale_pod_zero_social_net-mitigation-1` | scale `media-service` to 1 replica |
+| `dev-assign_to_non_existent_node_social_net-mitigation-1` | remove the `nodeSelector` of `unique-id-service` |
+
+Not yet run: no result is recorded here until the script passes on the cluster.

@@ -19,10 +19,11 @@ def _never_called():
 
 
 def main() -> int:
-    baseline = new_orchestrator().probs.get_problem_ids()
+    # an empty overlay, so the shipped development problems do not shift the count
+    baseline = new_orchestrator({}).probs.get_problem_ids()
     orch = new_orchestrator({TEST_ID: _never_called})
     ids = orch.probs.get_problem_ids()
-    fresh = new_orchestrator().probs.get_problem_ids()
+    fresh = new_orchestrator({}).probs.get_problem_ids()
     try:
         new_orchestrator({baseline[0]: _never_called})
     except ValueError:
