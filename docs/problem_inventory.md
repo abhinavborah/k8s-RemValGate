@@ -45,8 +45,8 @@ decision.
 | 7 | `user_unregistered_mongodb-mitigation-2` | UserUnregistered | `storage_user_unregistered` | `mongodb-rate` | Same for the rate database; `rate` pods deleted | `test-hotel-reservation` | E | reg:126, same classes, app:97-147 |
 | 8 | `auth_miss_mongodb-mitigation-1` | MongoDBAuthMissing (singleton) | `auth_miss_mongodb` | `url-shorten-mongodb` | Helm release `social-network` upgraded with TLS values `requireTLS` and key paths for `url-shorten-mongodb`, and the command passes only `-f values.yaml` and the TLS `--set` values (no `--reuse-values`, `service/helm.py:161-176`); `url-shorten-service` pods deleted; Deployment `url-shorten-mongodb` restarted. The chart reads `tls` values in `apps/socialNetwork/helm-chart/socialnetwork/charts/url-shorten-mongodb/values.yaml`, `apps/socialNetwork/helm-chart/socialnetwork/templates/_baseDeployment.tpl` and `apps/socialNetwork/helm-chart/socialnetwork/templates/configs/mongo/mongod.tpl` | `test-social-network` | D | reg:78, prob auth_miss_mongodb/auth_miss_mongodb.py:20,166, app:176-260 |
 | 9 | `misconfig_app_hotel_res-mitigation-1` | MisconfigAppHotelRes (singleton) | `misconfig_app` | `geo` | Deployment `geo`: container `hotel-reserv-geo` image set to `yinfangchen/geo:app3` | `test-hotel-reservation` | B | reg:133, prob misconfig_app/misconfig_app_hotel_res.py:20,159, app:150-173 |
-| 10 | `scale_pod_zero_social_net-mitigation-1` | ScalePod (singleton) | `scale_pods_to_zero` | `user-service` | Deployment `user-service` scaled to 0 replicas | `test-social-network` | B | reg:138, prob scale_pod/scale_pod_social_net.py:21,171, virt:56-73 |
-| 11 | `assign_to_non_existent_node_social_net-mitigation-1` | AssignNonExistentNode (singleton) | `assign_to_non_existent_node` | `user-service` | Deployment `user-service` deleted and applied again with `nodeSelector kubernetes.io/hostname: extra-node` | `test-social-network` | B | reg:143, prob assign_non_existent_node/assign_non_existent_node_social_net.py:21,174, virt:76-108 |
+| 10 | `scale_pod_zero_social_net-mitigation-1` | ScalePod | `scale_pods_to_zero` | `user-service` | Deployment `user-service` scaled to 0 replicas | `test-social-network` | B | reg:138, prob scale_pod/scale_pod_social_net.py:21,171, virt:56-73 |
+| 11 | `assign_to_non_existent_node_social_net-mitigation-1` | AssignNonExistentNode | `assign_to_non_existent_node` | `user-service` | Deployment `user-service` deleted and applied again with `nodeSelector kubernetes.io/hostname: extra-node` | `test-social-network` | B | reg:143, prob assign_non_existent_node/assign_non_existent_node_social_net.py:21,174, virt:76-108 |
 | 12 | `astronomy_shop_kafka_queue_problems-mitigation-1` | KafkaQueueProblems (singleton) | feature flag `kafkaQueueProblems` | `kafka` | ConfigMap `flagd-config`, key `demo.flagd.json`: flag `kafkaQueueProblems` `defaultVariant` set to `on`; Deployment `flagd` restarted | `astronomy-shop` | C | reg:185, prob kafka_queue_problems/kafka_queue_problems.py:13,101, otel:13-52 |
 | 13 | `redeploy_without_PV-mitigation-1` | RedeployWithoutPV (singleton) | none (`inject_redeploy_without_pv`) | none (namespace-wide) | Namespace `test-hotel-reservation` deleted and the application redeployed; PersistentVolumes kept per the AIOpsLab docstring, not verified | `test-hotel-reservation` | F | reg:200, prob redeploy_without_pv/redeploy_without_pv.py:17,158, virt:111-122 |
 | 14 | `wrong_bin_usage-mitigation-1` | WrongBinUsage (singleton) | `wrong_bin_usage` | `profile` | Deployment `profile` deleted and applied again with container `command` changed from `profile` to `geo` | `test-hotel-reservation` | B | reg:205, prob wrong_bin_usage/wrong_bin_usage.py:17,157, virt:125-170 |
@@ -61,16 +61,20 @@ Helm chart (`service/apps/hotelres.py:67-71`).
 
 ## Count by type
 
-| Type | Count | Proposal version 2 |
-|---|---|---|
-| TargetPortMisconfig | 3 | 3 |
-| RevokeAuth | 2 | 2 |
-| UserUnregistered | 2 | 2 |
-| Singletons | 7 | 7 |
-| Total | 14 | 14 |
+| Type | Count | Proposal version 2 | Slice (BRD R3.2) |
+|---|---|---|---|
+| TargetPortMisconfig | 3 | 3 | pool |
+| RevokeAuth | 2 | 2 | pool |
+| UserUnregistered | 2 | 2 | pool |
+| ScalePod | 1 | 1, as a singleton | pool |
+| AssignNonExistentNode | 1 | 1, as a singleton | pool |
+| Other singletons | 5 | 5 | singleton |
+| Total | 14 | 14 | |
 
 The registry holds exactly these 14 ids containing `-mitigation-` at the pin. No mismatch with
-the proposal. The seven singletons are rows 8 to 14. The proposal names only ScalePod and
+the proposal. Proposal version 2 counts rows 8 to 14 as seven singletons. BRD R3.2 moves ScalePod
+and AssignNonExistentNode (rows 10 and 11) into the 16-problem pool, so the singleton types are
+rows 8, 9 and 12 to 14. The proposal names only ScalePod and
 AssignNonExistentNode; the other five type names are taken from AIOpsLab class names.
 
 ## Where recover is not the inverse of inject
