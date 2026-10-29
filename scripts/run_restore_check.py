@@ -112,7 +112,10 @@ def run_case(label, fault_type, target, args, get, put, act) -> None:
     result = restore(fault_type, snapshot, get, put)
     RECREATED.update(f"{kind}/{name}" for kind, name in result.recreated)
     left = differs(before, objects())
-    print(f"      restored {result.restored}, recreated {list(result.recreated)}, left {left}")
+    print(
+        f"      restored {result.restored}, recreated {list(result.recreated)}, left {left}, "
+        f"errors {list(result.errors)}"
+    )
     check(result.restored, f"{label}: restore reports {result.changed}")
     check(not left, f"{label}: the cluster differs from before the command: {left}")
 

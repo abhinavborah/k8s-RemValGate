@@ -2,10 +2,10 @@
 
 touched reads the targets from the command with the allow-list parser, so a snapshot covers
 whatever the command changes and not only what a known fix would. take saves the live objects
-and restore puts them back with a full replace. A server-side apply would leave a field added by
-another manager in place, so it cannot undo a patch. An object the command deleted is created
-again. Only Deployments and Services are snapshotted: a pod the command deletes is recreated by
-its controller, and a ReplicaSet scaled by hand is set back by its Deployment.
+and restore puts them back with a full replace. A server-side apply does not remove a field that
+another manager added, so it does not undo a patch that adds a field. An object the command
+deleted is created again. Only Deployments and Services are snapshotted: a pod the command deletes
+is recreated by its controller, and a ReplicaSet scaled by hand is set back by its Deployment.
 
 Faults whose state is not a Kubernetes object (RevokeAuth, UserUnregistered) are out of scope:
 restore does nothing for them and says so. The caller escalates and still runs harm detection.
@@ -68,10 +68,12 @@ class RestoreResult:
     # kind/name keys whose spec or labels still differ from the snapshot; empty on success
     changed: tuple[str, ...]
     recreated: tuple[ObjectRef, ...] = ()
+    # one message per failed kubectl call; the restore went on with the next object
+    errors: tuple[str, ...] = ()
 
     @property
     def restored(self) -> bool:
-        return self.attempted and not self.changed
+        return self.attempted and not self.changed and not self.errors
 
 
 def touched(command: str, policy: Policy, namespace: str) -> list[ObjectRef]:
@@ -119,6 +121,8 @@ def restore(
     """Put the snapshot back and compare the live objects with it.
 
     get returns the live object or None if it is gone. put("replace" | "create", obj) writes.
+    Either raises RuntimeError on a kubectl failure: it is recorded in errors, so one failed object
+    does not stop the others from being put back, and restored is then False.
     Raises ValueError for a fault type that is in neither list, so a new type is decided on
     purpose. The caller waits for a restored Deployment to roll out.
     """
@@ -128,21 +132,29 @@ def restore(
         raise ValueError(f"unknown fault type {fault_type!r}")
     expected = dict(snapshot.objects)
     recreated = []
+    errors = []
     for ref, saved in snapshot.objects.items():
-        if get(ref) is None:
-            created = copy.deepcopy(saved)
-            # a Service that is created again gets new addresses, the old ones may be taken
-            for field in _ADDRESS_FIELDS:
-                created.get("spec", {}).pop(field, None)
-            expected[ref] = created
-            put("create", copy.deepcopy(created))
-            recreated.append(ref)
-        else:
-            # a copy, so a put that edits what it is given cannot edit the snapshot
-            put("replace", copy.deepcopy(saved))
+        try:
+            if get(ref) is None:
+                created = copy.deepcopy(saved)
+                # a Service that is created again gets new addresses, the old ones may be taken
+                for field in _ADDRESS_FIELDS:
+                    created.get("spec", {}).pop(field, None)
+                expected[ref] = created
+                put("create", copy.deepcopy(created))
+                recreated.append(ref)
+            else:
+                # a copy, so a put that edits what it is given cannot edit the snapshot
+                put("replace", copy.deepcopy(saved))
+        except RuntimeError as error:
+            errors.append(f"{ref[0]}/{ref[1]}: {error}")
     live = {}
     for ref in snapshot.objects:
-        obj = get(ref)
+        try:
+            obj = get(ref)
+        except RuntimeError as error:
+            errors.append(f"{ref[0]}/{ref[1]}: {error}")
+            continue
         if obj is not None and ref in recreated:
             for field in _ADDRESS_FIELDS:
                 obj.get("spec", {}).pop(field, None)
@@ -152,7 +164,20 @@ def restore(
         normalise({"items": list(expected.values())}),
         normalise({"items": list(live.values())}),
     )
-    return RestoreResult(attempted=True, changed=tuple(left), recreated=tuple(recreated))
+    return RestoreResult(
+        attempted=True,
+        changed=tuple(left),
+        recreated=tuple(recreated),
+        errors=tuple(errors),
+    )
+
+
+def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
+    # one error type for a failed call and a timeout, so restore can record either and go on
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=60, **kwargs)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(f"timed out after {error.timeout} s: {' '.join(command[:6])}") from error
 
 
 def kubectl_get(namespace: str, context: str | None = None):
@@ -163,12 +188,7 @@ def kubectl_get(namespace: str, context: str | None = None):
     base = ["kubectl", *(["--context", context] if context else []), "-n", namespace]
 
     def get(ref: ObjectRef) -> dict | None:
-        run = subprocess.run(
-            [*base, "get", ref[0].lower(), ref[1], "-o", "json"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        run = _run([*base, "get", ref[0].lower(), ref[1], "-o", "json"])
         if run.returncode == 0:
             return json.loads(run.stdout)
         if "NotFound" in run.stderr:
@@ -183,13 +203,8 @@ def kubectl_put(namespace: str, context: str | None = None):
     base = ["kubectl", *(["--context", context] if context else []), "-n", namespace]
 
     def put(action: str, obj: dict) -> None:
-        subprocess.run(
-            [*base, action, "-f", "-"],
-            input=json.dumps(obj),
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=60,
-        )
+        run = _run([*base, action, "-f", "-"], input=json.dumps(obj))
+        if run.returncode != 0:
+            raise RuntimeError(run.stderr.strip())
 
     return put

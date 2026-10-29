@@ -69,6 +69,11 @@ class Cluster:
             [("Deployment", "text-service")],
         ),
         (f"kubectl rollout undo deployment text-service -n {NS}", [("Deployment", "text-service")]),
+        # the ReplicaSet in a comma separated type list is dropped and the Deployment kept
+        (
+            f"kubectl scale deployment,rs text-service --replicas=2 -n {NS}",
+            [("Deployment", "text-service")],
+        ),
         # no snapshot: read only, a pod the controller recreates, a ReplicaSet its Deployment resets
         (f"kubectl get deployment text-service -n {NS}", []),
         (f"kubectl delete pod text-service-abc -n {NS}", []),
@@ -142,6 +147,44 @@ def test_restore_reports_an_object_that_still_differs():
     result = restore("scale_pods_to_zero", snapshot, cluster.get, put)
     assert not result.restored
     assert result.changed == ("Deployment/text-service",)
+
+
+def test_a_failed_write_is_recorded_and_the_other_objects_are_still_put_back():
+    cluster = Cluster(SERVICE, DEPLOYMENT)
+    refs = [("Service", "user-mention-service"), ("Deployment", "text-service")]
+    snapshot = take(NS, refs, cluster.get)
+    cluster.live[refs[0]]["spec"]["ports"][0]["targetPort"] = 1234
+    cluster.live[refs[1]]["spec"]["replicas"] = 3
+
+    def put(action, obj):
+        if obj["kind"] == "Service":
+            raise RuntimeError('replace failed: admission webhook "x" denied the request')
+        cluster.put(action, obj)
+
+    result = restore("misconfig_k8s", snapshot, cluster.get, put)
+    assert not result.restored
+    assert result.changed == ("Service/user-mention-service",)
+    assert len(result.errors) == 1
+    assert "admission webhook" in result.errors[0]
+    assert cluster.live[refs[1]]["spec"]["replicas"] == 1
+
+
+def test_a_failed_read_after_the_write_is_recorded():
+    cluster = Cluster(DEPLOYMENT)
+    ref = ("Deployment", "text-service")
+    snapshot = take(NS, [ref], cluster.get)
+    calls = []
+
+    def get(r):
+        calls.append(r)
+        if len(calls) > 1:
+            raise RuntimeError("timed out")
+        return cluster.get(r)
+
+    result = restore("scale_pods_to_zero", snapshot, get, cluster.put)
+    assert not result.restored
+    assert result.changed == ("Deployment/text-service",)
+    assert result.errors == ("Deployment/text-service: timed out",)
 
 
 @pytest.mark.parametrize("fault_type", sorted(OUT_OF_SCOPE))
