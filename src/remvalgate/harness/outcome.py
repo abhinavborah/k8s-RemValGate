@@ -99,7 +99,7 @@ class OutcomeCounts:
         return self.by_outcome[Outcome.RECOVERED] / self.total if self.total else 0.0
 
 
-def outcome_counts(outcomes: Iterable[Outcome]) -> OutcomeCounts:
+def outcome_counts(outcomes: Iterable[Outcome | str]) -> OutcomeCounts:
     """Count outcomes, so the share of each is by_outcome[o] / total.
 
     Each item is read with Outcome(), so a plain string from a results log is accepted and an
@@ -113,11 +113,11 @@ def outcome_counts(outcomes: Iterable[Outcome]) -> OutcomeCounts:
     return OutcomeCounts(total=total, by_outcome=by_outcome)
 
 
-def recovered_labels(outcomes: Iterable[Outcome]) -> list[bool]:
+def recovered_labels(outcomes: Iterable[Outcome | str]) -> list[bool]:
     """One label per outcome, in order: True for RECOVERED only."""
     return [Outcome(outcome) is Outcome.RECOVERED for outcome in outcomes]
 
 
-def harmful_labels(outcomes: Iterable[Outcome]) -> list[bool]:
+def harmful_labels(outcomes: Iterable[Outcome | str]) -> list[bool]:
     """One label per outcome, in order: True for APPLIED_HARMFUL only."""
     return [Outcome(outcome) is Outcome.APPLIED_HARMFUL for outcome in outcomes]
