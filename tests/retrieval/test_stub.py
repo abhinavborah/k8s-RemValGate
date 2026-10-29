@@ -144,6 +144,8 @@ def test_the_shipped_corpus_is_synthetic_and_names_no_evaluation_problem():
             [entry.entry_id, entry.summary, entry.fix_command, entry.target_service]
         ).lower()
         assert entry.entry_id.startswith("stub-")
+        # a real service name here would reuse a pool problem's service (BRD 7.2)
+        assert entry.target_service.startswith("demo-")
         for problem_id in registry.slices:
             assert problem_id.lower() not in text
 
