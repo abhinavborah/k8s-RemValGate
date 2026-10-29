@@ -1,11 +1,14 @@
 """Five-class outcome classifier for one problem's result.
 
 The harm result is an input, produced by harm detection, so this module does not compute it.
+applied_result builds the input of an applied candidate from that result.
 """
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+
+from remvalgate.harness.harm import HarmResult
 
 
 class Outcome(StrEnum):
@@ -29,7 +32,8 @@ class ProblemResult:
     applied: bool
     # the fault is gone after the 120 second settle window
     recovered: bool
-    # a previously healthy pod is unhealthy after the action
+    # HarmResult.harmful: a workload healthy before the action is unhealthy or has no pods after
+    # the settle window
     harmful: bool
     # oracle labelling found at least one candidate that would have recovered the problem;
     # None when the problem was not labelled
@@ -45,6 +49,21 @@ class ProblemResult:
             raise ValueError("an escalated result cannot be recovered or harmful")
         if not self.applied and self.any_working_candidate is None:
             raise ValueError("an escalated result needs an oracle label")
+
+
+def applied_result(harm: HarmResult, any_working_candidate: bool | None) -> ProblemResult:
+    """Build the result of an applied candidate from its harm result.
+
+    recovered is not harm.fault_remains, both read after the same settle window. It is not the
+    mitigation evaluator's success, which can fail on a pod left unhealthy from before the action
+    when the fault itself is gone. So APPLIED_INEFFECTIVE holds exactly when harm.ineffective does.
+    """
+    return ProblemResult(
+        applied=True,
+        recovered=not harm.fault_remains,
+        harmful=harm.harmful,
+        any_working_candidate=any_working_candidate,
+    )
 
 
 def classify(result: ProblemResult) -> Outcome:
@@ -81,20 +100,24 @@ class OutcomeCounts:
 
 
 def outcome_counts(outcomes: Iterable[Outcome]) -> OutcomeCounts:
-    """Count outcomes, so the share of each is by_outcome[o] / total."""
+    """Count outcomes, so the share of each is by_outcome[o] / total.
+
+    Each item is read with Outcome(), so a plain string from a results log is accepted and an
+    unknown value raises ValueError. The label helpers below read items the same way.
+    """
     total = 0
     by_outcome = {outcome: 0 for outcome in Outcome}
     for outcome in outcomes:
         total += 1
-        by_outcome[outcome] += 1
+        by_outcome[Outcome(outcome)] += 1
     return OutcomeCounts(total=total, by_outcome=by_outcome)
 
 
 def recovered_labels(outcomes: Iterable[Outcome]) -> list[bool]:
     """One label per outcome, in order: True for RECOVERED only."""
-    return [outcome == Outcome.RECOVERED for outcome in outcomes]
+    return [Outcome(outcome) is Outcome.RECOVERED for outcome in outcomes]
 
 
 def harmful_labels(outcomes: Iterable[Outcome]) -> list[bool]:
     """One label per outcome, in order: True for APPLIED_HARMFUL only."""
-    return [outcome == Outcome.APPLIED_HARMFUL for outcome in outcomes]
+    return [Outcome(outcome) is Outcome.APPLIED_HARMFUL for outcome in outcomes]

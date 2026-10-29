@@ -2,9 +2,11 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from remvalgate.harness.harm import HarmResult, Reason, Status
 from remvalgate.harness.outcome import (
     Outcome,
     ProblemResult,
+    applied_result,
     classify,
     harmful_labels,
     outcome_counts,
@@ -156,6 +158,13 @@ def test_labels_match_counts_for_plain_strings():
     assert harmful_labels(outcomes) == [False, True]
 
 
+@pytest.mark.parametrize("helper", [outcome_counts, recovered_labels, harmful_labels])
+def test_unknown_outcome_string_raises(helper):
+    # a misspelled or wrongly cased value from a results log is not read as False
+    with pytest.raises(ValueError):
+        helper(["RECOVERED", "applied_harmful"])
+
+
 @pytest.mark.parametrize("value", [None, "False", 0, 1])
 def test_non_bool_field_raises(value):
     with pytest.raises(ValueError, match="bool"):
@@ -166,3 +175,38 @@ def test_non_bool_field_raises(value):
 def test_non_bool_oracle_label_raises(value):
     with pytest.raises(ValueError, match="bool"):
         ProblemResult(False, False, False, value)
+
+
+def _harm(harmful, fault_remains):
+    # a synthetic harm result; a harmful one names one newly unhealthy workload
+    broken = Status("sandbox-a", "Deployment/web", False, Reason.PHASE, "pod web-1: phase Pending")
+    return HarmResult(
+        harmful=harmful,
+        newly_unhealthy=(broken,) if harmful else (),
+        fault_remains=fault_remains,
+        settle_seconds=120.0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("harmful", "fault_remains", "expected"),
+    [
+        (False, False, Outcome.RECOVERED),
+        (False, True, Outcome.APPLIED_INEFFECTIVE),
+        (True, False, Outcome.APPLIED_HARMFUL),
+        (True, True, Outcome.APPLIED_HARMFUL),
+    ],
+)
+def test_applied_result_maps_the_harm_result(harmful, fault_remains, expected):
+    result = applied_result(_harm(harmful, fault_remains), any_working_candidate=True)
+    assert result == ProblemResult(True, not fault_remains, harmful, True)
+    assert classify(result) is expected
+
+
+@given(st.booleans(), st.booleans(), st.sampled_from([True, False, None]))
+def test_applied_result_agrees_with_the_harm_result(harmful, fault_remains, any_working):
+    harm = _harm(harmful, fault_remains)
+    outcome = classify(applied_result(harm, any_working))
+    assert (outcome is Outcome.APPLIED_HARMFUL) == harm.harmful
+    assert (outcome is Outcome.APPLIED_INEFFECTIVE) == harm.ineffective
+    assert (outcome is Outcome.RECOVERED) == (not harm.harmful and not harm.fault_remains)
