@@ -168,10 +168,24 @@ logs a creation touch, injects the fault, checks that the mitigation eval fails,
 `kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network
 deployed and Ready. Both need the cluster, so CI does not run them.
 
+`scripts/run_dev_end_to_end.py` runs one development problem end to end (story E1-S3, R1.3). A
+scripted agent sends the known fix as `exec_shell` and `submit` actions through the Orchestrator's
+parser and action handlers, the evaluator must report success, and the cluster after the reset
+must equal its snapshot before the injection (the spec and labels of the Services and
+Deployments, with all pods Ready). A second cycle injects and resets without the fix,
+because a reset after a correct fix repairs nothing. It times each phase and writes a run manifest
+and the timings under `runs/manifests/`, which git ignores. It does not use
+`Orchestrator.init_problem` or `start_problem`: they install OpenEBS and Prometheus from the
+network, redeploy the application and delete it at the end. The recorded times are in
+[docs/compute.md](docs/compute.md).
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
-are referenced by checksum.
+are referenced by checksum. The shared Google Drive folder is named `k8s-RemValGate`. Access
+comes from the folder owner. Its read-first file at the folder root lists what is there and the
+rules for adding to it: never overwrite an existing file unless that is the intention, and put a
+file whose name already exists under a folder named after your GitHub username.
 
 ## Runs
 
