@@ -134,5 +134,4 @@ wait is included, and it returned on its first poll because the Service was alre
 ScalePod and AssignNonExistentNode fixes wait for a rollout, and AssignNonExistentNode recovers by
 deleting and reapplying its deployment, so their times will be larger. In the validation of the
 overlay problems, the gaps between creation touches were about 37 s and 34 s for them. One run of
-each cycle gives no spread; it was made 4 times on this cluster, and the sums of the phases were 9.1 s and 8.9 s each time.
-The wall time was measured in the last 2 runs only, at 9.3 s to 9.4 s and 9.1 s to 9.2 s.
+each cycle gives no spread. Earlier runs on this cluster have no manifest, so none of their times is reported.

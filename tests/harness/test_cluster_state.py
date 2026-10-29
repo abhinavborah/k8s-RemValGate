@@ -52,3 +52,13 @@ def test_a_deleted_or_added_object_is_reported():
     before = normalise(_listing(SERVICE, DEPLOYMENT))
     assert changed(before, normalise(_listing(SERVICE))) == ["Deployment/media-service"]
     assert changed(normalise(_listing(SERVICE)), before) == ["Deployment/media-service"]
+
+
+def test_a_changed_label_is_reported_and_an_annotation_is_not():
+    relabelled = copy.deepcopy(SERVICE)
+    relabelled["metadata"]["labels"] = {"service": "other"}
+    annotated = copy.deepcopy(SERVICE)
+    annotated["metadata"]["annotations"] = {"note": "x"}
+    before = normalise(_listing(SERVICE))
+    assert changed(before, normalise(_listing(relabelled))) == ["Service/user-mention-service"]
+    assert changed(before, normalise(_listing(annotated))) == []

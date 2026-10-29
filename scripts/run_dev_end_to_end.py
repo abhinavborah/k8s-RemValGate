@@ -27,7 +27,6 @@ timings go to runs/manifests/, which git ignores.
 import asyncio
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
@@ -48,7 +47,7 @@ from remvalgate.harness.manifest import (
     write_manifest,
 )
 from remvalgate.overlay import new_orchestrator
-from remvalgate.overlay.fixes import FIXES
+from remvalgate.overlay.fixes import action, exec_shell, known_fix
 
 NS = "test-social-network"
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +56,12 @@ OUT_DIR = ROOT / "runs" / "manifests"
 PROBLEM = "dev-k8s_target_port-misconfig-mitigation-1"
 AGENT = "scripted-known-fix"
 MODEL_VERSION = "1"
+
+
+def check(condition, message: str) -> None:
+    # not assert, which python -O strips, so a failed check never ends in a PASS and a manifest
+    if not condition:
+        raise AssertionError(message)
 
 
 def kubectl(*args: str) -> subprocess.CompletedProcess:
@@ -75,19 +80,6 @@ def reset(prob) -> None:
     kubectl("-n", NS, "wait", "--for=condition=Ready", "pods", "--all", "--timeout=300s")
 
 
-def action(call: str) -> str:
-    return f"```\n{call}\n```"
-
-
-def exec_shell(command: str) -> str:
-    return action('exec_shell("' + command.replace('"', '\\"') + '")')
-
-
-def known_fix(problem_id: str) -> list[str]:
-    # the command runs inside the kind control plane node, where the context is the default one
-    return [shlex.join(["kubectl", "-n", NS, *args]) for args in FIXES[problem_id]]
-
-
 class ScriptedAgent:
     def __init__(self, actions: list[str]):
         self._actions = iter(actions)
@@ -100,7 +92,7 @@ async def run_cycle(orch, problem_id: str, clean: dict, results_dir: Path) -> tu
     """Inject, fix through the interface, evaluate, reset. Returns the timings and the results."""
     cycle_start = time.perf_counter()
     times: dict[str, float] = {}
-    commands = known_fix(problem_id)
+    commands = known_fix(problem_id, NS)
     actions = [*map(exec_shell, commands), action("submit()")]
     orch.register_agent(ScriptedAgent(actions), name=AGENT)
     prob = orch.probs.get_problem_instance(problem_id)
@@ -112,20 +104,22 @@ async def run_cycle(orch, problem_id: str, clean: dict, results_dir: Path) -> tu
         start = time.perf_counter()
         prob.inject_fault()
         times["inject"] = time.perf_counter() - start
-        assert changed(clean, snapshot()), "the injection left the cluster unchanged"
+        check(changed(clean, snapshot()), "the injection left the cluster unchanged")
 
         start = time.perf_counter()
         orch.session.start()
         for expected, command in zip(actions, [*commands, None], strict=True):
             reply = await orch.ask_agent("Please take the next action")
-            assert reply == expected
+            check(reply == expected, f"the agent replied {reply!r}")
             if command:
                 # a parse that changes the command would run something else than the known fix
-                assert orch.parser.parse(reply)["args"] == [command]
+                check(
+                    orch.parser.parse(reply)["args"] == [command], f"the parser changed {command!r}"
+                )
             response = await orch.ask_env(reply)
             if command:
-                assert not response.startswith(("[ERROR]", "Error", "Failed")), response
-        assert response == SubmissionStatus.VALID_SUBMISSION, response
+                check(not response.startswith(("[ERROR]", "Error", "Failed")), response)
+        check(response == SubmissionStatus.VALID_SUBMISSION, response)
         orch.session.end()
         times["fix"] = time.perf_counter() - start
 
@@ -136,13 +130,13 @@ async def run_cycle(orch, problem_id: str, clean: dict, results_dir: Path) -> tu
         times["eval"] = time.perf_counter() - start
         session.set_results(results)
         session.to_json()
-        assert results["success"], "the evaluator reports failure after the known fix"
+        check(results["success"], "the evaluator reports failure after the known fix")
     finally:
         start = time.perf_counter()
         reset(prob)
         times["reset"] = time.perf_counter() - start
     left = changed(clean, snapshot())
-    assert not left, f"the reset left the cluster changed: {left}"
+    check(not left, f"the reset left the cluster changed: {left}")
     times["phases"] = sum(times.values())
     times["wall"] = time.perf_counter() - cycle_start
     return times, results
@@ -156,13 +150,13 @@ def reset_only(orch, problem_id: str, clean: dict) -> dict:
         start = time.perf_counter()
         prob.inject_fault()
         times["inject"] = time.perf_counter() - start
-        assert changed(clean, snapshot()), "the injection left the cluster unchanged"
+        check(changed(clean, snapshot()), "the injection left the cluster unchanged")
     finally:
         start = time.perf_counter()
         reset(prob)
         times["reset"] = time.perf_counter() - start
     left = changed(clean, snapshot())
-    assert not left, f"the reset left a faulted cluster changed: {left}"
+    check(not left, f"the reset left a faulted cluster changed: {left}")
     times["phases"] = sum(times.values())
     times["wall"] = time.perf_counter() - cycle_start
     return times

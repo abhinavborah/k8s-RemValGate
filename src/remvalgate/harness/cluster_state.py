@@ -3,8 +3,8 @@
 Pure functions on the JSON of `kubectl get svc,deploy -o json`, so CI can test them without a
 cluster. R3.5 checks a reset against the state after the injection, which `changed` can also
 compare once a snapshot is taken then. Only the spec and labels of each object are compared:
-status and the fields the API server rewrites on every change do not tell a reset from a
-leftover fault.
+status, annotations and the fields the API server rewrites on every change do not tell a reset
+from a leftover fault. Annotations on the pod template sit in the spec and are compared.
 """
 
 # fields the API server sets or bumps on its own
