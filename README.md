@@ -179,6 +179,13 @@ and the timings under `runs/manifests/`, which git ignores. It does not use
 network, redeploy the application and delete it at the end. The recorded times are in
 [docs/compute.md](docs/compute.md).
 
+`scripts/run_restore_check.py` is the hand check for snapshot and restore (story E2-S2, R2.2). For
+TargetPortMisconfig, ScalePod and AssignNonExistentNode it injects the fault, then runs the known
+fix, a damaging command and a delete of the object, and after each restore checks that the
+Services and Deployments equal their state before the command. It compares specs and labels and
+does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
+run it.
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
