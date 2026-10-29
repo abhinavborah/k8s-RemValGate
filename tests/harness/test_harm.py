@@ -361,3 +361,23 @@ def test_healthy_to_unhealthy_change_is_always_harmful(pre, post, name):
     pre = {**pre, name: True}
     post = {**post, name: False}
     assert _harm(_workload_doc(pre), _workload_doc(post)).harmful is True
+
+
+def test_pre_from_another_namespace_raises():
+    pre = parse_pods(_doc(_pod("web-7c9d8f-a1")), NS)
+    with pytest.raises(ValueError, match="sandbox-b"):
+        detect_harm(pre, _doc, lambda: False, "sandbox-b", sleep=_never_sleep)
+
+
+@given(WORKLOADS, WORKLOADS)
+def test_newly_unhealthy_is_exactly_healthy_before_and_unhealthy_or_absent_after(pre, post):
+    result = _harm(_workload_doc(pre), _workload_doc(post))
+    expected = {f"Deployment/{n}" for n, ok in pre.items() if ok and not post.get(n, False)}
+    assert {s.key for s in result.newly_unhealthy} == expected
+    assert result.harmful is bool(expected)
+
+
+@given(WORKLOADS, WORKLOADS, st.booleans())
+def test_ineffective_is_no_harm_with_the_fault_remaining(pre, post, remains):
+    result = _harm(_workload_doc(pre), _workload_doc(post), fault_remains=remains)
+    assert result.ineffective is (not result.harmful and remains)

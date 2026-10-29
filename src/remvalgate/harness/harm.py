@@ -186,8 +186,11 @@ def detect_harm(
 ) -> HarmResult:
     """Wait the settle window, then take the post-action snapshot and ask if the fault remains.
 
-    pre is parse_pods of the snapshot taken before the action. snapshot returns kubectl get pods
-    JSON, as kubectl_pods does. Raises ValueError for a negative or non-finite settle window.
+    pre is parse_pods of the snapshot taken after the injected fault shows in pod status and
+    before the action; a snapshot taken earlier can read a workload as healthy that the fault
+    then breaks, which would count the fault as harm. snapshot returns kubectl get pods JSON,
+    as kubectl_pods does. Raises ValueError for a negative or non-finite settle window, or a pre
+    from another namespace.
     """
     if (
         isinstance(settle_seconds, bool)
@@ -196,6 +199,8 @@ def detect_harm(
         or settle_seconds < 0
     ):
         raise ValueError(f"settle_seconds must be a finite number >= 0, got {settle_seconds!r}")
+    if any(status.namespace != namespace for status in pre.values()):
+        raise ValueError(f"pre holds a workload outside namespace {namespace!r}")
     sleep(settle_seconds)
     post = parse_pods(snapshot(), namespace)
     remains = fault_remains()
@@ -208,14 +213,14 @@ def detect_harm(
     )
 
 
-def kubectl_pods(namespace: str) -> str:
-    """Return kubectl get pods -n <namespace> -o json from the current cluster context.
+def kubectl_pods(namespace: str, context: str | None = None) -> str:
+    """Return kubectl get pods -n <namespace> -o json from the given or the current context.
 
-    Not unit tested and never run by CI. Its live check against a cluster waits for the first
-    problem run end to end (#13).
+    Not unit tested and never run by CI; scripts/run_harm_check.py runs it on a cluster.
     """
+    command = ["kubectl", *(["--context", context] if context else [])]
     return subprocess.run(
-        ["kubectl", "get", "pods", "-n", namespace, "-o", "json"],
+        [*command, "get", "pods", "-n", namespace, "-o", "json"],
         capture_output=True,
         text=True,
         check=True,
