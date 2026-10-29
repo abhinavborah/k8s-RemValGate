@@ -101,6 +101,10 @@ redeploy, the node image digest and the 8 container image digests all matched th
 README. The manifest says `dirty: true` because two untracked handoff files were in the work
 tree. The agent was a script, so no model ran and no tokens were spent.
 
+The script changed after `1ebee77`: its checks now raise an error and its helpers moved into
+the overlay package. The commands it sends are the same, and the recorded run stays the
+reference.
+
 Seconds, wall clock (`time.perf_counter`), one run of each cycle:
 
 | Phase | Run with the known fix | Reset only |
@@ -127,11 +131,9 @@ which git ignores, and were copied on 2026-10-28 to the shared Google Drive fold
 `k8s-RemValGate`, under `manifests/`, with the session trace. A read-first file at its root lists them.
 
 The times are a floor for the G2 timing pilot, not an estimate of a rollout. They exclude model
-latency, the one-off OpenEBS and Prometheus install, and the Social Network deploy (7 min 9 s for
-the deploy script here, which stopped at its own 300 s wait; the pods became Ready after a
-further `kubectl wait`; the share spent on image pulls was not measured). The evaluator's settle
-wait is included, and it returned on its first poll because the Service was already fixed. The
-ScalePod and AssignNonExistentNode fixes wait for a rollout, and AssignNonExistentNode recovers by
+latency, the one-off OpenEBS and Prometheus install, and the Social Network deploy.
+The evaluator's settle wait is included, and it returned on its first poll because the Service
+was already fixed. The ScalePod and AssignNonExistentNode fixes wait for a rollout, and AssignNonExistentNode recovers by
 deleting and reapplying its deployment, so their times will be larger. In the validation of the
 overlay problems, the gaps between creation touches were about 37 s and 34 s for them. One run of
 each cycle gives no spread. Earlier runs on this cluster have no manifest, so none of their times is reported.
