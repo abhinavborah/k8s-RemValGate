@@ -140,7 +140,7 @@ def test_default_registry_counts():
     # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     counts = Counter(registry.slices.values())
-    assert counts == {Slice.POOL: 9, Slice.DEVELOPMENT: 3}
+    assert counts == {Slice.POOL: 9, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
 
 
 def test_development_ids_cannot_clash_with_upstream():

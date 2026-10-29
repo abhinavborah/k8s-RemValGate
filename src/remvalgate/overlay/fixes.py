@@ -5,6 +5,7 @@ Kept apart from that script, which imports aiopslab, so a test checks the keys i
 
 import json
 import shlex
+from collections.abc import Iterable, Set
 
 # the targetPort the target-port problem breaks and its known fix restores
 TARGET_PORT = 9090
@@ -36,6 +37,24 @@ FIXES = {
         ],
         ["rollout", "status", "deployment/user-service", "--timeout=300s"],
     ],
+    "conf-k8s_target_port-misconfig-mitigation-1": [
+        [
+            "patch", "service", "social-graph-service", "--type=json",
+            "-p", json.dumps([{"op": "replace", "path": "/spec/ports/0/targetPort",
+                               "value": TARGET_PORT}]),
+        ],
+    ],
+    "conf-scale_pod_zero_social_net-mitigation-1": [
+        ["scale", "deployment", "social-graph-service", "--replicas=1"],
+        ["rollout", "status", "deployment/social-graph-service", "--timeout=300s"],
+    ],
+    "conf-assign_to_non_existent_node_social_net-mitigation-1": [
+        [
+            "patch", "deployment", "social-graph-service", "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", "deployment/social-graph-service", "--timeout=300s"],
+    ],
 }  # fmt: skip
 
 
@@ -56,3 +75,21 @@ def exec_shell(command: str) -> str:
 def known_fix(problem_id: str, namespace: str) -> list[str]:
     # the command runs inside the kind control plane node, where the context is the default one
     return [shlex.join(["kubectl", "-n", namespace, *args]) for args in FIXES[problem_id]]
+
+
+def select(requested: Iterable[str], confirmation: Set[str], created: Set[str]) -> list[str]:
+    """The overlay ids to validate: the requested ones, or with none requested every overlay
+    problem outside the confirmation slice, so a routine revalidation never touches it.
+
+    A confirmation problem that already has a creation touch is refused: it is created once.
+    """
+    requested = list(dict.fromkeys(requested))
+    if not requested:
+        return [i for i in FIXES if i not in confirmation]
+    unknown = [i for i in requested if i not in FIXES]
+    if unknown:
+        raise ValueError(f"not overlay problems: {', '.join(unknown)}")
+    again = [i for i in requested if i in confirmation and i in created]
+    if again:
+        raise ValueError(f"confirmation problems already created: {', '.join(again)}")
+    return requested

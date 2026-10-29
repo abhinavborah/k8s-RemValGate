@@ -32,6 +32,12 @@ PROBLEMS: dict[str, Factory] = {
     "pool-assign_to_non_existent_node_social_net-mitigation-1": _local(
         "AssignNonExistentNodeAvailableMitigation"
     ),
+    # the confirmation slice (docs/confirmation_problems.md); never tuned on, opened once
+    "conf-k8s_target_port-misconfig-mitigation-1": _local("target_port_social_graph"),
+    "conf-scale_pod_zero_social_net-mitigation-1": _local("ScalePodSocialGraphMitigation"),
+    "conf-assign_to_non_existent_node_social_net-mitigation-1": _local(
+        "AssignNonExistentNodeSocialGraphMitigation"
+    ),
 }
 
 

@@ -1,9 +1,8 @@
-"""Hand check for story E3-S9: validate each overlay problem with a known-fix command.
+"""Hand check for stories E3-S9 and E3-S10: validate overlay problems with a known-fix command.
 
 Needs aiopslab/config.yml, the kind cluster and Social Network deployed and Ready (README,
 Deploy and health check), so it is run by hand and never by CI or the tests. No system or model
-runs and the LLM judge must be off. For each problem in the overlay (the development problems and
-the pool variant of AssignNonExistentNode) it:
+runs and the LLM judge must be off. For each problem it validates it:
 
 1. appends a creation touch to runs/touch_log.jsonl,
 2. builds the problem through the overlay registry and injects its fault,
@@ -17,7 +16,12 @@ if a check fails, the script stops.
 A creation touch is not a system run, so it is logged for the pool variant too and gate G1 does
 not apply to it.
 
-    uv run python scripts/validate_overlay_problems.py
+With no ids it validates every overlay problem except the confirmation slice (the development
+problems and the pool variant of AssignNonExistentNode); the confirmation problems are validated
+only when named, and only once: one that already has a creation touch is refused
+(docs/confirmation_problems.md).
+
+    uv run python scripts/validate_overlay_problems.py [problem id ...]
 """
 
 import os
@@ -27,9 +31,15 @@ from pathlib import Path
 
 from aiopslab.paths import config
 
-from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, load_registry, log_creation
+from remvalgate.harness.manifest import (
+    DEFAULT_REGISTRY_PATH,
+    Slice,
+    load_registry,
+    log_creation,
+    read_touches,
+)
 from remvalgate.overlay import PROBLEMS, new_orchestrator
-from remvalgate.overlay.fixes import FIXES
+from remvalgate.overlay.fixes import FIXES, select
 
 NS = "test-social-network"
 TOUCH_LOG = Path(__file__).resolve().parents[1] / "runs" / "touch_log.jsonl"
@@ -66,7 +76,7 @@ def validate(problem_id: str, probs, registry) -> None:
     print(f"{problem_id}: PASS")
 
 
-def main() -> int:
+def main(requested: list[str]) -> int:
     # AIOpsLab's injectors run kubectl in the current context, the fixes above in kind-kind
     current = subprocess.run(
         ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
@@ -79,12 +89,17 @@ def main() -> int:
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     if sorted(PROBLEMS) != sorted(FIXES):
         raise AssertionError("the known fixes do not match the overlay problems")
+    confirmation = {i for i, s in registry.slices.items() if s is Slice.CONFIRMATION}
+    created = {
+        e["problem_id"] for e in read_touches(TOUCH_LOG) if e["run_id"].startswith("create-")
+    }
+    selected = select(requested, confirmation, created)
     probs = new_orchestrator().probs
-    for problem_id in PROBLEMS:
+    for problem_id in selected:
         validate(problem_id, probs, registry)
     print("result: PASS")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
