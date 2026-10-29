@@ -42,5 +42,9 @@ class Hit:
 @runtime_checkable
 class Retriever(Protocol):
     def retrieve(self, query: str, problem_id: str, k: int) -> list[Hit]:
-        """Return up to k hits for the query, best first, ranked from 1."""
+        """Return up to k hits for the query, best first, ranked from 1.
+
+        Raises RetrieverRefused for a problem the retriever does not serve, and ValueError if k
+        is below 1.
+        """
         ...

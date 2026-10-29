@@ -179,6 +179,13 @@ and the timings under `runs/manifests/`, which git ignores. It does not use
 network, redeploy the application and delete it at the end. The recorded times are in
 [docs/compute.md](docs/compute.md).
 
+`scripts/run_restore_check.py` is the hand check for snapshot and restore (story E2-S2, R2.2). For
+TargetPortMisconfig, ScalePod and AssignNonExistentNode it injects the fault, then runs the known
+fix, a damaging command and a delete of the object, and after each restore checks that the
+Services and Deployments equal their state before the command. It compares specs and labels and
+does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
+run it.
+
 `scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
 problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
 through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
