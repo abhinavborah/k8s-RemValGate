@@ -55,6 +55,10 @@ _ADDRESS_FIELDS = ("clusterIP", "clusterIPs")
 ObjectRef = tuple[str, str]  # kind, name
 
 
+class NotRestorable(ValueError):
+    """An admitted command whose effect is not a Kubernetes object, so no snapshot can undo it."""
+
+
 @dataclass(frozen=True)
 class Snapshot:
     namespace: str
@@ -80,12 +84,16 @@ def touched(command: str, policy: Policy, namespace: str) -> list[ObjectRef]:
     """Return the Deployments and Services an admitted command changes, in a stable order.
 
     Raises ValueError if the allow-list rejects the command: it never runs, so it needs no
-    snapshot. A read-only command, a pod delete and a ReplicaSet scale return an empty list.
+    snapshot. Raises NotRestorable for an exec into a database shell: its effect is data, which no
+    object snapshot holds, so the caller must not treat the command as undone. A read-only command,
+    a pod delete and a ReplicaSet scale return an empty list.
     """
     verdict = check(command, policy, namespace)
     if not verdict.admitted:
         raise ValueError(f"the allow-list rejects {command!r}: {verdict.reason}")
     parsed = parse_args(tokenize(command)[1:], policy)
+    if parsed.positionals[:1] == ["exec"]:
+        raise NotRestorable(f"{command!r} changes data in a pod, not a Kubernetes object")
     verb = split_verb(parsed.positionals, policy)
     if verb is None or verb[0] not in _MUTATING:
         return []

@@ -2,9 +2,10 @@ import copy
 
 import pytest
 
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
+from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, load_policy
 from remvalgate.harness.snapshot import (
     OUT_OF_SCOPE,
+    NotRestorable,
     restore,
     strip,
     take,
@@ -87,6 +88,16 @@ def test_touched_reads_the_targets_from_the_command(command, expected):
 def test_touched_refuses_a_command_the_allow_list_rejects():
     with pytest.raises(ValueError, match="OUT_OF_SANDBOX"):
         touched("kubectl scale deployment text-service --replicas=2 -n kube-system", POLICY, NS)
+
+
+def test_touched_refuses_an_exec_whose_effect_no_snapshot_holds():
+    command = (
+        f"kubectl exec user-mongodb-abc -n {NS} -- mongo admin "
+        '--eval \'db.grantRolesToUser("u",["root"])\''
+    )
+    assert check(command, POLICY, NS).admitted
+    with pytest.raises(NotRestorable):
+        touched(command, POLICY, NS)
 
 
 def test_strip_removes_status_and_server_fields_and_keeps_the_rest():
