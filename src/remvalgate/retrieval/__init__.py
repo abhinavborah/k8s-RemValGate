@@ -32,7 +32,8 @@ class PastFix:
 @dataclass(frozen=True)
 class Hit:
     entry: PastFix
-    # similarity in [0, 1], higher is closer
+    # higher is closer; the scale depends on the retriever (cosine, BM25, ...), so compare
+    # retrievers by rank, not by score
     score: float
     # 1 is the best hit
     rank: int

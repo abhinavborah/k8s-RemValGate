@@ -1,6 +1,7 @@
 """Development stub retriever (E4-S7).
 
-Ranks a small synthetic corpus by the share of query words that appear in an entry. It exists so
+Ranks a small synthetic corpus by the share of query words that appear in an entry, so its scores
+lie in [0, 1]. That range is a property of this stub, not of the interface. It exists so
 the planner and baselines can be smoke-tested on development problems before the evaluation
 retrieval configurations exist, and it refuses every other problem. The swap to the evaluation
 configurations is checked in #35.
