@@ -82,9 +82,7 @@ def test_replicas_zero_is_observed_as_scaled_to_zero():
         drop=[("Deployment", "media-service")],
     )
     assert observe(state) == [
-        Observation(
-            Kind.SCALED_TO_ZERO, "media-service", "deployment media-service scaled to zero replicas"
-        )
+        Observation(Kind.SCALED_TO_ZERO, "media-service", "deployment media-service has 0 replicas")
     ]
 
 
@@ -181,7 +179,7 @@ def test_observations_are_ordered_by_kind_then_service():
 
 def test_the_symptom_query_names_each_observation():
     state = listing(deployment("m", replicas=0))
-    assert symptom_query(observe(state)) == "deployment m scaled to zero replicas"
+    assert symptom_query(observe(state)) == "deployment m has 0 replicas"
     assert symptom_query([]) == ""
 
 
@@ -311,3 +309,67 @@ def test_a_recorded_fix_the_allow_list_rejects_is_returned_for_the_harness_to_re
     action = retrieval_only(_stub(), obs, DEV, NS)
     assert action.command is not None
     assert not admitted(action)
+
+
+def test_details_state_only_what_was_observed_not_a_cause():
+    state = listing(
+        deployment("a", replicas=0),
+        deployment("b", node_selector={"x": "y"}),
+        pod("b-1", {"app": "b"}, phase="Pending"),
+        deployment("c"),
+        service("c", target_port=1),
+    )
+    details = " ".join(o.detail for o in observe(state))
+    assert "does not exist" not in details
+    assert "does not match" not in details
+
+
+def test_with_several_declared_ports_the_lowest_is_the_fix_value():
+    # pins the shortcut in observe: the lowest declared port, which could be a metrics port
+    item = deployment("a", port=9090)
+    item["spec"]["template"]["spec"]["containers"][0]["ports"].append({"containerPort": 7})
+    (found,) = observe(listing(item, service("a", target_port=1)))
+    assert found.port == 7
+
+
+class EmptyRetriever:
+    def retrieve(self, query, problem_id, k):
+        return []
+
+
+class TwoHitRetriever:
+    def retrieve(self, query, problem_id, k):
+        return _stub().retrieve(query, DEV, k=2)
+
+
+def test_retrieval_only_escalates_when_the_retriever_returns_no_hit():
+    obs = observe(listing(deployment("a", replicas=0)))
+    action = retrieval_only(EmptyRetriever(), obs, DEV, NS)
+    assert action.command is None
+    assert "no hit" in action.reason
+
+
+def test_retrieval_only_uses_the_first_hit_when_a_retriever_returns_more_than_asked():
+    obs = observe(listing(deployment("media-service", replicas=0)))
+    action = retrieval_only(TwoHitRetriever(), obs, DEV, NS)
+    assert action.command is not None
+    assert "stub-002" in action.reason
+
+
+@pytest.mark.parametrize(
+    ("state", "entry_id"),
+    [
+        (listing(deployment("m", replicas=0)), "stub-002"),
+        (
+            listing(
+                deployment("u", node_selector={"x": "y"}),
+                pod("u-1", {"app": "u"}, phase="Pending"),
+            ),
+            "stub-003",
+        ),
+        (listing(deployment("p"), service("p", target_port=1)), "stub-001"),
+    ],
+)
+def test_each_observed_symptom_retrieves_the_stub_entry_of_its_fault(state, entry_id):
+    action = retrieval_only(_stub(), observe(state), DEV, NS)
+    assert entry_id in action.reason

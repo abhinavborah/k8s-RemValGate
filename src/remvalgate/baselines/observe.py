@@ -9,6 +9,10 @@ state one object-state fault type leaves behind (BRD R2.2), and is blind to the 
 - PORT_MISMATCH: a Service whose numeric targetPort no container of its Deployment listens on
   (TargetPortMisconfig).
 
+A port mismatch is read against the containerPort values the Deployment declares, which
+Kubernetes treats as informational: a Deployment that declares none is never reported, and a
+healthy Service that targets an undeclared port is reported.
+
 The database faults (RevokeAuth, UserUnregistered) leave no such state in these objects, so they
 are not observed here.
 """
@@ -53,7 +57,7 @@ def _scaled_to_zero(deployments: list[dict]) -> list[Observation]:
         Observation(
             Kind.SCALED_TO_ZERO,
             d["metadata"]["name"],
-            f"deployment {d['metadata']['name']} scaled to zero replicas",
+            f"deployment {d['metadata']['name']} has 0 replicas",
         )
         for d in deployments
         if d.get("spec", {}).get("replicas") == 0
@@ -77,7 +81,7 @@ def _unschedulable(deployments: list[dict], pods: list[dict]) -> list[Observatio
                 Observation(
                     Kind.UNSCHEDULABLE_SELECTOR,
                     name,
-                    f"deployment {name} pod pending node selector names a node that does not exist",
+                    f"deployment {name} has a node selector and a pending pod",
                 )
             )
     return found
@@ -101,8 +105,10 @@ def _port_mismatch(services: list[dict], deployments: list[dict]) -> list[Observ
                     Observation(
                         Kind.PORT_MISMATCH,
                         name,
-                        f"service {name} port does not match the container port",
+                        f"service {name} targetPort is not a declared container port",
                         index,
+                        # shortcut: the lowest declared port; a metrics or admin port could be
+                        # lower, which is fine while the development problems declare one port
                         min(listening),
                     )
                 )

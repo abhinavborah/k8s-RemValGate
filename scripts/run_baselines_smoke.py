@@ -77,15 +77,17 @@ def snapshot() -> dict:
     return normalise(json.loads(kubectl("get", "svc,deploy", "-o", "json").stdout))
 
 
-def wait_for_observation(timeout: float = SHOWS_TIMEOUT):
-    """Poll until the injected fault shows in the state a baseline reads."""
+def wait_for_observation(service: str, timeout: float = SHOWS_TIMEOUT):
+    """Poll until an observation names the injected service, so a state that was already there
+    cannot stand in for the injection. A target-port fault is never observed when the containers
+    declare no ports, and this then times out."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         found = observe(listing())
-        if found:
+        if any(o.service == service for o in found):
             return found
         time.sleep(2)
-    raise AssertionError(f"no observation within {timeout} s of the injection")
+    raise AssertionError(f"no observation naming {service} within {timeout} s of the injection")
 
 
 def fault_remains(prob, problem_id: str):
@@ -146,9 +148,12 @@ def reset(prob, clean: dict) -> None:
 
 def run_one(orch, problem_id, name, baseline, clean, policy, settle) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
+    # a fault already visible would be taken for the injection
+    before = observe(listing())
+    require(not before, f"the clean cluster already shows {before}")
     try:
         prob.inject_fault()
-        observations = wait_for_observation()
+        observations = wait_for_observation(prob.faulty_service)
         pre = parse_pods(kubectl_pods(NS, CONTEXT), NS)
         action: BaselineAction = baseline(observations, problem_id)
         verdict = admit(action.command, policy, NS) if action.command else None

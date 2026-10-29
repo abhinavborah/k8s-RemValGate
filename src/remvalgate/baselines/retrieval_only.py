@@ -32,13 +32,17 @@ def retrieval_only(
 ) -> BaselineAction:
     """Return the top hit's fix for the first observed service, or escalate.
 
-    A retriever refusal (RetrieverRefused) is not caught, and the command is not filtered:
-    the harness applies the allow-list to every system's command.
+    Escalates when the retriever returns no hit. A retriever refusal (RetrieverRefused) is not
+    caught, and the command is not filtered: the harness applies the allow-list to every system's
+    command.
     """
     validate_namespace(namespace)
     if not observations:
         return escalate("nothing was observed to query with")
-    (hit,) = retriever.retrieve(symptom_query(observations), problem_id, k=1)
+    hits = retriever.retrieve(symptom_query(observations), problem_id, k=1)
+    if not hits:
+        return escalate("the retriever returned no hit")
+    hit = hits[0]
     service = observations[0].service
     command = replace_service(hit.entry.fix_command, hit.entry.target_service, service)
     return BaselineAction(
