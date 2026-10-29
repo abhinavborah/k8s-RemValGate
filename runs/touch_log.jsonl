@@ -1,0 +1,4 @@
+{"problem_id": "dev-k8s_target_port-misconfig-mitigation-1", "run_id": "create-dev-k8s_target_port-misconfig-mitigation-1-20261028t201108z", "slice": "development", "timestamp": "2026-10-28T20:11:08Z"}
+{"problem_id": "dev-scale_pod_zero_social_net-mitigation-1", "run_id": "create-dev-scale_pod_zero_social_net-mitigation-1-20261028t201115z", "slice": "development", "timestamp": "2026-10-28T20:11:15Z"}
+{"problem_id": "dev-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "create-dev-assign_to_non_existent_node_social_net-mitigation-1-20261028t201152z", "slice": "development", "timestamp": "2026-10-28T20:11:52Z"}
+{"problem_id": "pool-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "create-pool-assign_to_non_existent_node_social_net-mitigation-1-20261028t201226z", "slice": "pool", "timestamp": "2026-10-28T20:12:26Z"}
