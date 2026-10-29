@@ -1,7 +1,7 @@
 # Compute record
 
 GPU environment and model hosting for the planner and gate (story E1-S4, BRD R1.4, proposal
-section XII), and the harness timing of one end to end run (story E1-S3, last section).
+section XII), the harness timing of one end to end run (story E1-S3), and the five-rollout timing pilot (story E9-S1, gate G2, last section).
 Every number comes from the smoke run unless a source is given.
 
 ## Environment
@@ -137,3 +137,77 @@ was already fixed. The ScalePod and AssignNonExistentNode fixes wait for a rollo
 deleting and reapplying its deployment, so their times will be larger. In the validation of the
 overlay problems, the gaps between creation touches were about 37 s and 34 s for them. One run of
 each cycle gives no spread. Earlier runs on this cluster have no manifest, so none of their times is reported.
+
+## Five-rollout timing pilot, gate G2, 2026-10-29 (UTC)
+
+Run by `scripts/run_pilot.py` at commit `257e746` on the two node kind cluster of the README
+(27 workloads, all Ready, the 8 container image digests and the node image digest matched the
+README after the cluster was stopped and started again). The agent was a script that sends the
+known fix as `exec_shell` actions through the Orchestrator's parser, so no model ran and no
+tokens were spent. Development problems only: the manifests record the `development` slice and
+no touch was appended. Each rollout is one injection, the known fix, one 120 s harm window of
+`detect_harm` and AIOpsLab's `recover_fault`, with the cluster checked against its clean
+snapshot afterwards. The five rollouts are the three development problems, then the first two
+again. All five were not harmful and left no fault, and every reset matched the clean snapshot.
+
+Seconds, wall clock (`time.perf_counter`), mean and standard deviation over the 5 rollouts:
+
+| Phase | Mean | SD |
+|---|---|---|
+| Inject the fault | 23.1 | 15.7 |
+| Pod status before the action (waits for the fault to show) | 0.2 | 0.1 |
+| Snapshot the objects the fix touches | 0.0 | 0.0 |
+| Execute the fix through `exec_shell` | 0.6 | 0.5 |
+| Harm window (`detect_harm`, 120 s settle) | 120.3 | 0.1 |
+| Reset (`recover_fault`, then all pods Ready) | 2.9 | 0.1 |
+| Sum of the phases | 147.1 | 16.3 |
+| Wall, from building the problem to the last check | 147.3 | 16.3 |
+
+The spread comes from the injection, which depends on the problem: about 6 s for the target
+port, 31 s for AssignNonExistentNode and 36 s for ScalePod. The settle window is 82 percent of
+the mean. The five rollouts have 2 of each of two problems and 1 of the third, so the mean
+depends on that mix. The summary, the five manifests and the log are in the shared Google Drive
+folder `k8s-RemValGate`, under `manifests/`, with the sizes of the local files (the per-rollout
+timings files are not copied: the summary holds the same values). SHA-256 of the summary, the five
+manifests and the log:
+
+| File | SHA-256 |
+|---|---|
+| `pilot-20261029t195144z.summary.json` | `49f57e1f4133a56adb58871e7867350c9cdbdf80094267df6787be29d54ed5a5` |
+| `pilot-20261029t195144z-1-k8s_target_port.json` | `2fb3b89faa1f6b133f288a40e1b6a03395b5a254c11bb861e8035a030e0ba85a` |
+| `pilot-20261029t195144z-2-scale_pod_zero_social_net.json` | `4ae9f941a214de4818b69cdd4c88f34477be17874c1726554b91285e99be63f7` |
+| `pilot-20261029t195144z-3-assign_to_non_existent_node_social_net.json` | `812f458a8b45e06ab7b8b2a48f96d196560bfc33f012ab56b420ee90df2a16e5` |
+| `pilot-20261029t195144z-4-k8s_target_port.json` | `812fd5a54deec942670a161da220a4bd38eebfe47929495bf781a86703a22ed5` |
+| `pilot-20261029t195144z-5-scale_pod_zero_social_net.json` | `1d48d0f9930d48f7c3c3de86553d796721cf77a7e549cbb7ee9cca1ace78a197` |
+| `pilot_run.log` | `53c1e3ecc8b46b7c74c7e4e08ff89a7b72e53d3f8ef030760e8c23589f838ae7` |
+
+Against the plan, as arithmetic and not a decision: the BRD plan of about 832 rollouts in 69
+hours serial is about 5.0 minutes each. At the measured 147.3 s the same count is about 34 hours
+serial, so the harness uses about half of the time per rollout that the plan assumed, and the
+rest is left for model latency. The 128 oracle labelling rollouts of R3.5 would be about 5.2
+hours instead of about 11. Four-way parallelism needs four clusters, which was not measured.
+
+Limits of the pilot:
+
+- It is a floor. It has no model latency, so K and R cannot be set from it alone: the planner's
+  sampling time per rollout has to be added, and no model run has been timed here.
+- The restore of the snapshot was not run. A rollout with a failed check adds a restore and a
+  second harm decision, so a mixed set costs more than this mean.
+- The mean depends on the mix of the three problems, and five rollouts give a wide spread.
+- The R3.5 shape (one injection, then K candidates with a reset between them) pays the injection
+  once, so its cost per candidate is below this mean.
+- After the cluster was stopped and started again, the `media-frontend` pod was Ready 15
+  minutes after the nodes started (19:31:50Z to 19:46:54Z), because its init container clones a
+  repository from GitHub on every start and the first attempts failed with a network error. A
+  restart therefore needs access to GitHub, although the images are already on the nodes. The
+  clone is not pinned to a commit, so the Lua scripts it fetches are not covered by the image
+  digests.
+- `dirty` is true in the manifests because two untracked handoff files were in the work tree.
+
+K and R are a group decision, not set here. One member recommends keeping the planned values, K = 8
+and R = 1 (BRD terms: K is 8 planned, R is 1 unless baseline outcomes vary, at most 3). At the
+measured cost the harness uses about half of the planned time per rollout, so no cut of K is
+needed for harness time. The risk is model latency, which this pilot does not measure. If the
+planner's sampling time per rollout exceeds the 2.5 minutes the plan leaves, the rule is to cut K
+before raising R. This recommendation is not group-confirmed.
+
