@@ -3,14 +3,19 @@
 Kept apart from that script, which imports aiopslab, so a test checks the keys in CI.
 """
 
+import json
 import shlex
+
+# the targetPort the target-port problem breaks and its known fix restores
+TARGET_PORT = 9090
 
 # problem id -> the known fix, as kubectl argument lists run in order
 FIXES = {
     "dev-k8s_target_port-misconfig-mitigation-1": [
         [
             "patch", "service", "user-mention-service", "--type=json",
-            "-p", '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]',
+            "-p", json.dumps([{"op": "replace", "path": "/spec/ports/0/targetPort",
+                               "value": TARGET_PORT}]),
         ],
     ],
     "dev-scale_pod_zero_social_net-mitigation-1": [
