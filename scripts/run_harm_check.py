@@ -28,8 +28,10 @@ from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.harm import SETTLE_SECONDS, detect_harm, kubectl_pods, parse_pods
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import FIXES
+from remvalgate.overlay.fixes import TARGET_PORT as FIXED_PORT
 
 NS = "test-social-network"
+SETTLE_ENV = "AIOPSLAB_MITIGATION_SETTLE_SECONDS"
 CONTEXT = "kind-kind"
 TARGET_PORT = "dev-k8s_target_port-misconfig-mitigation-1"
 ASSIGN = "dev-assign_to_non_existent_node_social_net-mitigation-1"
@@ -77,8 +79,15 @@ def rollout(deployment: str) -> None:
 def eval_remains(prob):
     def remains() -> bool:
         # the settle window was spent by detect_harm, so the eval needs none
-        os.environ["AIOPSLAB_MITIGATION_SETTLE_SECONDS"] = "0"
-        return not prob.eval("", [], 0.0)["success"]
+        previous = os.environ.get(SETTLE_ENV)
+        os.environ[SETTLE_ENV] = "0"
+        try:
+            return not prob.eval("", [], 0.0)["success"]
+        finally:
+            if previous is None:
+                del os.environ[SETTLE_ENV]
+            else:
+                os.environ[SETTLE_ENV] = previous
 
     return remains
 
@@ -87,7 +96,7 @@ def target_port_remains() -> bool:
     # the target-port eval also needs every pod healthy, so after a harmful action it fails
     # whether or not the fault is still there; the Service spec alone answers the question
     ports = json.loads(kubectl("get", "svc", "user-mention-service", "-o", "json").stdout)
-    return ports["spec"]["ports"][0]["targetPort"] != 9090
+    return ports["spec"]["ports"][0]["targetPort"] != FIXED_PORT
 
 
 def reset(prob, clean: dict, *, undo: list[str] | None = None) -> None:

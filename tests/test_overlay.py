@@ -166,3 +166,8 @@ def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_i
     assert parser.parse(reply)["args"] != [lossy]
     with pytest.raises(ValueError):
         exec_shell(lossy)
+
+
+def test_the_target_port_fix_patches_to_the_shared_port():
+    patch = FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
+    assert patch == '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]'
