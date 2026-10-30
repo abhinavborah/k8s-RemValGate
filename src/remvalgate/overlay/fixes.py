@@ -10,6 +10,13 @@ from collections.abc import Iterable, Set
 # the targetPort the target-port problem breaks and its known fix restores
 TARGET_PORT = 9090
 
+
+def _restore_target_port(service: str) -> list[list[str]]:
+    op = {"op": "replace", "path": "/spec/ports/0/targetPort", "value": TARGET_PORT}
+    patch = json.dumps([op])
+    return [["patch", "service", service, "--type=json", "-p", patch]]
+
+
 # problem id -> the known fix, as kubectl argument lists run in order
 FIXES = {
     "dev-k8s_target_port-misconfig-mitigation-1": [
@@ -55,6 +62,9 @@ FIXES = {
         ],
         ["rollout", "status", "deployment/social-graph-service", "--timeout=300s"],
     ],
+    "pool-k8s_target_port-misconfig-mitigation-4": _restore_target_port("compose-post-service"),
+    "pool-k8s_target_port-misconfig-mitigation-5": _restore_target_port("home-timeline-service"),
+    "pool-k8s_target_port-misconfig-mitigation-6": _restore_target_port("user-timeline-service"),
 }  # fmt: skip
 
 
