@@ -209,9 +209,10 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   may put the added lines in any order; each entry carries its own timestamp, so order is not used.
 - **Refusals.** A pool or confirmation run is refused when it has no touch entry, when its run id is
   already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
-  does not ignore (new files included). A pool run is also refused until the confirmation slice is
-  sealed (gate G1): `runs/confirmation_seal.json` must cover the registry's confirmation ids, and
-  each checksum recomputed under the run's AIOpsLab commit must match it
+  does not ignore (new files included). Both are also refused until the confirmation slice is
+  sealed (gate G1): `runs/confirmation_seal.json` must cover the registry's confirmation ids, the
+  touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
+  under the run's AIOpsLab commit must match the record
   ([docs/confirmation_problems.md](docs/confirmation_problems.md)). Run ids starting with `seal-`
   are kept for the seal touches. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.

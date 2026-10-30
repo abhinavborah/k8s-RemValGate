@@ -103,14 +103,30 @@ def _git(repo, *args):
     )
 
 
+SEALED = "2026-10-27T09:00:00Z"
+SEAL_TOUCH = {
+    "problem_id": CONF,
+    "run_id": "seal-p-synth-conf-20261027t090000z",
+    "slice": "confirmation",
+    "timestamp": SEALED,
+}
+
+
+def _runs(log):
+    """The touches after the fixture's seal touch."""
+    return [e for e in read_touches(log) if not e["run_id"].startswith("seal-")]
+
+
 def _repo(tmp_path):
-    """A git repository with one commit holding a file and an empty touch log."""
+    """A git repository with one commit holding a file, a sealed confirmation slice and a touch
+    log holding only its seal touch."""
     repo = tmp_path / "repo"
     (repo / "runs").mkdir(parents=True)
     (repo / "code.py").write_text("x = 1\n")
-    (repo / "runs" / "touch_log.jsonl").write_text("")
+    line = json.dumps(SEAL_TOUCH, sort_keys=True) + "\n"
+    (repo / "runs" / "touch_log.jsonl").write_bytes(line.encode())
     seal = {"aiopslab": PIN, "checksums": {CONF: _sum(CONF, PIN)}, "commit": "c" * 40}
-    (repo / "runs" / SEAL).write_text(json.dumps({**seal, "sealed": "2026-10-27T09:00:00Z"}))
+    (repo / "runs" / SEAL).write_text(json.dumps({**seal, "sealed": SEALED}))
     _git(repo, "init", "-q")
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "init")
@@ -363,7 +379,7 @@ def test_manifest_round_trip(manifest):
 @pytest.mark.parametrize("problem_id, slice_", [(POOL, "pool"), (CONF, "confirmation")])
 def test_logged_start_appends_dated_entry(tmp_path, problem_id, slice_):
     start, log, _ = _start(tmp_path, problem_id)
-    assert read_touches(log) == [
+    assert _runs(log) == [
         {
             "problem_id": problem_id,
             "run_id": "run-0001",
@@ -378,12 +394,12 @@ def test_logged_start_appends_dated_entry(tmp_path, problem_id, slice_):
 @pytest.mark.parametrize("problem_id", [DEV, SINGLE])
 def test_unlogged_start_writes_no_entry(tmp_path, problem_id):
     _, log, _ = _start(tmp_path, problem_id)
-    assert read_touches(log) == []
+    assert _runs(log) == []
 
 
 def test_touch_line_format(tmp_path):
     _, log, _ = _start(tmp_path, POOL)
-    raw = log.read_bytes()
+    raw = log.read_bytes().split(b"\n", 1)[1]
     assert raw == (
         b'{"problem_id": "p-synth-pool", "run_id": "run-0001", "slice": "pool", '
         b'"timestamp": "2026-10-27T10:15:00Z"}\n'
@@ -401,14 +417,14 @@ def test_pool_run_refused_without_confirmation_slice(tmp_path):
     registry = load_registry(_write_registry(tmp_path, {**_registry_data(), "confirmation": []}))
     with pytest.raises(RunRefused, match="gate G1"):
         start_run("run-0001", POOL, registry, log, repo, PIN, NOW)
-    assert read_touches(log) == []
+    assert _runs(log) == []
 
 
 def test_unpinned_aiopslab_refused_for_logged_slice(tmp_path):
     repo = _repo(tmp_path)
     with pytest.raises(RunRefused, match="AIOpsLab commit"):
         _start(tmp_path, POOL, aiopslab_commit=None, repo=repo)
-    assert read_touches(repo / "runs" / "touch_log.jsonl") == []
+    assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
 @pytest.mark.parametrize("problem_id", [POOL, CONF, DEV])
@@ -417,7 +433,7 @@ def test_malformed_aiopslab_pin_refused_before_touch(tmp_path, problem_id, pin):
     repo = _repo(tmp_path)
     with pytest.raises(RunRefused, match="not a pinned commit"):
         _start(tmp_path, problem_id, aiopslab_commit=pin, repo=repo)
-    assert read_touches(repo / "runs" / "touch_log.jsonl") == []
+    assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
 def test_unpinned_aiopslab_allowed_for_development(tmp_path):
@@ -430,7 +446,7 @@ def test_dirty_tree_refused_for_logged_slice(tmp_path):
     (repo / "code.py").write_text("x = 2\n")
     with pytest.raises(RunRefused, match="uncommitted"):
         _start(tmp_path, CONF, repo=repo)
-    assert read_touches(repo / "runs" / "touch_log.jsonl") == []
+    assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
 def test_dirty_tree_recorded_for_development(tmp_path):
@@ -554,8 +570,8 @@ def test_manifest_refused_when_it_disagrees_with_run_start(tmp_path, changes):
 def test_reused_run_id_refused(tmp_path):
     _, log, repo = _start(tmp_path, POOL)
     with pytest.raises(RunRefused, match="already in the touch log"):
-        start_run("run-0001", CONF, _registry(tmp_path), log, repo, PIN, NOW)
-    assert len(read_touches(log)) == 1
+        start_run("run-0001", CONF, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
+    assert len(_runs(log)) == 1
 
 
 def test_invalid_run_id_rejected_at_start(tmp_path):
@@ -581,10 +597,12 @@ def test_git_failure_refused(tmp_path):
 def test_damaged_touch_log_refused_before_append(tmp_path, content, match):
     repo = _repo(tmp_path)
     log = repo / "runs" / "touch_log.jsonl"
-    log.write_bytes(content.encode())
+    # appended after the committed lines, so the tree stays clean
+    damaged = log.read_bytes() + content.encode()
+    log.write_bytes(damaged)
     with pytest.raises(RunRefused, match=match):
         _start(tmp_path, POOL, repo=repo)
-    assert log.read_bytes() == content.encode()
+    assert log.read_bytes() == damaged
 
 
 def test_missing_touch_log_reads_empty(tmp_path):
@@ -614,8 +632,8 @@ def test_appends_never_change_earlier_lines(problem_ids):
             start_run(f"run-{i}", problem_id, registry, log, repo, PIN, NOW, checksum=_sum)
             snapshots.append(log.read_bytes())
         logged = [p for p in problem_ids if p != DEV]
-        assert len(read_touches(log)) == len(logged)
-        assert len(log.read_bytes().splitlines()) == len(logged)
+        assert len(_runs(log)) == len(logged)
+        assert len(log.read_bytes().splitlines()) == len(logged) + 1
         for earlier, later in zip(snapshots, snapshots[1:], strict=False):
             assert later.startswith(earlier)
 
@@ -627,6 +645,8 @@ def _unsealed(tmp_path, data=None):
     """A clean repository with no seal record, a registry and the touch log path."""
     repo = _repo(tmp_path)
     _git(repo, "rm", "-q", f"runs/{SEAL}")
+    (repo / "runs" / "touch_log.jsonl").write_text("")
+    _git(repo, "add", "runs")
     _git(repo, "commit", "-q", "-m", "unseal")
     registry = load_registry(_write_registry(tmp_path, data or _registry_data()))
     return repo, registry, repo / "runs" / "touch_log.jsonl"
@@ -636,20 +656,22 @@ def _create(log, problem_id):
     log_creation(problem_id, load_registry(log.parents[2] / "slices.json"), log, NOW)
 
 
-def test_pool_run_refused_before_the_seal(tmp_path):
+@pytest.mark.parametrize("problem_id", [POOL, CONF])
+def test_logged_run_refused_before_the_seal(tmp_path, problem_id):
     repo, registry, log = _unsealed(tmp_path)
     with pytest.raises(RunRefused, match="not sealed .gate G1"):
-        start_run("run-0001", POOL, registry, log, repo, PIN, NOW, checksum=_sum)
+        start_run("run-0001", problem_id, registry, log, repo, PIN, NOW, checksum=_sum)
     assert read_touches(log) == []
 
 
-def test_pool_run_refused_when_a_definition_changed_after_the_seal(tmp_path):
+@pytest.mark.parametrize("problem_id", [POOL, CONF])
+def test_logged_run_refused_when_a_definition_changed_after_the_seal(tmp_path, problem_id):
     repo = _repo(tmp_path)
     log = repo / "runs" / "touch_log.jsonl"
     with pytest.raises(RunRefused, match="changed since the seal"):
         start_run(
             "run-0001",
-            POOL,
+            problem_id,
             _registry(tmp_path),
             log,
             repo,
@@ -657,7 +679,7 @@ def test_pool_run_refused_when_a_definition_changed_after_the_seal(tmp_path):
             NOW,
             checksum=lambda i, c: "0" * 64,
         )
-    assert read_touches(log) == []
+    assert _runs(log) == []
 
 
 def test_pool_run_refused_under_another_aiopslab_pin(tmp_path):
@@ -733,7 +755,10 @@ def test_seal_refused_without_a_creation_touch(tmp_path):
 def test_seal_refused_after_a_run_touched_the_slice(tmp_path):
     repo, registry, log = _unsealed(tmp_path)
     _create(log, CONF)
-    start_run("run-0001", CONF, registry, log, repo, PIN, NOW, checksum=_sum)
+    # written by hand: start_run refuses a confirmation run before the seal
+    entry = {"problem_id": CONF, "run_id": "run-0001", "slice": "confirmation", "timestamp": "t"}
+    with log.open("ab") as out:
+        out.write((json.dumps(entry, sort_keys=True) + "\n").encode())
     with pytest.raises(RunRefused, match="already run"):
         seal_confirmation(registry, log, repo, PIN, _sum, NOW)
     assert not (log.parent / SEAL).exists()
@@ -763,3 +788,16 @@ def test_seal_refused_on_a_damaged_touch_log_writes_nothing(tmp_path):
     with pytest.raises(RunRefused, match="newline"):
         seal_confirmation(registry, log, repo, PIN, _sum, NOW)
     assert not (log.parent / SEAL).exists()
+
+
+@pytest.mark.parametrize(
+    "touches",
+    [[], [{**SEAL_TOUCH, "timestamp": "2026-10-27T09:00:01Z"}], [SEAL_TOUCH, SEAL_TOUCH]],
+)
+def test_seal_record_without_its_seal_touches_refused(tmp_path, touches):
+    repo, registry, log = _unsealed(tmp_path)
+    seal = {"aiopslab": PIN, "checksums": {CONF: _sum(CONF, PIN)}, "commit": "c" * 40}
+    (log.parent / SEAL).write_text(json.dumps({**seal, "sealed": SEALED}))
+    log.write_bytes("".join(json.dumps(t, sort_keys=True) + "\n" for t in touches).encode())
+    with pytest.raises(RunRefused, match="does not show the slice as sealed"):
+        check_seal(registry, log, PIN, _sum)

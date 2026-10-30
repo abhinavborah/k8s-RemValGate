@@ -6,9 +6,10 @@ the AIOpsLab commit is not pinned, the work tree has changes git does not ignore
 is already in the log. write_manifest checks the entry again and compares the manifest with what
 start_run recorded, so a run without an entry gets no manifest.
 
-A pool run is refused until the confirmation slice is sealed (gate G1): seal_confirmation writes
-the seal record beside the touch log, and start_run checks that it covers the registry's
-confirmation ids and that each checksum still matches.
+A pool or confirmation run is refused until the confirmation slice is sealed (gate G1):
+seal_confirmation writes the seal record beside the touch log and a seal touch per id, and
+start_run checks that both cover the registry's confirmation ids and that each checksum still
+matches.
 
 log_creation appends a creation touch for a problem validated with a known fix, in any slice.
 """
@@ -308,7 +309,7 @@ def start_run(
         raise RunRefused(f"a {slice_} run needs a pinned AIOpsLab commit")
     if slice_ in LOGGED and dirty:
         raise RunRefused(f"a {slice_} run needs a tree with no uncommitted changes")
-    if slice_ is Slice.POOL:
+    if slice_ in LOGGED:
         check_seal(registry, log_path, aiopslab_commit, checksum)
     timestamp = now.astimezone(UTC).strftime(_TIMESTAMP)
     if slice_ in LOGGED:
@@ -359,7 +360,9 @@ def log_creation(
 def _confirmation_ids(registry: Registry) -> list[str]:
     ids = [i for i, s in registry.slices.items() if s is Slice.CONFIRMATION]
     if not ids:
-        raise RunRefused("a pool run needs the confirmation slice in the registry (gate G1)")
+        raise RunRefused(
+            "a pool or confirmation run needs the confirmation slice in the registry (gate G1)"
+        )
     return ids
 
 
@@ -378,9 +381,10 @@ def check_seal(
 ) -> None:
     """Gate G1 (BRD 7.1, R3.3): refuse unless the confirmation slice is sealed and unchanged.
 
-    The seal must cover exactly the registry's confirmation ids, and each checksum recomputed
-    under this AIOpsLab commit must equal the sealed one, so an edit to a definition, or a new
-    pin, after the seal closes the gate again.
+    The seal must cover exactly the registry's confirmation ids, the touch log must hold one
+    seal touch per id at the sealed time, and each checksum recomputed under this AIOpsLab
+    commit must equal the sealed one, so an edit to a definition, or a new pin, after the seal
+    closes the gate again.
     """
     ids = _confirmation_ids(registry)
     path = Path(log_path).parent / SEAL_NAME
@@ -398,6 +402,14 @@ def check_seal(
         raise RunRefused(f"the seal record {path} is damaged (gate G1)")
     if seal["checksums"].keys() != set(ids):
         raise RunRefused("the seal does not cover the registry's confirmation ids (gate G1)")
+    # the record alone is not enough: seal_confirmation writes both, after its own checks
+    sealed = [
+        e["problem_id"]
+        for e in _sound_touches(Path(log_path))
+        if e["run_id"].startswith("seal-") and e["timestamp"] == seal["sealed"]
+    ]
+    if sorted(sealed) != sorted(ids):
+        raise RunRefused("the touch log does not show the slice as sealed (gate G1)")
     checksum = checksum or _default_checksum()
     changed = [i for i in ids if checksum(i, aiopslab_commit) != seal["checksums"][i]]
     if changed:
