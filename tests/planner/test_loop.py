@@ -175,3 +175,12 @@ def test_text_before_the_json_object_is_skipped():
         ["Checking the logs.\n" + tool("get_logs", namespace=NS, service="s"), final()]
     )
     assert len(tools.calls) == 1
+
+
+@pytest.mark.parametrize("name", ["get_metrics", "get_traces"])
+def test_the_telemetry_tools_run_in_the_target_namespace_only(name):
+    result, tools, _ = run(
+        [tool(name, namespace="default"), tool(name, namespace=NS, duration=5), final()]
+    )
+    assert tools.calls == [(name, {"namespace": NS, "duration": 5})]
+    assert f"{name} works in namespace {NS} only" in result.steps[0].observation

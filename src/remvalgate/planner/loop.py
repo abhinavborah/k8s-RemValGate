@@ -34,7 +34,7 @@ FAULT_TYPES = {
     "UserUnregistered": "the database user was unregistered, so access fails",
 }
 READ_ONLY_VERBS = frozenset({"get", "describe"})
-DEFAULT_TOOLS = frozenset({"exec_shell", "get_logs"})
+DEFAULT_TOOLS = frozenset({"exec_shell", "get_logs", "get_metrics", "get_traces"})
 
 _TOOL_HELP = {
     "exec_shell": (
@@ -43,6 +43,14 @@ _TOOL_HELP = {
         "and no --context flag"
     ),
     "get_logs": '{"tool": "get_logs", "arguments": {"namespace": "NS", "service": "SERVICE"}}',
+    "get_metrics": (
+        '{"tool": "get_metrics", "arguments": {"namespace": "NS"}}: a summary of container '
+        "metrics (cpu, memory, network, threads) of the last 5 minutes, per pod"
+    ),
+    "get_traces": (
+        '{"tool": "get_traces", "arguments": {"namespace": "NS"}}: a summary of request '
+        "traces of the last 5 minutes, per service, with error spans first"
+    ),
 }
 
 
@@ -95,8 +103,8 @@ def _system_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str
         f"Tools:\n{tool_lines}\n"
         f"Fault types:\n{fault_lines}\n"
         "Start with kubectl get deployments and pods to find a workload that is missing, not "
-        "ready or Pending, then describe it. Logs are noisy and slow, so read them last, for one "
-        "service at a time.\n"
+        "ready or Pending, then describe it. Logs, metrics and traces are noisy and slow, so use "
+        "them after kubectl, and read logs for one service at a time.\n"
         "To finish, reply with "
         '{"final": {"fault_type": F, "service": S, "reason": R, "command": C}} where F is one of '
         "the fault types above, S is the exact name of the faulty service, R is one sentence, "
@@ -225,9 +233,8 @@ def plan(
                 observation = _tool_error(tool, arguments, tools, schemas)
                 if observation is None and tool == "exec_shell":
                     observation = _read_only_error(arguments["command"], policy, schemas, namespace)
-                if observation is None and tool == "get_logs":
-                    if arguments["namespace"] != namespace:
-                        observation = f"get_logs works in namespace {namespace} only"
+                if observation is None and arguments.get("namespace", namespace) != namespace:
+                    observation = f"{tool} works in namespace {namespace} only"
                 if observation is None:
                     observation = _clip(run_tool(tool, arguments), tool, max_observation_chars)
                 else:
