@@ -5,7 +5,9 @@ confirmation slice, authored before any pool rollout so that they exist to be se
 (#25). Nothing may be tuned or prompt-iterated on them. They are opened once, at the end (R9.6,
 #59).
 
-Status: authored and validated, not sealed. Validated on 2026-10-29 (UTC) on a two-node amd64
+Status: authored, validated and sealed. Sealed on 2026-10-30 at 11:51:21 UTC, at commit
+`41b6d86`: the record is `runs/confirmation_seal.json`, with one `seal-` touch per problem in
+`runs/touch_log.jsonl` (see Seal). Validated on 2026-10-29 (UTC) on a two-node amd64
 kind cluster: for each problem the eval failed with the fault injected, passed after the known fix,
 and the fault was recovered. The three creation touches are the `conf-` entries in
 `runs/touch_log.jsonl`. No system, model or LLM judge ran on them.
