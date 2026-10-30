@@ -77,11 +77,11 @@ def known_fix(problem_id: str, namespace: str) -> list[str]:
     return [shlex.join(["kubectl", "-n", namespace, *args]) for args in FIXES[problem_id]]
 
 
-def select(requested: Iterable[str], confirmation: Set[str], created: Set[str]) -> list[str]:
+def select(requested: Iterable[str], confirmation: Set[str]) -> list[str]:
     """The overlay ids to validate: the requested ones, or with none requested every overlay
     problem outside the confirmation slice, so a routine revalidation never touches it.
 
-    A confirmation problem that already has a creation touch is refused: it is created once.
+    log_creation refuses a second creation of a confirmation problem.
     """
     requested = list(dict.fromkeys(requested))
     if not requested:
@@ -89,7 +89,4 @@ def select(requested: Iterable[str], confirmation: Set[str], created: Set[str]) 
     unknown = [i for i in requested if i not in FIXES]
     if unknown:
         raise ValueError(f"not overlay problems: {', '.join(unknown)}")
-    again = [i for i in requested if i in confirmation and i in created]
-    if again:
-        raise ValueError(f"confirmation problems already created: {', '.join(again)}")
     return requested

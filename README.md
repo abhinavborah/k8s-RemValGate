@@ -87,6 +87,11 @@ cp aiopslab/config.yml.example aiopslab/config.yml        # then set k8s_host: k
 cd ../..                                                  # back to the repository root
 ```
 
+After the nodes are stopped, `docker start kind-control-plane kind-worker` brings the cluster back.
+The `media-frontend` init container clones a repository from GitHub on every start, so the
+cluster needs access to GitHub and the pod can take about 15 minutes to be Ready (measured once).
+Then wait for all pods Ready and compare the image digests below with the cluster again.
+
 Only the ARM config was run. Upstream also ships `kind/kind-config-x86.yaml`, which was not run
 here, and its node image digest is not recorded.
 
@@ -157,15 +162,18 @@ inside each `Orchestrator` and has no hook for outside entries, so an overlay en
 an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
 AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
 refused. The shipped overlay holds the three development problems
-([docs/development_problems.md](docs/development_problems.md)) and the pool variant of
-AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), defined in
+([docs/development_problems.md](docs/development_problems.md)), the pool variant of
+AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)) and the three
+confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)), defined in
 `src/remvalgate/overlay/dev_problems.py`. The known fixes are in
 `src/remvalgate/overlay/fixes.py`.
 
 `scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. `scripts/validate_overlay_problems.py` validates each overlay problem: it
-logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
-`kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network
+constructed Orchestrator. `scripts/validate_overlay_problems.py` validates the overlay problems it
+is given, or with none given every overlay problem except the confirmation slice: for each it logs a
+creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
+`kubectl` command, checks that the eval passes and recovers the fault. A confirmation problem is
+created once: `log_creation` refuses a second creation touch for it. Run it with Social Network
 deployed and Ready. Both need the cluster, so CI does not run them.
 
 `scripts/run_dev_end_to_end.py` runs one development problem end to end (story E1-S3, R1.3). A
@@ -185,6 +193,21 @@ fix, a damaging command and a delete of the object, and after each restore check
 Services and Deployments equal their state before the command. It compares specs and labels and
 does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
 run it.
+
+`scripts/run_pilot.py` is the five-rollout timing pilot (story E9-S1, gate G2). It runs the known
+fix of the three development problems, then the first two again, through the Orchestrator's parser
+with a scripted agent, and times each phase: inject, pod status before the action, snapshot,
+execute, one `detect_harm` settle window and reset. It writes a run manifest per rollout and a
+summary under `runs/manifests/`, which git ignores, and logs no touch. The result is in
+[docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
+it, and it takes about 12 minutes.
+
+`scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
+problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
+through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
+after the settle window. The baselines are in `src/remvalgate/baselines/`. Nothing is appended to
+the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
+so CI does not run it; CI tests the baselines on synthetic cluster listings.
 
 ## Large files
 
@@ -220,5 +243,6 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   9 current pool problems, one of them the overlay variant of AssignNonExistentNode
   ([docs/problem_inventory.md](docs/problem_inventory.md)), and the development problems designated
   in
-  [docs/development_problems.md](docs/development_problems.md). The pool extension, the
-  confirmation slice and the singleton problems are not in it yet.
+  [docs/development_problems.md](docs/development_problems.md), and the three confirmation problems
+  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The pool extension and the
+  singleton problems are not in it yet.

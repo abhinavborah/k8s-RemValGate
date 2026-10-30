@@ -338,7 +338,8 @@ def log_creation(
     not a system run. Any slice is logged, development included (R3.3, R3.8).
 
     The run id is create-<problem id>-<UTC time>, so a creation entry is told apart from a run
-    entry by its prefix and a repeated validation gets a new id.
+    entry by its prefix and a repeated validation gets a new id. A confirmation problem is created
+    once: a second creation is refused.
     """
     now = now or datetime.now(UTC)
     if now.tzinfo is None:
@@ -347,6 +348,11 @@ def log_creation(
     now = now.astimezone(UTC)
     run_id = f"create-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
     _check_run_id(run_id, "log_creation")
+    if slice_ is Slice.CONFIRMATION and any(
+        e["problem_id"] == problem_id and e["run_id"].startswith("create-")
+        for e in read_touches(log_path)
+    ):
+        raise RunRefused(f"{problem_id!r} is a confirmation problem already created")
     entry = {
         "problem_id": problem_id,
         "run_id": run_id,
