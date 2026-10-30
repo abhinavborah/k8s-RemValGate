@@ -12,7 +12,7 @@ write files to the current directory (get_traces does), so the script changes in
 folder under runs/. The transcript and a manifest go to runs/manifests/, which git ignores.
 
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
-        [--thinking] [--problem ID ...]
+        [--no-thinking] [--problem ID ...]
 """
 
 import argparse
@@ -112,7 +112,7 @@ async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Pat
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-version", required=True, help="format and quantization served")
-    parser.add_argument("--thinking", action="store_true")
+    parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--problem", action="append", choices=PROBLEMS)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
