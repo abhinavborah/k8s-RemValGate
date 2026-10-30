@@ -138,17 +138,25 @@ deleting and reapplying its deployment, so their times will be larger. In the va
 overlay problems, the gaps between creation touches were about 37 s and 34 s for them. One run of
 each cycle gives no spread. Earlier runs on this cluster have no manifest, so none of their times is reported.
 
-## Five-rollout timing pilot, gate G2, 2026-10-29 (UTC)
+## Five-rollout timing pilot, gate G2, 2026-10-30 (UTC)
 
-Run by `scripts/run_pilot.py` at commit `257e746` on the two node kind cluster of the README
-(27 workloads, all Ready, the 8 container image digests and the node image digest matched the
-README after the cluster was stopped and started again). The agent was a script that sends the
-known fix as `exec_shell` actions through the Orchestrator's parser, so no model ran and no
-tokens were spent. Development problems only: the manifests record the `development` slice and
-no touch was appended. Each rollout is one injection, the known fix, one 120 s harm window of
-`detect_harm` and AIOpsLab's `recover_fault`, with the cluster checked against its clean
-snapshot afterwards. The five rollouts are the three development problems, then the first two
-again. All five were not harmful and left no fault, and every reset matched the clean snapshot.
+Run by `scripts/run_pilot.py` at commit `c5f2236` on the two node kind cluster of the README
+(27 workloads, all Ready). The agent was a script that sends the known fix as `exec_shell`
+actions through the Orchestrator's parser, so no model ran and no tokens were spent. Development
+problems only: the manifests record the `development` slice and no touch was appended. Each
+rollout is one injection, the known fix, one 120 s harm window of `detect_harm` and AIOpsLab's
+`recover_fault`, followed by a wait until every workload of the clean cluster is healthy again.
+The cluster is then checked against its clean snapshot. The five rollouts are the three
+development problems, then the first two again. All five were not harmful and left no fault, and
+every reset matched the clean snapshot.
+
+This run replaces an earlier run of 2026-10-29 (commit `257e746`, mean 147.3 s, sd 16.3 s), whose
+reset ran `kubectl wait --for=condition=Ready pods --all` and nothing else. After the Assign
+problem, AIOpsLab's `recover_fault` deletes the Deployment and applies it again and returns
+without waiting (`inject_virtual.py` lines 95 to 108 at the pinned commit), so that reset could
+end before the new pod existed. That run's files stay on Drive for the record and are not used.
+The new reset polls the pod status until all 27 workloads are healthy. It also took the fixed cost
+of the `kubectl wait` process out of the reset, so the reset is shorter, not longer.
 
 Seconds, wall clock (`time.perf_counter`), mean and standard deviation over the 5 rollouts:
 
@@ -157,35 +165,38 @@ Seconds, wall clock (`time.perf_counter`), mean and standard deviation over the 
 | Inject the fault | 23.1 | 15.7 |
 | Pod status before the action (waits for the fault to show) | 0.2 | 0.1 |
 | Snapshot the objects the fix touches | 0.0 | 0.0 |
-| Execute the fix through `exec_shell` | 0.6 | 0.5 |
-| Harm window (`detect_harm`, 120 s settle) | 120.3 | 0.1 |
-| Reset (`recover_fault`, then all pods Ready) | 2.9 | 0.1 |
-| Sum of the phases | 147.1 | 16.3 |
-| Wall, from building the problem to the last check | 147.3 | 16.3 |
+| Execute the fix through `exec_shell` | 0.7 | 0.6 |
+| Harm window (`detect_harm`, 120 s settle) | 120.3 | 0.0 |
+| Reset (`recover_fault`, then every workload healthy) | 0.4 | 0.6 |
+| Sum of the phases | 144.7 | 16.5 |
+| Wall, from building the problem to the last check | 144.8 | 16.5 |
 
-The spread comes from the injection, which depends on the problem: about 6 s for the target
-port, 31 s for AssignNonExistentNode and 36 s for ScalePod. The settle window is 82 percent of
-the mean. The five rollouts have 2 of each of two problems and 1 of the third, so the mean
-depends on that mix. The summary, the five manifests and the log are in the shared Google Drive
-folder `k8s-RemValGate`, under `manifests/`, with the sizes of the local files (the per-rollout
-timings files are not copied: the summary holds the same values). SHA-256 of the summary, the five
-manifests and the log:
+The reset took 0.1 s after the target port and ScalePod fixes, which had already repaired the
+cluster, and 1.4 s after the Assign fix, which ends with a delete and a new pod. The injection
+time is almost entirely fixed sleeps in AIOpsLab at the pinned commit: 6 s in the base injector
+(`generators/fault/base.py` line 51), and 25 s more for Assign and 30 s more for ScalePod in
+their `inject_fault` methods. That gives 6, 31 and 36 s, which are the measured times, so the
+spread is an upstream constant and not the speed of the cluster. After the settle window, it is
+the largest cost. The settle window is 83 percent of the mean. The five rollouts have 2 of each of
+two problems and 1 of the third, so the mean depends on that mix. The summary, the five manifests
+and the log are in the shared Google Drive folder `k8s-RemValGate`, under `manifests/`, with the
+sizes of the local files (the per-rollout timings files are not copied: the summary holds the same
+values). SHA-256 of the summary, the five manifests and the log:
 
 | File | SHA-256 |
 |---|---|
-| `pilot-20261029t195144z.summary.json` | `49f57e1f4133a56adb58871e7867350c9cdbdf80094267df6787be29d54ed5a5` |
-| `pilot-20261029t195144z-1-k8s_target_port.json` | `2fb3b89faa1f6b133f288a40e1b6a03395b5a254c11bb861e8035a030e0ba85a` |
-| `pilot-20261029t195144z-2-scale_pod_zero_social_net.json` | `4ae9f941a214de4818b69cdd4c88f34477be17874c1726554b91285e99be63f7` |
-| `pilot-20261029t195144z-3-assign_to_non_existent_node_social_net.json` | `812f458a8b45e06ab7b8b2a48f96d196560bfc33f012ab56b420ee90df2a16e5` |
-| `pilot-20261029t195144z-4-k8s_target_port.json` | `812fd5a54deec942670a161da220a4bd38eebfe47929495bf781a86703a22ed5` |
-| `pilot-20261029t195144z-5-scale_pod_zero_social_net.json` | `1d48d0f9930d48f7c3c3de86553d796721cf77a7e549cbb7ee9cca1ace78a197` |
-| `pilot_run.log` | `53c1e3ecc8b46b7c74c7e4e08ff89a7b72e53d3f8ef030760e8c23589f838ae7` |
+| `pilot-20261030t061529z.summary.json` | `543b20e4b091b6abe9d2e692e52295b771b022c4705c05dc326a83d3ffda600b` |
+| `pilot-20261030t061529z-1-k8s_target_port.json` | `c4e489b7d3a44cdf5313c02d714d5c0875b2aa76bcb4b3fc2d87cec920d4fb28` |
+| `pilot-20261030t061529z-2-scale_pod_zero_social_net.json` | `fe1585fc5d9c169be13ff4769bbcd173f886525d26d34c45fb227eb9f0a132fb` |
+| `pilot-20261030t061529z-3-assign_to_non_existent_node_social_net.json` | `37d3e84f4bdb2e5498361b597d7b84fd8b645a2b5e681f74751c88294fa2912c` |
+| `pilot-20261030t061529z-4-k8s_target_port.json` | `4429d6c5887259992eef81f7425eb97c9823962f2bfb08556e4c2557cc395277` |
+| `pilot-20261030t061529z-5-scale_pod_zero_social_net.json` | `5e17b4608e8e5a3240bc8d981f328d2fdcf555f54b159306abb970b13a5bb3bc` |
+| `pilot_run_20261030t061529z.log` | `ef27ad0600644f48504c6b2f9956ad853ce48609201f61b065de5aba4d771ab7` |
 
 Against the plan, as arithmetic and not a decision: the BRD plan of about 832 rollouts in 69
-hours serial is about 5.0 minutes each. At the measured 147.3 s the same count is about 34 hours
+hours serial is about 5.0 minutes each. At the measured 144.8 s the same count is about 33 hours
 serial, so the harness uses about half of the time per rollout that the plan assumed, and the
-rest is left for model latency. The 128 oracle labelling rollouts of R3.5 would be about 5.2
-hours instead of about 11. Four-way parallelism needs four clusters, which was not measured.
+rest is left for model latency. Four-way parallelism needs four clusters, which was not measured.
 
 Limits of the pilot:
 
@@ -194,20 +205,23 @@ Limits of the pilot:
 - The restore of the snapshot was not run. A rollout with a failed check adds a restore and a
   second harm decision, so a mixed set costs more than this mean.
 - The mean depends on the mix of the three problems, and five rollouts give a wide spread.
-- The R3.5 shape (one injection, then K candidates with a reset between them) pays the injection
-  once, so its cost per candidate is below this mean.
+- The cost of the oracle labelling in R3.5 is not known. R3.5 needs a harness reset between
+  candidates, checked against the saved post-injection state, and how that reset is done (a
+  snapshot restore, or a recovery and a new injection) has not been timed. As arithmetic only,
+  128 labelling rollouts at one full rollout each are 128 x 144.8 s, about 5.1 hours; the actual
+  cost per candidate may be lower or higher.
 - After the cluster was stopped and started again, the `media-frontend` pod was Ready 15
-  minutes after the nodes started (19:31:50Z to 19:46:54Z), because its init container clones a
-  repository from GitHub on every start and the first attempts failed with a network error. A
-  restart therefore needs access to GitHub, although the images are already on the nodes. The
-  clone is not pinned to a commit, so the Lua scripts it fetches are not covered by the image
-  digests.
+  minutes after the nodes started (19:31:50Z to 19:46:54Z on 2026-10-29), because its init
+  container clones a repository from GitHub on every start and the first attempts failed with a
+  network error. A restart therefore needs access to GitHub, although the images are already on
+  the nodes. The clone is not pinned to a commit, so the Lua scripts it fetches are not covered
+  by the image digests.
 - `dirty` is true in the manifests because two untracked handoff files were in the work tree.
 
-K and R are a group decision, not set here. One member recommends keeping the planned values, K = 8
-and R = 1 (BRD terms: K is 8 planned, R is 1 unless baseline outcomes vary, at most 3). At the
-measured cost the harness uses about half of the planned time per rollout, so no cut of K is
-needed for harness time. The risk is model latency, which this pilot does not measure. If the
-planner's sampling time per rollout exceeds the 2.5 minutes the plan leaves, the rule is to cut K
-before raising R. This recommendation is not group-confirmed.
-
+K and R are not set by this pilot. The ticket was changed to check the plan against the measured
+time and keep K = 8 unless the budget fails, with R set in the baseline-only run. One member
+recommends keeping K = 8 and R = 1 (BRD terms: K is 8 planned, R is 1 unless baseline outcomes
+vary, at most 3). At the measured cost the harness uses about half of the planned time per
+rollout, so no cut of K is needed for harness time. The risk is model latency, which this pilot
+does not measure. If the planner's sampling time per rollout exceeds the 2.6 minutes the plan
+leaves, the rule is to cut K before raising R. This recommendation is not group-confirmed.
