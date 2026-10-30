@@ -41,21 +41,25 @@ SPEC = {
 _HERE = Path(__file__).parent
 
 
-def _sources(name: str) -> list[str]:
-    """Source of a dev_problems.py definition and of each base class defined there, first base
-    first; the chain stops at the first base imported from aiopslab."""
+def _sources(name: str, text: str | None = None) -> list[str]:
+    """Source of a dev_problems.py definition and of every base class defined there, depth
+    first in base order; bases imported from aiopslab are left to the pin."""
     # read_text uses universal newlines, so the source is the same on every system
-    text = (_HERE / "dev_problems.py").read_text(encoding="utf-8")
+    if text is None:
+        text = (_HERE / "dev_problems.py").read_text(encoding="utf-8")
     defs = {
         n.name: n for n in ast.parse(text).body if isinstance(n, (ast.ClassDef, ast.FunctionDef))
     }
-    sources = []
-    while name in defs:
+    sources, seen, todo = [], set(), [name]
+    while todo:
+        name = todo.pop()
+        if name not in defs or name in seen:
+            continue
+        seen.add(name)
         node = defs[name]
         sources.append(ast.get_source_segment(text, node))
-        # ponytail: follows the first base only; every overlay class here has a single base
         bases = [b.id for b in getattr(node, "bases", []) if isinstance(b, ast.Name)]
-        name = bases[0] if bases else ""
+        todo.extend(reversed(bases))
     return sources
 
 

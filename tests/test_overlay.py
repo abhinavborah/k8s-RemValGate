@@ -302,3 +302,9 @@ def test_checksum_covers_the_source_of_each_problem_and_its_overlay_bases():
     assert "def has_available_replica" in record["checks"]
     # read with universal newlines, so the checksum is the same on every system
     assert all(chr(13) not in s for s in [record["checks"], *record["source"]])
+
+
+def test_checksum_source_follows_every_base_defined_in_the_overlay():
+    text = "class M:\n    x = 1\n\n\nclass B:\n    y = 2\n\n\nclass A(B, M, Imported):\n    pass\n"
+    heads = [src.splitlines()[0] for src in confirmation._sources("A", text)]
+    assert heads == ["class A(B, M, Imported):", "class B:", "class M:"]
