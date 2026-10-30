@@ -68,7 +68,8 @@ time, and each checksum, recomputed under the run's AIOpsLab commit, equals the 
 record written by hand, without the touches, does not open the gate. An edit to a definition, or a new AIOpsLab pin, therefore closes the gate again. Reopening it
 needs a new seal record, which is a group decision recorded on #25, not a routine step.
 
-Refusing a second run on the slice, so that it is opened once, belongs to #59.
+`start_run` refuses every confirmation run, sealed or not, so nothing touches the slice before it
+is opened. #59 adds the one path that opens it, once, after the analysis is final.
 
 ## Validation
 

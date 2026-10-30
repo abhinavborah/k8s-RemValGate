@@ -376,7 +376,7 @@ def test_manifest_round_trip(manifest):
 # scenario: touch is logged
 
 
-@pytest.mark.parametrize("problem_id, slice_", [(POOL, "pool"), (CONF, "confirmation")])
+@pytest.mark.parametrize("problem_id, slice_", [(POOL, "pool")])
 def test_logged_start_appends_dated_entry(tmp_path, problem_id, slice_):
     start, log, _ = _start(tmp_path, problem_id)
     assert _runs(log) == [
@@ -427,7 +427,7 @@ def test_unpinned_aiopslab_refused_for_logged_slice(tmp_path):
     assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
-@pytest.mark.parametrize("problem_id", [POOL, CONF, DEV])
+@pytest.mark.parametrize("problem_id", [POOL, DEV])
 @pytest.mark.parametrize("pin", ["main", "B" * 40, "b" * 39])
 def test_malformed_aiopslab_pin_refused_before_touch(tmp_path, problem_id, pin):
     repo = _repo(tmp_path)
@@ -445,7 +445,7 @@ def test_dirty_tree_refused_for_logged_slice(tmp_path):
     repo = _repo(tmp_path)
     (repo / "code.py").write_text("x = 2\n")
     with pytest.raises(RunRefused, match="uncommitted"):
-        _start(tmp_path, CONF, repo=repo)
+        _start(tmp_path, POOL, repo=repo)
     assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
@@ -589,7 +589,7 @@ def test_manifest_refused_when_it_disagrees_with_run_start(tmp_path, changes):
 def test_reused_run_id_refused(tmp_path):
     _, log, repo = _start(tmp_path, POOL)
     with pytest.raises(RunRefused, match="already in the touch log"):
-        start_run("run-0001", CONF, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
+        start_run("run-0001", POOL, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
     assert len(_runs(log)) == 1
 
 
@@ -639,7 +639,7 @@ def test_malformed_line_reports_line_number(tmp_path):
 
 # each example builds a git repository, so keep the count small and the deadline off
 @settings(max_examples=20, deadline=None)
-@given(st.lists(st.sampled_from([POOL, CONF, DEV]), min_size=1, max_size=8))
+@given(st.lists(st.sampled_from([POOL, DEV]), min_size=1, max_size=8))
 def test_appends_never_change_earlier_lines(problem_ids):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -675,16 +675,14 @@ def _create(log, problem_id):
     log_creation(problem_id, load_registry(log.parents[2] / "slices.json"), log, NOW)
 
 
-@pytest.mark.parametrize("problem_id", [POOL, CONF])
-def test_logged_run_refused_before_the_seal(tmp_path, problem_id):
+def test_pool_run_refused_before_the_seal(tmp_path, problem_id=POOL):
     repo, registry, log = _unsealed(tmp_path)
     with pytest.raises(RunRefused, match="not sealed .gate G1"):
         start_run("run-0001", problem_id, registry, log, repo, PIN, NOW, checksum=_sum)
     assert read_touches(log) == []
 
 
-@pytest.mark.parametrize("problem_id", [POOL, CONF])
-def test_logged_run_refused_when_a_definition_changed_after_the_seal(tmp_path, problem_id):
+def test_pool_run_refused_when_a_definition_changed_after_the_seal(tmp_path, problem_id=POOL):
     repo = _repo(tmp_path)
     log = repo / "runs" / "touch_log.jsonl"
     with pytest.raises(RunRefused, match="changed since the seal"):
@@ -820,3 +818,12 @@ def test_seal_record_without_its_seal_touches_refused(tmp_path, touches):
     log.write_bytes("".join(json.dumps(t, sort_keys=True) + "\n" for t in touches).encode())
     with pytest.raises(RunRefused, match="does not show the slice as sealed"):
         check_seal(registry, log, PIN, _sum)
+
+
+def test_confirmation_run_refused_even_when_sealed(tmp_path):
+    # opened once, at the end (R9.6): until that path exists, no run touches the slice
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    with pytest.raises(RunRefused, match="opened once"):
+        start_run("run-0001", CONF, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
+    assert _runs(log) == []

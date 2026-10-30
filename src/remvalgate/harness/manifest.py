@@ -6,7 +6,9 @@ the AIOpsLab commit is not pinned, the work tree has changes git does not ignore
 is already in the log. write_manifest checks the entry again and compares the manifest with what
 start_run recorded, so a run without an entry gets no manifest.
 
-A pool or confirmation run is refused until the confirmation slice is sealed (gate G1):
+Every confirmation-slice run is refused: the slice is opened once, at the end (R9.6), by a run
+path not added yet. A pool run, and that path when it exists, is refused until the confirmation
+slice is sealed (gate G1):
 seal_confirmation writes the seal record beside the touch log and a seal touch per id, and
 start_run checks that both cover the registry's confirmation ids and that each checksum still
 matches.
@@ -292,6 +294,9 @@ def start_run(
     if run_id.startswith("seal-"):
         raise RunRefused("run ids starting with seal- are kept for seal touches")
     slice_ = _slice_of(problem_id, registry)
+    # the slice is opened once, at the end (R9.6); no run path opens it yet
+    if slice_ is Slice.CONFIRMATION:
+        raise RunRefused("the confirmation slice is opened once, at the end, by its own run path")
     log_path = Path(log_path)
     try:
         commit, dirty = git_state(repo, log_path)
@@ -350,7 +355,7 @@ def log_creation(
     _check_run_id(run_id, "log_creation")
     if slice_ is Slice.CONFIRMATION and any(
         e["problem_id"] == problem_id and e["run_id"].startswith("create-")
-        for e in read_touches(log_path)
+        for e in _sound_touches(Path(log_path))
     ):
         raise RunRefused(f"{problem_id!r} is a confirmation problem already created")
     entry = {
