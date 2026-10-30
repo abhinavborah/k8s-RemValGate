@@ -332,14 +332,19 @@ def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
         raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
 
 
+def validate_namespace(namespace: str) -> None:
+    """Raise ValueError unless the namespace is a valid sandbox: it must be a DNS-1123 label and
+    neither "default" nor a "kube-" system namespace."""
+    if not _LABEL.fullmatch(namespace) or namespace == "default" or namespace.startswith("kube-"):
+        raise ValueError(f"not a sandbox namespace: {namespace!r}")
+
+
 def check(command: str, policy: Policy, namespace: str) -> Verdict:
     """Admit the command unchanged, or reject it with the first failing reason.
 
-    Raises ValueError if the target namespace is not a valid sandbox: it must be a DNS-1123
-    label and neither "default" nor a "kube-" system namespace.
+    Raises ValueError if the target namespace is not a valid sandbox (see validate_namespace).
     """
-    if not _LABEL.fullmatch(namespace) or namespace == "default" or namespace.startswith("kube-"):
-        raise ValueError(f"not a sandbox namespace: {namespace!r}")
+    validate_namespace(namespace)
     try:
         argv = tokenize(command)
         if argv[0] not in policy.binaries:

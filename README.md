@@ -199,6 +199,13 @@ summary under `runs/manifests/`, which git ignores, and logs no touch. The resul
 [docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
 it, and it takes about 12 minutes.
 
+`scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
+problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
+through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
+after the settle window. The baselines are in `src/remvalgate/baselines/`. Nothing is appended to
+the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
+so CI does not run it; CI tests the baselines on synthetic cluster listings.
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
