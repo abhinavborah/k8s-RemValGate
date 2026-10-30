@@ -1,5 +1,4 @@
 import ast
-import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -134,32 +133,15 @@ def test_poll_until(ready_at, deadline, expected, calls):
     assert len(seen) == calls
 
 
-def _upstream_parser(monkeypatch):
-    # the real parser at the pin; aiopslab itself reads config.yml on import, so only its status
-    # module is stubbed
-    class ResponseParsingError(Exception):
-        pass
-
-    for name in ("aiopslab", "aiopslab.utils", "aiopslab.utils.status"):
-        monkeypatch.setitem(
-            sys.modules, name, SimpleNamespace(ResponseParsingError=ResponseParsingError)
-        )
-    path = Path(__file__).resolve().parents[1] / "external/AIOpsLab/aiopslab/orchestrator/parser.py"
-    spec = importlib.util.spec_from_file_location("upstream_parser", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.ResponseParser()
-
-
-def test_every_known_fix_survives_the_upstream_parser(monkeypatch):
-    parser = _upstream_parser(monkeypatch)
+def test_every_known_fix_survives_the_upstream_parser(upstream_parser):
+    parser = upstream_parser
     for problem_id in FIXES:
         for command in known_fix(problem_id, "test-social-network"):
             assert parser.parse(exec_shell(command))["args"] == [command]
 
 
-def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_it(monkeypatch):
-    parser = _upstream_parser(monkeypatch)
+def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_it(upstream_parser):
+    parser = upstream_parser
     # the upstream behaviour the refusal guards against
     lossy = 'kubectl get pods -l "app=a"'
     reply = f'```\nexec_shell("{lossy.replace(chr(34), chr(92) + chr(34))}")\n```'

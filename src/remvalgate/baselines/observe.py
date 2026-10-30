@@ -4,8 +4,9 @@ Pure functions on the listing, so CI tests them without a cluster. Each rule loo
 state one object-state fault type leaves behind (BRD R2.2), and is blind to the injection itself:
 
 - SCALED_TO_ZERO: a Deployment with spec.replicas 0 (ScalePod).
-- UNSCHEDULABLE_SELECTOR: a Deployment with a nodeSelector and a Pending pod of its own
-  (AssignNonExistentNode).
+- UNSCHEDULABLE_SELECTOR: a Deployment with a nodeSelector and a pod of its own whose PodScheduled
+  condition is False (AssignNonExistentNode). Phase Pending alone is not enough: it also covers a
+  scheduled pod that is pulling its image.
 - PORT_MISMATCH: a Service whose numeric targetPort no container of its Deployment listens on
   (TargetPortMisconfig).
 
@@ -64,24 +65,27 @@ def _scaled_to_zero(deployments: list[dict]) -> list[Observation]:
     ]
 
 
+def _unscheduled(pod: dict) -> bool:
+    conditions = pod.get("status", {}).get("conditions", [])
+    return any(c.get("type") == "PodScheduled" and c.get("status") == "False" for c in conditions)
+
+
 def _unschedulable(deployments: list[dict], pods: list[dict]) -> list[Observation]:
     found = []
     for d in deployments:
         if not _template(d).get("spec", {}).get("nodeSelector"):
             continue
         match = d["spec"].get("selector", {}).get("matchLabels", {})
-        pending = any(
-            p.get("status", {}).get("phase") == "Pending"
-            and _subset(match, p["metadata"].get("labels", {}))
-            for p in pods
+        unscheduled = any(
+            _unscheduled(p) and _subset(match, p["metadata"].get("labels", {})) for p in pods
         )
-        if pending:
+        if unscheduled:
             name = d["metadata"]["name"]
             found.append(
                 Observation(
                     Kind.UNSCHEDULABLE_SELECTOR,
                     name,
-                    f"deployment {name} has a node selector and a pending pod",
+                    f"deployment {name} has a node selector and an unscheduled pod",
                 )
             )
     return found

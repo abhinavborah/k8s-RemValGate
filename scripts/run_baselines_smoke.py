@@ -216,13 +216,13 @@ def main() -> int:
     orch = new_orchestrator(results_dir=OUT_DIR / "baselines-smoke")
     kubectl("wait", "--for=condition=Ready", "pods", "--all", "--timeout=60s")
     clean = snapshot()
-    rows = [
-        run_one(orch, problem_id, name, baseline, clean, policy, settle)
-        for problem_id in development
-        for name, baseline in baselines.items()
-    ]
-    for row in rows:
-        print(json.dumps(row, sort_keys=True))
+    rows = []
+    for problem_id in development:
+        for name, baseline in baselines.items():
+            row = run_one(orch, problem_id, name, baseline, clean, policy, settle)
+            rows.append(row)
+            # printed as it returns, so a later failure keeps the rows already classified
+            print(json.dumps(row, sort_keys=True), flush=True)
     print(f"result: {len(rows)} runs classified")
     return 0
 

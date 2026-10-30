@@ -9,6 +9,7 @@ from remvalgate.baselines.retrieval_only import replace_service, retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, load_policy
 from remvalgate.harness.manifest import Registry, Slice
+from remvalgate.overlay.fixes import exec_shell
 from remvalgate.retrieval import RetrieverRefused
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -44,8 +45,16 @@ def service(name, target_port=9090, selector=None, extra_ports=()):
     }
 
 
-def pod(name, labels, phase="Running"):
-    return {"kind": "Pod", "metadata": {"name": name, "labels": labels}, "status": {"phase": phase}}
+def pod(name, labels, phase="Running", scheduled=None, conditions=True):
+    """A pod. A Pending pod is unscheduled unless scheduled=True, as with a bad node selector."""
+    if scheduled is None:
+        scheduled = phase != "Pending"
+    status = {"phase": phase}
+    if conditions:
+        status["conditions"] = [
+            {"type": "PodScheduled", "status": "True" if scheduled else "False"}
+        ]
+    return {"kind": "Pod", "metadata": {"name": name, "labels": labels}, "status": status}
 
 
 def listing(*items):
@@ -92,7 +101,7 @@ def test_a_deployment_without_replicas_is_not_scaled_to_zero():
     assert observe(listing(item, service("media-service"))) == []
 
 
-def test_a_node_selector_with_a_pending_pod_is_unschedulable():
+def test_a_node_selector_with_an_unscheduled_pod_is_unschedulable():
     state = with_fault(
         healthy("unique-id-service"),
         deployment("unique-id-service", node_selector={"kubernetes.io/hostname": "extra-node"}),
@@ -110,12 +119,12 @@ def test_a_node_selector_with_running_pods_is_not_a_fault():
     assert observe(state) == []
 
 
-def test_a_pending_pod_without_a_node_selector_is_not_blamed_on_it():
+def test_an_unscheduled_pod_without_a_node_selector_is_not_blamed_on_it():
     state = listing(deployment("a"), pod("a-1", {"app": "a"}, phase="Pending"), service("a"))
     assert observe(state) == []
 
 
-def test_a_pending_pod_of_another_deployment_is_not_matched():
+def test_an_unscheduled_pod_of_another_deployment_is_not_matched():
     state = listing(
         deployment("a", node_selector={"disk": "ssd"}),
         deployment("b"),
@@ -373,3 +382,42 @@ def test_retrieval_only_uses_the_first_hit_when_a_retriever_returns_more_than_as
 def test_each_observed_symptom_retrieves_the_stub_entry_of_its_fault(state, entry_id):
     action = retrieval_only(_stub(), observe(state), DEV, NS)
     assert entry_id in action.reason
+
+
+def test_a_scheduled_pod_still_pending_is_not_unschedulable():
+    # Pending also covers a scheduled pod that is pulling its image
+    state = listing(
+        deployment("a", node_selector={"disk": "ssd"}),
+        pod("a-1", {"app": "a"}, phase="Pending", scheduled=True),
+    )
+    assert observe(state) == []
+
+
+def test_a_pending_pod_with_no_conditions_yet_is_not_unschedulable():
+    state = listing(
+        deployment("a", node_selector={"disk": "ssd"}),
+        pod("a-1", {"app": "a"}, phase="Pending", conditions=False),
+    )
+    assert observe(state) == []
+
+
+ROUND_TRIP_STATES = [
+    listing(deployment("media-service", replicas=0)),
+    listing(
+        deployment("unique-id-service", node_selector={"kubernetes.io/hostname": "extra-node"}),
+        pod("unique-id-service-1", {"app": "unique-id-service"}, phase="Pending"),
+    ),
+    listing(deployment("user-mention-service"), service("user-mention-service", 9999)),
+]
+
+
+@pytest.mark.parametrize("state", ROUND_TRIP_STATES)
+def test_the_rule_command_survives_exec_shell_and_the_upstream_parser(state, upstream_parser):
+    command = fault_type_rule(observe(state), NS).command
+    assert upstream_parser.parse(exec_shell(command))["args"] == [command]
+
+
+@pytest.mark.parametrize("state", ROUND_TRIP_STATES)
+def test_the_retrieval_command_survives_exec_shell_and_the_upstream_parser(state, upstream_parser):
+    command = retrieval_only(_stub(), observe(state), DEV, NS).command
+    assert upstream_parser.parse(exec_shell(command))["args"] == [command]
