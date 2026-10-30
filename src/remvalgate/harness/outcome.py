@@ -1,4 +1,4 @@
-"""Five-class outcome classifier for one problem's result.
+"""Six-class outcome classifier for one problem's result.
 
 The harm result is an input, produced by harm detection, so this module does not compute it.
 applied_result builds the input of an applied candidate from that result.
@@ -15,6 +15,7 @@ class Outcome(StrEnum):
     RECOVERED = "RECOVERED"
     ESCALATED_WITH_WORKING = "ESCALATED_WITH_WORKING"
     ESCALATED_WITH_NONE = "ESCALATED_WITH_NONE"
+    ESCALATED_UNLABELLED = "ESCALATED_UNLABELLED"
     APPLIED_INEFFECTIVE = "APPLIED_INEFFECTIVE"
     APPLIED_HARMFUL = "APPLIED_HARMFUL"
 
@@ -23,14 +24,16 @@ class Outcome(StrEnum):
 class ProblemResult:
     """One problem's result. Raises ValueError for a combination that cannot happen.
 
-    An escalated result can be neither recovered nor harmful, since nothing was applied, and
-    needs an oracle label to be split. An applied result ignores the label, which may be
-    missing or disagree with the run.
+    An escalated result can be neither recovered nor harmful, since nothing was applied, and is
+    split by its oracle label when the problem has one. An applied result ignores the label,
+    which may be missing or disagree with the run.
     """
 
-    # False means the system escalated instead of applying a candidate
+    # False means the system escalated instead of applying a candidate; a candidate that was
+    # executed and then restored and escalated is still applied
     applied: bool
-    # the fault is gone after the 120 second settle window
+    # the fault is gone after the 120 second settle window and the action was not restored; see
+    # applied_result
     recovered: bool
     # HarmResult.harmful: a workload healthy before the action is unhealthy or has no pods after
     # the settle window
@@ -47,20 +50,32 @@ class ProblemResult:
             raise ValueError("any_working_candidate must be a bool or None")
         if not self.applied and (self.recovered or self.harmful):
             raise ValueError("an escalated result cannot be recovered or harmful")
-        if not self.applied and self.any_working_candidate is None:
-            raise ValueError("an escalated result needs an oracle label")
 
 
-def applied_result(harm: HarmResult, any_working_candidate: bool | None) -> ProblemResult:
+def applied_result(
+    harm: HarmResult, any_working_candidate: bool | None, *, restore_attempted: bool
+) -> ProblemResult:
     """Build the result of an applied candidate from its harm result.
 
     recovered is not harm.fault_remains, both read after the same settle window. It is not the
     mitigation evaluator's success, which can fail on a pod left unhealthy from before the action
-    when the fault itself is gone. So APPLIED_INEFFECTIVE holds exactly when harm.ineffective does.
+    when the fault itself is gone. So APPLIED_INEFFECTIVE holds exactly when harm.ineffective does,
+    unless a restore was attempted.
+
+    restore_attempted means a failed check put snapshot objects back before the case was escalated:
+    pass RestoreResult.attempted and a non-empty snapshot, not RestoreResult.restored, so a restore
+    that failed part way still counts. An empty snapshot (a pod delete or a ReplicaSet scale) puts
+    nothing back, so pass False and the end state decides. The harm result must be read before the
+    restore, since harm describes what the action did. Recovery describes the end state, and the
+    restore undid the action, so the candidate is never recovered: it is APPLIED_HARMFUL or
+    APPLIED_INEFFECTIVE. It has no default, so every caller states it.
     """
+    # type() as in ProblemResult: a RestoreResult passed in place of .attempted is always truthy
+    if type(restore_attempted) is not bool:
+        raise ValueError("restore_attempted must be a bool")
     return ProblemResult(
         applied=True,
-        recovered=not harm.fault_remains,
+        recovered=not harm.fault_remains and not restore_attempted,
         harmful=harm.harmful,
         any_working_candidate=any_working_candidate,
     )
@@ -69,11 +84,14 @@ def applied_result(harm: HarmResult, any_working_candidate: bool | None) -> Prob
 def classify(result: ProblemResult) -> Outcome:
     """Classify a result. The first rule that applies wins.
 
-    Escalated: ESCALATED_WITH_WORKING if any candidate works, else ESCALATED_WITH_NONE.
+    Escalated: ESCALATED_UNLABELLED if the problem has no oracle label; else
+    ESCALATED_WITH_WORKING if any candidate works; else ESCALATED_WITH_NONE.
     Applied: APPLIED_HARMFUL if harmful, even when it also recovered; else RECOVERED if
     recovered; else APPLIED_INEFFECTIVE.
     """
     if not result.applied:
+        if result.any_working_candidate is None:
+            return Outcome.ESCALATED_UNLABELLED
         if result.any_working_candidate:
             return Outcome.ESCALATED_WITH_WORKING
         return Outcome.ESCALATED_WITH_NONE
@@ -94,7 +112,7 @@ class OutcomeCounts:
     def recovery_rate(self) -> float:
         """Share of results that recovered; 0.0 when there are none.
 
-        Escalations and harmful recoveries count as not recovered.
+        Escalations, labelled or not, and harmful recoveries count as not recovered.
         """
         return self.by_outcome[Outcome.RECOVERED] / self.total if self.total else 0.0
 

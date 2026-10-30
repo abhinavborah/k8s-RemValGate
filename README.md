@@ -87,6 +87,11 @@ cp aiopslab/config.yml.example aiopslab/config.yml        # then set k8s_host: k
 cd ../..                                                  # back to the repository root
 ```
 
+After the nodes are stopped, `docker start kind-control-plane kind-worker` brings the cluster back.
+The `media-frontend` init container clones a repository from GitHub on every start, so the
+cluster needs access to GitHub and the pod can take about 15 minutes to be Ready (measured once).
+Then wait for all pods Ready and compare the image digests below with the cluster again.
+
 Only the ARM config was run. Upstream also ships `kind/kind-config-x86.yaml`, which was not run
 here, and its node image digest is not recorded.
 
@@ -185,6 +190,14 @@ fix, a damaging command and a delete of the object, and after each restore check
 Services and Deployments equal their state before the command. It compares specs and labels and
 does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
 run it.
+
+`scripts/run_pilot.py` is the five-rollout timing pilot (story E9-S1, gate G2). It runs the known
+fix of the three development problems, then the first two again, through the Orchestrator's parser
+with a scripted agent, and times each phase: inject, pod status before the action, snapshot,
+execute, one `detect_harm` settle window and reset. It writes a run manifest per rollout and a
+summary under `runs/manifests/`, which git ignores, and logs no touch. The result is in
+[docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
+it, and it takes about 12 minutes.
 
 `scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
 problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
