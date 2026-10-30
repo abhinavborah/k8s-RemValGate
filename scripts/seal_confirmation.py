@@ -8,7 +8,10 @@ problem has no creation touch or has already run, or a checksum differs from the
 docs/confirmation_problems.md. Commit the two files right after it, since a pool run needs a
 clean tree.
 
-    uv run python scripts/seal_confirmation.py
+--reseal replaces the record of a sealed slice. Use it only after a group decision recorded on
+the sealing issue, such as a new AIOpsLab pin; it still refuses if any problem has run.
+
+    uv run python scripts/seal_confirmation.py [--reseal]
 """
 
 import re
@@ -30,7 +33,10 @@ TOUCH_LOG = ROOT / "runs" / "touch_log.jsonl"
 DOC = ROOT / "docs" / "confirmation_problems.md"
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
+    if argv not in ([], ["--reseal"]):
+        print("usage: seal_confirmation.py [--reseal]")
+        return 2
     pin = pinned_commit(ROOT)
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     text = DOC.read_text(encoding="utf-8")
@@ -44,7 +50,7 @@ def main() -> int:
         print(f"refused: the checksum in {DOC.name} differs from the definition: {changed}")
         return 1
     try:
-        seal = seal_confirmation(registry, TOUCH_LOG, ROOT, pin, checksum)
+        seal = seal_confirmation(registry, TOUCH_LOG, ROOT, pin, checksum, reseal=bool(argv))
     except RunRefused as error:
         print(f"refused: {error}")
         return 1
@@ -55,4 +61,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

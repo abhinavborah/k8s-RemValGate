@@ -434,11 +434,16 @@ def seal_confirmation(
     aiopslab_commit: str,
     checksum: Checksum,
     now: datetime | None = None,
+    reseal: bool = False,
 ) -> dict:
     """Seal the confirmation slice once (gate G1): write the seal record and a seal touch per id.
 
     Refused if the slice is already sealed, the tree has uncommitted changes, or an id has no
     creation touch or has already run. Nothing is written when it is refused.
+
+    reseal replaces the record of a sealed slice, after a group decision such as a new AIOpsLab
+    pin. Its earlier seal touches stay in the log and no longer match the record's time; any
+    other run touch still refuses it.
     """
     now = (now or datetime.now(UTC)).astimezone(UTC)
     ids = _confirmation_ids(registry)
@@ -446,8 +451,13 @@ def seal_confirmation(
     path = log_path.parent / SEAL_NAME
     # checked before anything is written, so a refusal leaves no half seal
     touches = _sound_touches(log_path)
-    if path.exists() or any(e["run_id"].startswith("seal-") for e in touches):
+    sealed = path.exists() or any(e["run_id"].startswith("seal-") for e in touches)
+    if sealed and not reseal:
         raise RunRefused("the confirmation slice is already sealed")
+    if reseal and not path.exists():
+        raise RunRefused("the confirmation slice is not sealed, so there is nothing to reseal")
+    if reseal and any(e["timestamp"] == now.strftime(_TIMESTAMP) for e in touches):
+        raise RunRefused("a reseal needs a time after the sealed time")
     commit, dirty = git_state(repo, log_path)
     if dirty:
         raise RunRefused("sealing needs a tree with no uncommitted changes")
@@ -455,7 +465,7 @@ def seal_confirmation(
         runs = [e["run_id"] for e in touches if e["problem_id"] == problem_id]
         if not any(r.startswith("create-") for r in runs):
             raise RunRefused(f"{problem_id!r} has no creation touch")
-        if any(not r.startswith("create-") for r in runs):
+        if any(not r.startswith(("create-", "seal-")) for r in runs):
             raise RunRefused(f"{problem_id!r} has already run, so it cannot be sealed")
     sums = {i: checksum(i, aiopslab_commit) for i in ids}
     if not all(isinstance(v, str) and _HEX64.fullmatch(v) for v in sums.values()):
@@ -466,8 +476,8 @@ def seal_confirmation(
         "commit": commit,
         "sealed": now.strftime(_TIMESTAMP),
     }
-    # "x": a second seal never overwrites the first
-    with path.open("x", encoding="utf-8", newline="\n") as out:
+    # "x": only an explicit reseal replaces a record; the earlier one stays in git history
+    with path.open("w" if reseal else "x", encoding="utf-8", newline="\n") as out:
         out.write(json.dumps(seal, indent=2, sort_keys=True) + "\n")
     for problem_id in ids:
         entry = {
