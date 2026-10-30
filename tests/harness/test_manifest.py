@@ -3,7 +3,7 @@ import json
 import subprocess
 import tempfile
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -475,7 +475,8 @@ def test_log_creation_logs_development(tmp_path):
 
 
 def test_log_creation_accepts_every_overlay_id(tmp_path):
-    # the validation script logs a creation touch for each overlay problem, pool variant included
+    # the validation script logs a creation touch for each overlay problem: the development
+    # problems, the pool variant and the confirmation problems
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     log = tmp_path / "touch_log.jsonl"
     ids = list(overlay.PROBLEMS)
@@ -486,10 +487,28 @@ def test_log_creation_accepts_every_overlay_id(tmp_path):
 
 def test_log_creation_refuses_a_repeat_in_the_same_second(tmp_path):
     log = tmp_path / "touch_log.jsonl"
-    log_creation(CONF, _registry(tmp_path), log, NOW)
+    log_creation(POOL, _registry(tmp_path), log, NOW)
     with pytest.raises(RunRefused, match="already in the touch log"):
-        log_creation(CONF, _registry(tmp_path), log, NOW)
+        log_creation(POOL, _registry(tmp_path), log, NOW)
     assert len(read_touches(log)) == 1
+
+
+def test_log_creation_refuses_a_second_creation_of_a_confirmation_problem(tmp_path):
+    # created once: a second creation would touch the slice again
+    log = tmp_path / "touch_log.jsonl"
+    log_creation(CONF, _registry(tmp_path), log, NOW)
+    before = log.read_bytes()
+    with pytest.raises(RunRefused, match="already created"):
+        log_creation(CONF, _registry(tmp_path), log, NOW + timedelta(seconds=1))
+    assert log.read_bytes() == before
+
+
+@pytest.mark.parametrize("problem_id", [POOL, DEV])
+def test_log_creation_allows_a_second_creation_outside_the_confirmation_slice(tmp_path, problem_id):
+    log = tmp_path / "touch_log.jsonl"
+    log_creation(problem_id, _registry(tmp_path), log, NOW)
+    log_creation(problem_id, _registry(tmp_path), log, NOW + timedelta(seconds=1))
+    assert len(read_touches(log)) == 2
 
 
 def test_log_creation_refuses_an_unregistered_id_and_a_naive_time(tmp_path):

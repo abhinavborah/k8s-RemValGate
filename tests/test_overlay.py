@@ -206,6 +206,9 @@ def test_each_confirmation_problem_targets_its_planned_service_and_base():
         assert spec["service"] == "social-graph-service"
         assert spec["namespace"] == "test-social-network"
         assert spec["base"] in names[overlay.PROBLEMS[problem_id].problem]
+        # the factory itself takes its service from SERVICE, not from a literal of its own
+        assert "confirmation.SERVICE" in spec["source"][0]
+        assert "-service" not in spec["source"][0].replace("confirmation.SERVICE", "")
         # the known fix acts on the planned service and nothing else
         assert all("social-graph-service" in " ".join(args) for args in FIXES[problem_id])
 
@@ -240,27 +243,18 @@ def test_checksums_differ_between_the_confirmation_problems():
 
 
 def test_validation_selects_only_the_requested_ids():
-    assert select(CONF_IDS, set(CONF_IDS), set()) == CONF_IDS
-    assert select([CONF_IDS[1], CONF_IDS[1]], set(CONF_IDS), set()) == [CONF_IDS[1]]
+    assert select(CONF_IDS, set(CONF_IDS)) == CONF_IDS
+    assert select([CONF_IDS[1], CONF_IDS[1]], set(CONF_IDS)) == [CONF_IDS[1]]
 
 
 def test_validation_with_no_ids_skips_the_confirmation_slice():
     expected = [i for i in overlay.PROBLEMS if i not in CONF_IDS]
-    assert select([], set(CONF_IDS), set()) == expected
+    assert select([], set(CONF_IDS)) == expected
 
 
 def test_validation_refuses_an_id_that_is_not_an_overlay_problem():
     with pytest.raises(ValueError, match="k8s_target_port-misconfig-mitigation-1"):
-        select(["k8s_target_port-misconfig-mitigation-1"], set(CONF_IDS), set())
-
-
-def test_validation_refuses_a_confirmation_problem_already_created():
-    # a second creation would touch the slice again after it exists to be sealed
-    with pytest.raises(ValueError, match=CONF_IDS[0]):
-        select(CONF_IDS, set(CONF_IDS), {CONF_IDS[0]})
-    # a development problem may be validated again
-    dev = "dev-scale_pod_zero_social_net-mitigation-1"
-    assert select([dev], set(CONF_IDS), {dev}) == [dev]
+        select(["k8s_target_port-misconfig-mitigation-1"], set(CONF_IDS))
 
 
 def test_checksum_covers_the_source_of_each_problem_and_its_overlay_bases():

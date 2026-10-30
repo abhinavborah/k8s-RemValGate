@@ -36,7 +36,6 @@ from remvalgate.harness.manifest import (
     Slice,
     load_registry,
     log_creation,
-    read_touches,
 )
 from remvalgate.overlay import PROBLEMS, new_orchestrator
 from remvalgate.overlay.fixes import FIXES, select
@@ -90,10 +89,7 @@ def main(requested: list[str]) -> int:
     if sorted(PROBLEMS) != sorted(FIXES):
         raise AssertionError("the known fixes do not match the overlay problems")
     confirmation = {i for i, s in registry.slices.items() if s is Slice.CONFIRMATION}
-    created = {
-        e["problem_id"] for e in read_touches(TOUCH_LOG) if e["run_id"].startswith("create-")
-    }
-    selected = select(requested, confirmation, created)
+    selected = select(requested, confirmation)
     probs = new_orchestrator().probs
     for problem_id in selected:
         validate(problem_id, probs, registry)

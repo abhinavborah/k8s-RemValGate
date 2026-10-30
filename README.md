@@ -162,15 +162,18 @@ inside each `Orchestrator` and has no hook for outside entries, so an overlay en
 an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
 AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
 refused. The shipped overlay holds the three development problems
-([docs/development_problems.md](docs/development_problems.md)) and the pool variant of
-AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), defined in
+([docs/development_problems.md](docs/development_problems.md)), the pool variant of
+AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)) and the three
+confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)), defined in
 `src/remvalgate/overlay/dev_problems.py`. The known fixes are in
 `src/remvalgate/overlay/fixes.py`.
 
 `scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. `scripts/validate_overlay_problems.py` validates each overlay problem: it
-logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
-`kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network
+constructed Orchestrator. `scripts/validate_overlay_problems.py` validates the overlay problems it
+is given, or with none given every overlay problem except the confirmation slice: for each it logs a
+creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
+`kubectl` command, checks that the eval passes and recovers the fault. A confirmation problem is
+created once: `log_creation` refuses a second creation touch for it. Run it with Social Network
 deployed and Ready. Both need the cluster, so CI does not run them.
 
 `scripts/run_dev_end_to_end.py` runs one development problem end to end (story E1-S3, R1.3). A
@@ -236,5 +239,6 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   9 current pool problems, one of them the overlay variant of AssignNonExistentNode
   ([docs/problem_inventory.md](docs/problem_inventory.md)), and the development problems designated
   in
-  [docs/development_problems.md](docs/development_problems.md). The pool extension, the
-  confirmation slice and the singleton problems are not in it yet.
+  [docs/development_problems.md](docs/development_problems.md), and the three confirmation problems
+  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The pool extension and the
+  singleton problems are not in it yet.
