@@ -421,3 +421,35 @@ def test_the_rule_command_survives_exec_shell_and_the_upstream_parser(state, ups
 def test_the_retrieval_command_survives_exec_shell_and_the_upstream_parser(state, upstream_parser):
     command = retrieval_only(_stub(), observe(state), DEV, NS).command
     assert upstream_parser.parse(exec_shell(command))["args"] == [command]
+
+
+def test_with_two_kinds_of_observation_the_command_is_the_fix_for_the_first():
+    state = listing(
+        deployment("aaa-service", replicas=0),
+        deployment("bbb-service"),
+        service("bbb-service", target_port=9999),
+    )
+    obs = observe(state)
+    assert [(o.kind, o.service) for o in obs] == [
+        (Kind.SCALED_TO_ZERO, "aaa-service"),
+        (Kind.PORT_MISMATCH, "bbb-service"),
+    ]
+    action = retrieval_only(_stub(), obs, DEV, NS)
+    assert shlex.split(action.command) == [
+        "kubectl", "-n", NS, "scale", "deployment", "aaa-service", "--replicas=1"
+    ]  # fmt: skip
+    # the same service and fault kind as the rule baseline acts on
+    assert fault_type_rule(obs, NS).command == action.command
+
+
+def test_with_the_kinds_swapped_the_command_follows_the_first_observation():
+    # a port mismatch listed first: the fix is for it, never for the scaled deployment
+    port = "service bbb-service targetPort is not a declared container port"
+    obs = [
+        Observation(Kind.PORT_MISMATCH, "bbb-service", port, 0, 9090),
+        Observation(Kind.SCALED_TO_ZERO, "aaa-service", "deployment aaa-service has 0 replicas"),
+    ]
+    action = retrieval_only(_stub(), obs, DEV, NS)
+    assert "stub-001" in action.reason
+    assert "bbb-service" in action.command
+    assert "aaa-service" not in action.command

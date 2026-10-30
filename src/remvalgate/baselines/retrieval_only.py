@@ -30,20 +30,22 @@ def _in_namespace(command: str, namespace: str) -> str:
 def retrieval_only(
     retriever: Retriever, observations: list[Observation], problem_id: str, namespace: str
 ) -> BaselineAction:
-    """Return the top hit's fix for the first observed service, or escalate.
+    """Return the top hit's fix for the first observation, or escalate.
 
-    Escalates when the retriever returns no hit. A retriever refusal (RetrieverRefused) is not
-    caught, and the command is not filtered: the harness applies the allow-list to every system's
-    command.
+    The query and the service both come from the first observation, as in the rule baseline, so
+    the fix of one fault never lands on the service of another. Escalates when the retriever
+    returns no hit. A retriever refusal (RetrieverRefused) is not caught, and the command is not
+    filtered: the harness applies the allow-list to every system's command.
     """
     validate_namespace(namespace)
     if not observations:
         return escalate("nothing was observed to query with")
-    hits = retriever.retrieve(symptom_query(observations), problem_id, k=1)
+    first = observations[0]
+    hits = retriever.retrieve(symptom_query([first]), problem_id, k=1)
     if not hits:
         return escalate("the retriever returned no hit")
     hit = hits[0]
-    service = observations[0].service
+    service = first.service
     command = replace_service(hit.entry.fix_command, hit.entry.target_service, service)
     return BaselineAction(
         _in_namespace(command, namespace), f"top hit {hit.entry.entry_id} on {service}"
