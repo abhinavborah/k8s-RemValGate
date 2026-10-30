@@ -2,7 +2,7 @@
 
 Needs aiopslab/config.yml, the kind cluster and Social Network deployed and Ready (README,
 Deploy and health check), so it is run by hand and never by CI or the tests. No system or model
-runs and the LLM judge must be off. For each problem it validates it:
+runs and the LLM judge must be off. For each selected problem it:
 
 1. appends a creation touch to runs/touch_log.jsonl,
 2. builds the problem through the overlay registry and injects its fault,

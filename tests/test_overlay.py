@@ -240,11 +240,15 @@ def test_recorded_checksums_match_the_definitions():
 
 @pytest.mark.parametrize(
     "field",
-    ["problem_id", "slice", "factory", "type", "base", "service", "namespace", "fix", "aiopslab"],
-)
+    [
+        "problem_id", "slice", "factory", "type", "base", "service", "namespace", "fix",
+        "aiopslab", "source", "checks",
+    ],
+)  # fmt: skip
 def test_checksum_changes_when_any_part_of_the_definition_changes(field):
     record = confirmation.definition(CONF_IDS[0], "a" * 40)
-    changed = {**record, field: record[field] + ["x"] if field == "fix" else record[field] + "x"}
+    value = record[field]
+    changed = {**record, field: value + (["x"] if isinstance(value, list) else "x")}
     assert confirmation.digest(changed) != confirmation.digest(record)
     assert confirmation.checksum(CONF_IDS[0], "a" * 40) == confirmation.digest(record)
 
@@ -275,3 +279,26 @@ def test_validation_refuses_a_confirmation_problem_already_created():
     # a development problem may be validated again
     dev = "dev-scale_pod_zero_social_net-mitigation-1"
     assert select([dev], set(CONF_IDS), {dev}) == [dev]
+
+
+def test_checksum_covers_the_source_of_each_problem_and_its_overlay_bases():
+    def heads(problem_id):
+        return [
+            src.splitlines()[0] for src in confirmation.definition(problem_id, "a" * 40)["source"]
+        ]
+
+    assert heads(CONF_IDS[0]) == [
+        "def target_port_social_graph() -> K8STargetPortMisconfigMitigation:"
+    ]
+    assert heads(CONF_IDS[1]) == [
+        "class ScalePodSocialGraphMitigation(ScalePodSocialNetMitigation):"
+    ]
+    assert heads(CONF_IDS[2]) == [
+        "class AssignNonExistentNodeSocialGraphMitigation("
+        "AssignNonExistentNodeAvailableMitigation):",
+        "class AssignNonExistentNodeAvailableMitigation(AssignNonExistentNodeSocialNetMitigation):",
+    ]
+    record = confirmation.definition(CONF_IDS[0], "a" * 40)
+    assert "def has_available_replica" in record["checks"]
+    # read with universal newlines, so the checksum is the same on every system
+    assert all(chr(13) not in s for s in [record["checks"], *record["source"]])
