@@ -304,10 +304,8 @@ Limits:
   over the run), which is above the 2.6 minutes the plan leaves per rollout
   for the model. Sampling K = 8 candidates is #72: eight separate runs at the mean would take
   about 8.5 minutes, so #72 has to share the diagnosis across candidates or accept the cost.
-- `get_metrics` and `get_traces` are not in the live set. The cluster has no Prometheus. A test
-  call of `get_traces` ran but returned an empty file ("No services found"), probably because the
-  harness sends no workload traffic (not tested: no workload was run to see traces appear). This
-  departs from the story's acceptance criteria, which name both tools.
+- In this two-tool phase `get_metrics` and `get_traces` were not in the live set (no Prometheus, and
+  no workload traffic, so an empty trace file). The four-tool phase below removes that deviation.
 - The manifests say `dirty: true` because two untracked handoff files were in the work tree. The
   batches that ran while `README.md` was being edited (seeds 1 and 2 on `7351e9d`) also had a
   modified tracked file; no code changed.
@@ -317,8 +315,8 @@ Limits:
 The manifests and transcripts of the 27 runs (54 files, the exploratory runs before commit
 `7351e9d` left out) are in one archive, and the logs of the two batches are beside it. They are
 meant for the shared Google Drive folder `k8s-RemValGate`, under `manifests/`; the archive was
-local when this was written and a member uploads it. A transcript holds each turn's reply, tool output, token count
-and time, the system prompt, the retrieved entries, and the chat settings. SHA-256:
+local when this was written and a member uploads it. A transcript holds each turn's reply, tool
+output, token count and time, the system prompt, the retrieved entries, and the chat settings. SHA-256:
 
 | File | SHA-256 |
 |---|---|
@@ -326,3 +324,60 @@ and time, the system prompt, the retrieved entries, and the chat settings. SHA-2
 | `planner_seeds_20261030.log` (the seeds 1 and 2 batches of `7351e9d`) | `64e5df6e645852c5918ac040341fe004fd64c733c4a581b644a7dec6e76fb1b9` |
 | `planner_rerun_think_20261030.log` (thinking on, `b01d18b`) | `0e2a60e04d0d42aa7be50474087fc5afb7d253dbc49eaffe240155c1070c8efd` |
 
+### All four tools live, 2026-10-30 (UTC)
+
+The story names `exec_shell`, `get_logs`, `get_metrics` and `get_traces`. They all ran live in
+this phase, so the deviation above no longer holds. The earlier tables above are the two-tool
+phase and stay as the record of it.
+
+What was needed (README, Telemetry): Prometheus installed in the cluster with AIOpsLab's own
+deploy, on a StorageClass `openebs-hostpath` that this repository created on the existing
+local-path provisioner instead of installing OpenEBS; a port-forward to NodePort 32000, because the
+kind config maps no host ports; and a `wrk2` workload after each injection. The Jaeger client keeps
+1 percent of requests, so the problem's own workload (10 requests per second for 10 s, 107
+requests) left no traces. The script runs 100 per second for 30 s (3000 requests, a 1.5 MB trace
+file) and waits 12 s for the tracer to flush. The `wrk2-client` image ran on the arm64 nodes. Both
+tools save files and return a path, so the model also gets a summary cut to 4,000 characters
+(per service for traces, error spans first; per metric for metrics). `read_metrics` and
+`read_traces` are not used: the story does not name them.
+
+Nine thinking-on runs (three seeds, three problems) on commit `8371cba`, with the same settings as
+before. A first attempt of nine was stopped when the laptop slept: one run stalled on a stuck
+workload job and left a fault injected, and one got an HTTP 400 from the server whose text was not
+logged. The cluster was reset by hand, the client now reports the server's text, and the nine runs
+were redone. The stopped attempt's partial files are not counted. The manifests say
+`dirty: true` for the same two untracked handoff files; no tracked file changed during these runs.
+
+| Mode, commit | Runs | Final answer | Fault type | Service | Both | Command admitted | Mean turns | Mean tokens | Mean s per run (max) |
+|---|---|---|---|---|---|---|---|---|---|
+| Thinking on, two tools, `b01d18b` | 9 | 8 | 8 | 6 | 6 | 8 | 3.4 | 2,351 | 64 (188) |
+| Thinking on, four tools, `8371cba` | 9 | 7 | 7 | 6 | 6 | 6 | 6.0 | 2,336 | 140 (261) |
+
+| Problem | Both correct, four tools | Hit the turn cap |
+|---|---|---|
+| Target port misconfiguration | 0 of 3 | 2 of 3 |
+| ScalePod | 3 of 3 | 0 of 3 |
+| Assign to a non-existent node | 3 of 3 | 0 of 3 |
+
+Use of the tools in the nine runs: `exec_shell` 25 calls, `get_logs` 9, `get_metrics` 5 (in 5 runs),
+`get_traces` 5 (in 5 runs). Two calls named tools that do not exist (`describe` and
+`get_deployments`) and were refused. The target port runs named the right fault type once, with
+the wrong service (`nginx-thrift`), and hit the cap twice. One ScalePod run answered in its first
+turn with no evidence and a command the allow-list rejected.
+
+All 5 `get_traces` calls and all 5 `get_metrics` calls returned data. The latest trace call came
+141 s into a run, inside Jaeger's 5-minute window; a call after about 250 s could miss the
+traffic, and the slowest run took 261 s. These runs do not show that the telemetry helped. There is no run with the tools removed to
+compare against: that is #38. Each planner run now takes 140 s of model time on average, which is
+over the 2.6 minutes (156 s) the plan leaves per rollout, and the workload adds about 45 s of wall
+time per rollout on top (the job is 35 s, plus the 12 s flush wait). Eight separate runs for K = 8
+at the mean would take about 19 minutes, so #72 has to share the diagnosis across candidates or
+the group has to accept the cost.
+
+Files: the 18 manifests and transcripts of the nine runs and the log of the batch.
+SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| `planner_runs_e5s1_fourtools_20261030.tar.gz` | `715caed66ce117d000309f688e2f907aaf9c3c316aa0840f427f82cdc459f7b0` |
+| `planner_fourtools_think_20261030_b.log` | `d1ceb28ddf268b5402ac43fba8882f98dd20f80af78c647b383cb710c1ad957d` |
