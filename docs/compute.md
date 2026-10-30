@@ -258,43 +258,71 @@ identical requests at temperature 0.7 gave identical text. Sampling follows the 
 non-thinking mode (temperature 0.7, top p 0.8, top k 20) with no presence penalty, 1024 new tokens
 per turn, and 4096 with thinking on. At most 8 turns, tool output cut at 4,000 characters.
 
-Eighteen runs on the three development problems on commit `7351e9d`: three seeds (0, 1, 2) per
-problem and mode, one run each. No evaluation-set touch was logged. The prompt was tuned on the
-first rounds with thinking off, on these same problems, so the numbers are descriptive and carry
-no inferential weight. A run is correct when both the fault type and the service match the
-injected fault.
+Twenty-seven runs on the three development problems, three seeds (0, 1, 2) per problem, one run
+each: 18 on commit `7351e9d` (both modes) and 9 thinking-on runs repeated on commit `b01d18b`. No
+evaluation-set touch was logged. The prompt was tuned in earlier rounds with thinking off, on these
+same problems, so the numbers are descriptive and carry no inferential weight. A run is correct
+when both the fault type and the service match the injected fault.
 
-| Mode | Runs | Final answer | Fault type | Service | Both | Command admitted | Mean turns | Mean tokens | Mean s per run (max) |
+One thinking-on run on `7351e9d` (target port, seed 0) was lost to a bug in the planner's reply
+parser: the model put a stray closing brace after its JSON object and the parser refused all 8
+turns. `b01d18b` reads only the first JSON object. No other run in the 18 had such a refusal. The
+thinking-on arm was therefore run again on `b01d18b`, and both thinking-on rows are shown.
+
+| Mode, commit | Runs | Final answer | Fault type | Service | Both | Command admitted | Mean turns | Mean tokens | Mean s per run (max) |
 |---|---|---|---|---|---|---|---|---|---|
-| Thinking off | 9 | 9 | 6 | 5 | 4 | 6 | 6.4 | 245 | 18 (23) |
-| Thinking on | 9 | 6 | 6 | 6 | 6 | 6 | 5.0 | 1,747 | 53 (88) |
+| Thinking off, `7351e9d` | 9 | 9 | 6 | 5 | 4 | 6 | 6.4 | 245 | 18 (23) |
+| Thinking on, `7351e9d` | 9 | 6 | 6 | 6 | 6 | 6 | 5.0 | 1,747 | 53 (88) |
+| Thinking on, `b01d18b` | 9 | 8 | 8 | 6 | 6 | 8 | 3.4 | 2,351 | 64 (188) |
 
-| Problem | Both correct, off | Both correct, on | Hit the turn cap, on |
+| Problem | Both correct, off | Both correct, on (`7351e9d`) | Both correct, on (`b01d18b`) |
 |---|---|---|---|
-| Target port misconfiguration | 0 of 3 | 0 of 3 | 3 of 3 |
-| ScalePod | 2 of 3 | 3 of 3 | 0 of 3 |
-| Assign to a non-existent node | 2 of 3 | 3 of 3 | 0 of 3 |
+| Target port misconfiguration | 0 of 3 | 0 of 3 | 0 of 3 |
+| ScalePod | 2 of 3 | 3 of 3 | 3 of 3 |
+| Assign to a non-existent node | 2 of 3 | 3 of 3 | 3 of 3 |
 
-Thinking on is the default from this result, one member's choice and not group-confirmed.
-It solved the two problems it finished and never finished the target port problem. Both
-modes failed that one. The admitted counts are the allow-list verdict on the returned command,
-not whether it fixes the fault.
+On `b01d18b`, the target port runs ended as one turn cap and two final answers that named the
+right fault type on the wrong service (`user-service`, not `user-mention-service`).
+Thinking on is the default from these results, one member's choice and not group-confirmed. It
+solved the two problems it finished in both thinking-on batches, and no run of either mode
+solved the target port problem. The admitted counts are the allow-list verdict on the returned
+command, not whether it fixes the fault.
 
 Limits:
 
 - Three problems and three seeds, one family of faults. The difference between the modes is 6 of
   9 against 4 of 9, which is not a tested difference.
+- The thinking-on arm used the model card's non-thinking sampling (temperature 0.7, top p 0.8,
+  top k 20). The card gives other values for thinking mode (temperature 1.0 and top p 0.95, or 0.6
+  and 0.95 for precise tasks) and advises a context of at least 128K to preserve thinking. These
+  runs used a context of 16,384. Results with the advised settings are not measured.
 - The stub retriever returned the same top entry (`stub-002`, a ScalePod runbook) for every run,
   because it scores word overlap and the cluster listing shares words with that entry. It may
   push answers toward ScalePod. It is replaced by retrieval configuration (iii) before any pool
   run.
-- One planner run takes 53 s on average with thinking on, 88 s at most. The plan leaves about 2.6
-  minutes per rollout for the model. Sampling K = 8 candidates is #72: eight separate runs at this
-  speed would take about 7 minutes, so #72 has to share the diagnosis across candidates or accept
-  the cost.
+- One planner run takes 64 s on average with thinking on, and the slowest took 188 s (7,491 tokens
+  over the run), which is above the 2.6 minutes the plan leaves per rollout
+  for the model. Sampling K = 8 candidates is #72: eight separate runs at the mean would take
+  about 8.5 minutes, so #72 has to share the diagnosis across candidates or accept the cost.
 - `get_metrics` and `get_traces` are not in the live set. The cluster has no Prometheus. A test
-  call of `get_traces` ran but returned an empty file ("No services found"), because the harness
-  sends no workload traffic. This departs from the story's acceptance criteria, which name both
-  tools.
+  call of `get_traces` ran but returned an empty file ("No services found"), probably because the
+  harness sends no workload traffic (not tested: no workload was run to see traces appear). This
+  departs from the story's acceptance criteria, which name both tools.
+- The manifests say `dirty: true` because two untracked handoff files were in the work tree. The
+  batches that ran while `README.md` was being edited (seeds 1 and 2 on `7351e9d`) also had a
+  modified tracked file; no code changed.
 - The Mac build is a quantized conversion, not the Kaggle bf16 weights, and the pool host may
   differ. Dev results from one build do not carry to another.
+
+The manifests and transcripts of the 27 runs (54 files, the exploratory runs before commit
+`7351e9d` left out) are in one archive, and the logs of the two batches are beside it. They are
+meant for the shared Google Drive folder `k8s-RemValGate`, under `manifests/`; the archive was
+local when this was written and a member uploads it. A transcript holds each turn's reply, tool output, token count
+and time, the system prompt, the retrieved entries, and the chat settings. SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| `planner_runs_e5s1_20261030.tar.gz` | `e99c54a74ad14a98dd5677c8ce4167ac4b38f11794c297087545e632768440ab` |
+| `planner_seeds_20261030.log` (the seeds 1 and 2 batches of `7351e9d`) | `64e5df6e645852c5918ac040341fe004fd64c733c4a581b644a7dec6e76fb1b9` |
+| `planner_rerun_think_20261030.log` (thinking on, `b01d18b`) | `0e2a60e04d0d42aa7be50474087fc5afb7d253dbc49eaffe240155c1070c8efd` |
+

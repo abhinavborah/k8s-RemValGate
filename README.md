@@ -204,9 +204,10 @@ problem it injects the fault, takes one read-only look at the cluster, and runs 
 `src/remvalgate/planner/`: at most 8 turns, one JSON object per turn, tool calls through the
 Orchestrator's parser. Diagnosis uses read-only `exec_shell` (`kubectl get` and `describe`) and
 `get_logs`; `get_metrics` and `get_traces` are not in the live set, because the cluster has no
-Prometheus and the harness sends no workload traffic, so traces are empty. The planner returns a
-diagnosis (a fault type from a closed list and a service name) and one command, which the
-allow-list checks and the script never runs. It then checks that the cluster did not change and
+Prometheus, and a test call of `get_traces` returned an empty file, probably because the harness
+sends no workload traffic (not tested). The planner returns a diagnosis (a fault type from a
+closed list and a service name) and one command, which the allow-list checks and the script
+never runs. It then checks that the cluster did not change and
 resets. The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking
 switch is sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other
 fields tried. `--model-version` is required and goes into the manifest with the thinking setting.
