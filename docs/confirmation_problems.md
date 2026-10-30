@@ -94,5 +94,5 @@ system or model runs and the LLM judge is off. A creation touch is not a system 
 The validation ran at commit `e6e599b`, which is not on this branch. Since then the problem
 definitions, their registration, their slice entries and their known fixes are unchanged. What
 changed: the checksum record gained the overlay factory and the source fields, so the checksums
-differ from those computed then, and the validation script gained the refusal of a second
-creation.
+differ from those computed then, and `log_creation` gained the refusal of a second creation of a
+confirmation problem.
