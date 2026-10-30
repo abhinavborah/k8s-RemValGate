@@ -32,7 +32,8 @@ class ProblemResult:
     # False means the system escalated instead of applying a candidate; a candidate that was
     # executed and then restored and escalated is still applied
     applied: bool
-    # the fault is gone after the 120 second settle window
+    # the fault is gone after the 120 second settle window and the action was not restored; see
+    # applied_result
     recovered: bool
     # HarmResult.harmful: a workload healthy before the action is unhealthy or has no pods after
     # the settle window
@@ -52,7 +53,7 @@ class ProblemResult:
 
 
 def applied_result(
-    harm: HarmResult, any_working_candidate: bool | None, *, restore_attempted: bool = False
+    harm: HarmResult, any_working_candidate: bool | None, *, restore_attempted: bool
 ) -> ProblemResult:
     """Build the result of an applied candidate from its harm result.
 
@@ -61,12 +62,17 @@ def applied_result(
     when the fault itself is gone. So APPLIED_INEFFECTIVE holds exactly when harm.ineffective does,
     unless a restore was attempted.
 
-    restore_attempted means a failed check restored the snapshot before the case was escalated:
-    pass RestoreResult.attempted, not RestoreResult.restored, so a restore that failed part way
-    still counts. The harm result must then be read before the restore, since harm describes what
-    the action did. Recovery describes the end state, and the restore undid the action, so the
-    candidate is never recovered: it is APPLIED_HARMFUL or APPLIED_INEFFECTIVE.
+    restore_attempted means a failed check put snapshot objects back before the case was escalated:
+    pass RestoreResult.attempted and a non-empty snapshot, not RestoreResult.restored, so a restore
+    that failed part way still counts. An empty snapshot (a pod delete or a ReplicaSet scale) puts
+    nothing back, so pass False and the end state decides. The harm result must be read before the
+    restore, since harm describes what the action did. Recovery describes the end state, and the
+    restore undid the action, so the candidate is never recovered: it is APPLIED_HARMFUL or
+    APPLIED_INEFFECTIVE. It has no default, so every caller states it.
     """
+    # type() as in ProblemResult: a RestoreResult passed in place of .attempted is always truthy
+    if type(restore_attempted) is not bool:
+        raise ValueError("restore_attempted must be a bool")
     return ProblemResult(
         applied=True,
         recovered=not harm.fault_remains and not restore_attempted,

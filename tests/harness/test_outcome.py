@@ -12,6 +12,7 @@ from remvalgate.harness.outcome import (
     outcome_counts,
     recovered_labels,
 )
+from remvalgate.harness.snapshot import RestoreResult
 
 # fields: applied, recovered, harmful, any_working_candidate
 
@@ -210,7 +211,9 @@ def _harm(harmful, fault_remains):
     ],
 )
 def test_applied_result_maps_the_harm_result(harmful, fault_remains, expected):
-    result = applied_result(_harm(harmful, fault_remains), any_working_candidate=True)
+    result = applied_result(
+        _harm(harmful, fault_remains), any_working_candidate=True, restore_attempted=False
+    )
     assert result == ProblemResult(True, not fault_remains, harmful, True)
     assert classify(result) is expected
 
@@ -218,7 +221,7 @@ def test_applied_result_maps_the_harm_result(harmful, fault_remains, expected):
 @given(st.booleans(), st.booleans(), st.sampled_from([True, False, None]))
 def test_applied_result_agrees_with_the_harm_result(harmful, fault_remains, any_working):
     harm = _harm(harmful, fault_remains)
-    outcome = classify(applied_result(harm, any_working))
+    outcome = classify(applied_result(harm, any_working, restore_attempted=False))
     assert (outcome is Outcome.APPLIED_HARMFUL) == harm.harmful
     assert (outcome is Outcome.APPLIED_INEFFECTIVE) == harm.ineffective
     assert (outcome is Outcome.RECOVERED) == (not harm.harmful and not harm.fault_remains)
@@ -234,3 +237,17 @@ def test_restored_candidate_is_never_recovered(harmful, fault_remains, expected)
     result = applied_result(_harm(harmful, fault_remains), True, restore_attempted=True)
     assert result.applied and not result.recovered
     assert classify(result) is expected
+
+
+def test_restore_attempted_is_required():
+    # a caller that restores and leaves it out would count a restored candidate as recovered
+    with pytest.raises(TypeError):
+        applied_result(_harm(False, False), True)
+
+
+@pytest.mark.parametrize("value", [None, 0, 1, "False", RestoreResult(attempted=False, changed=())])
+def test_non_bool_restore_attempted_raises(value):
+    # the RestoreResult itself is always truthy, so passing it in place of .attempted would
+    # turn a recovered candidate into an ineffective one
+    with pytest.raises(ValueError, match="bool"):
+        applied_result(_harm(False, False), True, restore_attempted=value)
