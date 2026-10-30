@@ -223,10 +223,18 @@ Limits of the pilot:
   by the image digests.
 - `dirty` is true in the manifests because two untracked handoff files were in the work tree.
 
-K and R are not set by this pilot. BRD R9.1 carries the same refinement as a proposal. The ticket was changed to check the plan against the measured
-time and keep K = 8 unless the budget fails, with R set in the baseline-only run. One member
-recommends keeping K = 8 and R = 1 (BRD terms: K is 8 planned, R is 1 unless baseline outcomes
-vary, at most 3). At the measured cost the harness uses about half of the planned time per
-rollout, so no cut of K is needed for harness time. The risk is model latency, which this pilot
-does not measure. If the planner's sampling time per rollout exceeds the 2.6 minutes the plan
-leaves, the rule is to cut K before raising R. This recommendation is not group-confirmed.
+K and R are not set by this pilot. BRD R9.1 carries the same refinement as a proposal. The ticket
+was changed to check the plan against the measured time and keep K = 8 unless the budget fails,
+with R set in the baseline-only run. One member recommends keeping K = 8 and R = 1 (BRD terms: K
+is 8 planned, R is 1 unless baseline outcomes vary, at most 3). At the measured cost the harness
+uses about half of the planned time per rollout, so no cut of K is needed for harness time. The
+risk is model latency, which this pilot does not measure. If the planner's sampling time per
+rollout exceeds the 2.6 minutes the plan leaves, the rule is to cut K before raising R. This
+recommendation is not group-confirmed.
+
+As a rough bound from the one generation time this file records (Qwen3.5-4B on a T4 with emulated
+bfloat16, 44 new tokens in 4.3 s, about 10 tokens per second), 2.6 minutes is about 1,600 new
+tokens per rollout. That run was decode only, one greedy sequence from a one-sentence prompt, with
+no prompt processing and no gate scoring, and sampling the K candidates as a batch may be faster
+per token. How the budget splits over the K candidates depends on how the plan counts a rollout,
+which the BRD does not state.
