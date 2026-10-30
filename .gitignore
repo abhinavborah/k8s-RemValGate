@@ -23,6 +23,8 @@ __pycache__/
 .idea/
 .vscode/
 
-# run manifests and rollout outputs live on shared drive storage; only the touch log is committed
+# run manifests and rollout outputs live on shared drive storage; only the touch log and the
+# confirmation seal are committed
 runs/*
 !runs/touch_log.jsonl
+!runs/confirmation_seal.json

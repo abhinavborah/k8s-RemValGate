@@ -1,4 +1,5 @@
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -9,9 +10,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from remvalgate import overlay
+from remvalgate.aiopslab_pin import pinned_commit
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
+from remvalgate.overlay import confirmation
 from remvalgate.overlay.checks import has_available_replica, poll_until
-from remvalgate.overlay.fixes import FIXES, exec_shell, known_fix
+from remvalgate.overlay.fixes import FIXES, exec_shell, known_fix, select
 
 
 def _factory():
@@ -83,6 +86,11 @@ def test_every_overlay_id_builds_its_intended_problem():
         "pool-assign_to_non_existent_node_social_net-mitigation-1": (
             "AssignNonExistentNodeAvailableMitigation"
         ),
+        "conf-k8s_target_port-misconfig-mitigation-1": "target_port_social_graph",
+        "conf-scale_pod_zero_social_net-mitigation-1": "ScalePodSocialGraphMitigation",
+        "conf-assign_to_non_existent_node_social_net-mitigation-1": (
+            "AssignNonExistentNodeSocialGraphMitigation"
+        ),
     }
     assert set(built.values()) <= defined
 
@@ -153,3 +161,126 @@ def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_i
 def test_the_target_port_fix_patches_to_the_shared_port():
     patch = FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
     assert patch == '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]'
+
+
+# the confirmation slice: static checks only, since building a confirmation problem in a test
+# would be an evaluation-set touch (BRD 7.2)
+
+REPO = Path(__file__).resolve().parents[1]
+CONF_IDS = [
+    "conf-k8s_target_port-misconfig-mitigation-1",
+    "conf-scale_pod_zero_social_net-mitigation-1",
+    "conf-assign_to_non_existent_node_social_net-mitigation-1",
+]
+
+
+def test_confirmation_ids_are_registered_and_only_in_the_confirmation_slice():
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    conf = [i for i, s in registry.slices.items() if s is Slice.CONFIRMATION]
+    assert conf == CONF_IDS
+    assert set(CONF_IDS) <= set(overlay.PROBLEMS)
+    assert set(confirmation.SPEC) == set(CONF_IDS)
+
+
+def test_each_confirmation_problem_targets_its_planned_service_and_base():
+    tree = ast.parse(Path(overlay.__file__).with_name("dev_problems.py").read_text())
+    names = {}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            names[node.name] = {b.id for b in node.bases if isinstance(b, ast.Name)}
+        elif isinstance(node, ast.FunctionDef):
+            names[node.name] = {
+                n.func.id
+                for n in ast.walk(node)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+    planned = {
+        "conf-k8s_target_port-misconfig-mitigation-1": "TargetPortMisconfig",
+        "conf-scale_pod_zero_social_net-mitigation-1": "ScalePod",
+        "conf-assign_to_non_existent_node_social_net-mitigation-1": "AssignNonExistentNode",
+    }
+    for problem_id in CONF_IDS:
+        spec = confirmation.definition(problem_id, "a" * 40)
+        assert spec["factory"] == overlay.PROBLEMS[problem_id].problem
+        assert spec["type"] == planned[problem_id]
+        assert spec["service"] == "social-graph-service"
+        assert spec["namespace"] == "test-social-network"
+        assert spec["base"] in names[overlay.PROBLEMS[problem_id].problem]
+        # the factory itself takes its service from SERVICE, not from a literal of its own
+        assert "confirmation.SERVICE" in spec["source"][0]
+        assert "-service" not in spec["source"][0].replace("confirmation.SERVICE", "")
+        # the known fix acts on the planned service and nothing else
+        assert all("social-graph-service" in " ".join(args) for args in FIXES[problem_id])
+
+
+def _recorded_checksums():
+    text = (REPO / "docs" / "confirmation_problems.md").read_text(encoding="utf-8")
+    return dict(re.findall(r"^\| `(conf-[^`]+)` \|.*\| `([0-9a-f]{64})` \|$", text, re.M))
+
+
+def test_recorded_checksums_match_the_definitions():
+    pin = pinned_commit(REPO)
+    assert _recorded_checksums() == {i: confirmation.checksum(i, pin) for i in CONF_IDS}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "problem_id", "slice", "factory", "type", "base", "service", "namespace", "fix",
+        "aiopslab", "source", "checks",
+    ],
+)  # fmt: skip
+def test_checksum_changes_when_any_part_of_the_definition_changes(field):
+    record = confirmation.definition(CONF_IDS[0], "a" * 40)
+    value = record[field]
+    changed = {**record, field: value + (["x"] if isinstance(value, list) else "x")}
+    assert confirmation.digest(changed) != confirmation.digest(record)
+    assert confirmation.checksum(CONF_IDS[0], "a" * 40) == confirmation.digest(record)
+
+
+def test_checksums_differ_between_the_confirmation_problems():
+    assert len({confirmation.checksum(i, "a" * 40) for i in CONF_IDS}) == 3
+
+
+def test_validation_selects_only_the_requested_ids():
+    assert select(CONF_IDS, set(CONF_IDS)) == CONF_IDS
+    assert select([CONF_IDS[1], CONF_IDS[1]], set(CONF_IDS)) == [CONF_IDS[1]]
+
+
+def test_validation_with_no_ids_skips_the_confirmation_slice():
+    expected = [i for i in overlay.PROBLEMS if i not in CONF_IDS]
+    assert select([], set(CONF_IDS)) == expected
+
+
+def test_validation_refuses_an_id_that_is_not_an_overlay_problem():
+    with pytest.raises(ValueError, match="k8s_target_port-misconfig-mitigation-1"):
+        select(["k8s_target_port-misconfig-mitigation-1"], set(CONF_IDS))
+
+
+def test_checksum_covers_the_source_of_each_problem_and_its_overlay_bases():
+    def heads(problem_id):
+        return [
+            src.splitlines()[0] for src in confirmation.definition(problem_id, "a" * 40)["source"]
+        ]
+
+    assert heads(CONF_IDS[0]) == [
+        "def target_port_social_graph() -> K8STargetPortMisconfigMitigation:"
+    ]
+    assert heads(CONF_IDS[1]) == [
+        "class ScalePodSocialGraphMitigation(ScalePodSocialNetMitigation):"
+    ]
+    assert heads(CONF_IDS[2]) == [
+        "class AssignNonExistentNodeSocialGraphMitigation("
+        "AssignNonExistentNodeAvailableMitigation):",
+        "class AssignNonExistentNodeAvailableMitigation(AssignNonExistentNodeSocialNetMitigation):",
+    ]
+    record = confirmation.definition(CONF_IDS[0], "a" * 40)
+    assert "def has_available_replica" in record["checks"]
+    # read with universal newlines, so the checksum is the same on every system
+    assert all(chr(13) not in s for s in [record["checks"], *record["source"]])
+
+
+def test_checksum_source_follows_every_base_defined_in_the_overlay():
+    text = "class M:\n    x = 1\n\n\nclass B:\n    y = 2\n\n\nclass A(B, M, Imported):\n    pass\n"
+    heads = [src.splitlines()[0] for src in confirmation._sources("A", text)]
+    assert heads == ["class A(B, M, Imported):", "class B:", "class M:"]

@@ -49,6 +49,10 @@ for those 4: `compose-post-service`, `home-timeline-service`, `social-graph-serv
 `url-shorten-service` and `user-timeline-service`. The MongoDBAuthMissing singleton deletes the
 `url-shorten-service` pods, so that service is the last choice.
 
+The confirmation problems (#71) all use `social-graph-service` (`docs/confirmation_problems.md`).
+That leaves `compose-post-service`, `home-timeline-service`, `user-timeline-service` and, last,
+`url-shorten-service` for the pool extension (#24).
+
 ## Not designated
 
 - RevokeAuth and UserUnregistered. Their fault scripts are mounted only through the ConfigMaps
