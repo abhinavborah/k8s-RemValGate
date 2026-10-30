@@ -11,6 +11,7 @@ from remvalgate.harness.folds import (
     check_folds,
     fault_type,
     pool_folds,
+    pool_ids,
 )
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Registry, Slice, load_registry
 
@@ -245,3 +246,60 @@ def test_check_returns_a_list_of_strings():
     assert all(
         isinstance(m, str) for m in check_folds({"k8s_target_port-misconfig-mitigation-1": 9})
     )
+
+
+# --- a stem that contains another ------------------------------------------------------------
+
+
+def test_a_stem_that_contains_another_of_a_different_type_is_an_error(monkeypatch):
+    monkeypatch.setitem(FAULT_TYPES, "revoke_auth_mongodb", "SomethingElse")
+    with pytest.raises(ValueError, match="more than one fault type"):
+        fault_type("revoke_auth_mongodb-mitigation-1")
+
+
+def test_two_stems_of_the_same_type_are_not_ambiguous(monkeypatch):
+    monkeypatch.setitem(FAULT_TYPES, "revoke_auth_mongodb", "RevokeAuth")
+    assert fault_type("revoke_auth_mongodb-mitigation-1") == "RevokeAuth"
+
+
+# --- check_folds against the expected pool ---------------------------------------------------
+
+
+def test_the_expected_pool_matches_the_assignment():
+    problems = pool(PLAN)
+    assert check_folds(assign_folds(problems), expected_ids=problems) == []
+
+
+def test_check_reports_a_pool_problem_with_no_fold():
+    problems = pool(PLAN)
+    bad = good()
+    del bad[problems[0]]
+    messages = check_folds(bad, expected_ids=problems)
+    assert any(problems[0] in m and "no fold" in m for m in messages)
+
+
+def test_check_reports_an_assigned_problem_that_is_not_in_the_pool():
+    problems = pool(PLAN)
+    bad = good()
+    bad["pool-scale_pod_zero_social_net-mitigation-9"] = 0
+    messages = check_folds(bad, expected_ids=problems)
+    assert any("mitigation-9" in m and "not an expected" in m for m in messages)
+
+
+def test_an_assignment_made_for_nine_problems_is_caught_when_the_pool_grows_to_sixteen():
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    old = pool_folds(registry)
+    grown = [*pool_ids(registry), *pool({"TargetPortMisconfig": 6})[3:]]
+    # three new TargetPortMisconfig instances join the pool: the old assignment misses them
+    messages = check_folds(old, expected_ids=grown)
+    assert sum("no fold" in m for m in messages) == 3
+    # without the expected ids the stale assignment still looks valid
+    assert check_folds(old) == []
+
+
+def test_pool_ids_lists_only_the_pool_slice():
+    registry = Registry(
+        slices={"p-pool-scale_pod_zero-1": Slice.POOL, "x-scale_pod_zero-2": Slice.DEVELOPMENT},
+        placeholder=None,
+    )
+    assert pool_ids(registry) == ["p-pool-scale_pod_zero-1"]

@@ -31,11 +31,20 @@ FAULT_TYPES = {
 
 
 def fault_type(problem_id: str) -> str:
-    """Return the fault type of a pool problem id. Raises ValueError for an unknown id."""
-    for stem, type_ in FAULT_TYPES.items():
-        if stem in problem_id:
-            return type_
-    raise ValueError(f"no fault type can be read from the problem id {problem_id!r}")
+    """Return the fault type of a pool problem id.
+
+    Raises ValueError for an id that matches no stem, and for one that matches stems of more than
+    one fault type, so a later stem that contains an existing one is an error and not a silent
+    first match.
+    """
+    matches = {type_ for stem, type_ in FAULT_TYPES.items() if stem in problem_id}
+    if not matches:
+        raise ValueError(f"no fault type can be read from the problem id {problem_id!r}")
+    if len(matches) > 1:
+        raise ValueError(
+            f"the problem id {problem_id!r} matches more than one fault type: {sorted(matches)}"
+        )
+    return matches.pop()
 
 
 def _check_n_folds(n_folds: int) -> None:
@@ -69,21 +78,37 @@ def assign_folds(problems: Iterable[str], n_folds: int = 4) -> dict[str, int]:
     return {problem_id: k % n_folds for k, problem_id in enumerate(ordered)}
 
 
+def pool_ids(registry: Registry) -> list[str]:
+    """The problem ids of the pool slice."""
+    return [problem_id for problem_id, s in registry.slices.items() if s is Slice.POOL]
+
+
 def pool_folds(registry: Registry, n_folds: int = 4) -> dict[str, int]:
     """Assign the problems of the pool slice."""
-    pool = [problem_id for problem_id, s in registry.slices.items() if s is Slice.POOL]
-    return assign_folds(pool, n_folds)
+    return assign_folds(pool_ids(registry), n_folds)
 
 
-def check_folds(assignment: dict[str, int], n_folds: int = 4) -> list[str]:
+def check_folds(
+    assignment: dict[str, int], n_folds: int = 4, expected_ids: Iterable[str] | None = None
+) -> list[str]:
     """Return one message per broken invariant; an empty list means the folds are valid.
 
     The checks: every fold index is an integer in 0..n_folds-1, the fold sizes differ by at most
     one, and for each fault type the counts per fold differ by at most one. A fold index that is
     not valid, and an id with no fault type, are reported and left out of the other checks.
+
+    With expected_ids, for example pool_ids(registry), it also reports each expected id that has
+    no fold and each assigned id that is not expected, so an assignment made for an older pool is
+    caught once the pool has grown.
     """
     _check_n_folds(n_folds)
     messages = []
+    if expected_ids is not None:
+        expected = set(expected_ids)
+        for problem_id in sorted(expected - assignment.keys()):
+            messages.append(f"{problem_id}: expected in the folds but has no fold")
+        for problem_id in sorted(assignment.keys() - expected):
+            messages.append(f"{problem_id}: has a fold but is not an expected problem")
     valid: dict[str, int] = {}
     for problem_id, fold in assignment.items():
         if type(fold) is not int or not 0 <= fold < n_folds:
