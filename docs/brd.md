@@ -1,8 +1,8 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.5 (draft for group review)
-**Date:** 2026-10-27
+**Version:** 1.6 (draft for group review)
+**Date:** 2026-10-30
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
@@ -80,7 +80,7 @@ Freezing a decision before a run protects the results in the way a failing test 
 
 ### 7.2 Test lanes
 
-- **Test-first (deterministic harness):** allow-list and sandbox check, snapshot and restore, harm detection by pod-status differencing, the five-class outcome classifier, fold assignment invariants, retrieval corpus isolation, the incident-clustered bootstrap. Metric code (Hit@k, MRR, AUROC, Brier, AURC, McNemar mid-p, Wilson, Bonett-Price) is tested against reference implementations or published worked examples.
+- **Test-first (deterministic harness):** allow-list and sandbox check, snapshot and restore, harm detection by pod-status differencing, the six-class outcome classifier, fold assignment invariants, retrieval corpus isolation, the incident-clustered bootstrap. Metric code (Hit@k, MRR, AUROC, Brier, AURC, McNemar mid-p, Wilson, Bonett-Price) is tested against reference implementations or published worked examples.
 - **Eval-first (model behaviour):** planner and gate output is judged by the frozen evaluation protocol, the sealed slice and the pre-declared metrics, never by unit tests.
 - **Integration (few):** live-cluster rollouts, using recorded telemetry for repeat runs. Continuous integration never runs cluster rollouts.
 - Prompt iteration, smoke tests and the G2 timing pilot use development problems only. The evaluation pool, the confirmation slice and the singleton types are never used for them. The G4 scoring pilot uses the training problems of the whole pool instead (section 7.1).
@@ -123,7 +123,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R2.1 | Allow-list and sandbox check applied to every sampled candidate, with reasons for rejection. | Must | M1 |
 | R2.2 | Snapshot and restore for the three fault types whose state is a Kubernetes object (TargetPortMisconfig, ScalePod, AssignNonExistentNode). | Must | M1 |
 | R2.3 | Harm detection by differencing pre-action and post-action pod status across the target namespace, with the post-action status taken after the 120 second settle window. | Must | M1 |
-| R2.4 | Outcome classifier with five classes: recovered, escalated with a working candidate, escalated with none, applied and ineffective, applied and harmful. | Must | M1 |
+| R2.4 | Outcome classifier with six classes: recovered, escalated with a working candidate, escalated with none, escalated with no oracle label, applied and ineffective, applied and harmful. An applied candidate that is restored and escalated is classified as applied, with harm read before the restore, and is never recovered. Decided by the group on 2026-10-30 (#84). | Must | M1 |
 | R2.5 | Metric library: Hit@1, Hit@3, MRR, Recall@3, AUROC, Brier, AURC, top-1 accuracy, harmful rate at matched coverage. | Must | M1 |
 | R2.6 | Statistics: McNemar mid-p, Wilson and Bonett-Price intervals, and the interval method for the primary comparison. The incident-clustered bootstrap in the proposal is provisional pending review point 2. | Must | M1 |
 | R2.7 | Tool-call and schema validity scoring (required by the course for tool-using systems). | Must | M1 |
@@ -237,6 +237,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 **Open questions**
 - Division of work among members (not yet agreed; assignees stay blank).
+- Left to #50: R2.3 takes harm after the 120 second settle window, but R2.4 reads harm before a restore, so the two differ when a check fails and the restore runs inside that window. Also open: how the run log records the restore, since APPLIED_INEFFECTIVE covers both a fault that remained and an action that was rolled back.
 - Which GPU and cluster resources are available, and the cost of each.
 - Whether the TA's reply to version 2 will change the plan.
 
@@ -264,3 +265,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.2 | 2026-10-19 | Separated the G4 scoring pilot from the G2 timing pilot, added harm-snapshot timing, oracle reset check, deduplication and mixed-outcome counting, marked the primary interval method provisional, and added a terms section and the TA traceability line, after review. |
 | 1.4 | 2026-10-26 | Recorded the headroom check decision: baseline 3c stands in for baseline 5 at gate G3, the check runs before any gate or planner training, at least 5 recoverable problems are required, and oracle labelling (R3.5) moves to M1. Updated G3, R3.5, R6.6, R9.10 and review point 7. After review: both counts come from the oracle labels, the test behind the 5 net wins is named, the M1 scope of R3.5 and the schedule risk are stated, and 3c's retrieval configuration is named. |
 | 1.5 | 2026-10-27 | Recorded the gate G4 decision: a pilot fine-tune scored by grouped cross-validation on the training problems of the whole pool with within-incident AUROC, G4 moved to M2, and R9.11 and review point 8 marked decided. After review: the G4 story's commitments are listed, the timing pilot is named in section 7.2 and R3.8, the training record count is stated, the pilot's GPU cost is marked as not costed, and the G4 metric is set apart from the primary metric. Proposed, pending group confirmation: G4 blocks all per-fold training including baseline 5, the decision is made once over the pool training problems and logged as a whole-pool touch, and a pilot interval that is not wholly below the threshold is inconclusive and keeps free-form. R6.4, R7.1, R9.11, section 7.2 and review point 8 updated to match. |
+| 1.6 | 2026-10-30 | Recorded the #84 decision: an escalation on a problem with no oracle label is its own outcome class, so R2.4 has six classes; an applied candidate that is restored and escalated is classified as applied, its harm is read before the restore, and it is never recovered. Updated R2.4 and section 7.2, and added an open question for #50 in section 9. |
