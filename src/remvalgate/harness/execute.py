@@ -1,0 +1,162 @@
+"""Apply one candidate with a snapshot, a check and a restore on failure (story E8-S2, R8.2).
+
+apply_with_check snapshots the Deployments and Services the command touches, runs it, measures
+harm, then runs the check: target-namespace readiness and the problem-specific probes, which is
+AIOpsLab's mitigation eval. A passing check keeps the change. A failing one restores the snapshot
+and escalates. For RevokeAuth and UserUnregistered, whose state is not a Kubernetes object, and
+for a command no snapshot can undo, a failing check escalates without a restore. Harm is measured
+in every case, before any restore, since it describes what the action did.
+
+The result is recorded with applied_result: the candidate ran, so it is applied even when it was
+restored and escalated, and a restored candidate is never recovered.
+
+The kubectl calls and the eval are injected, as in harm.py and snapshot.py, so CI tests the logic
+without a cluster.
+"""
+
+import shlex
+import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from remvalgate.harness.allowlist import Policy
+from remvalgate.harness.harm import HarmResult
+from remvalgate.harness.outcome import ProblemResult, applied_result
+from remvalgate.harness.snapshot import (
+    IN_SCOPE,
+    OUT_OF_SCOPE,
+    NotRestorable,
+    ObjectRef,
+    RestoreResult,
+    restore,
+    take,
+    touched,
+)
+
+
+@dataclass(frozen=True)
+class Execution:
+    command: str
+    # exit code of the command; a failed command still counts as applied, since it may have
+    # changed something before it failed
+    exit_code: int
+    harm: HarmResult
+    # readiness and the problem-specific probes passed; the change is kept exactly when True
+    check_passed: bool
+    # None when no restore ran: the check passed, the fault is out of scope, or the snapshot
+    # was empty or impossible
+    restore: RestoreResult | None
+    # one message per restored Deployment that did not roll out
+    rollout_errors: tuple[str, ...]
+    result: ProblemResult
+
+    @property
+    def escalated(self) -> bool:
+        """Handed to a human after the action, with or without a restore."""
+        return not self.check_passed
+
+
+def apply_with_check(
+    command: str,
+    fault_type: str,
+    any_working_candidate: bool | None,
+    *,
+    policy: Policy,
+    namespace: str,
+    get: Callable[[ObjectRef], dict | None],
+    put: Callable[[str, dict], None],
+    run: Callable[[str], int],
+    measure_harm: Callable[[], HarmResult],
+    check: Callable[[], bool],
+    rolled_out: Callable[[ObjectRef], None],
+) -> Execution:
+    """Snapshot, apply, measure harm, check, and restore and escalate on a failed check.
+
+    command must be admitted by the allow-list: touched raises ValueError otherwise, before
+    anything runs. run returns the exit code. measure_harm waits the settle window and returns
+    detect_harm's result, with pre taken before this call. check runs readiness and the probes
+    with no further settle window. rolled_out waits for a restored Deployment and raises
+    RuntimeError if it does not roll out. get and put are as in snapshot.restore.
+
+    Raises ValueError for a fault type in neither scope list, before the command runs. If run,
+    measure_harm or check raises, the snapshot is restored before the error propagates, so a
+    failed measurement does not leave the action in place for the next candidate.
+    """
+    if fault_type not in IN_SCOPE | OUT_OF_SCOPE:
+        raise ValueError(f"unknown fault type {fault_type!r}")
+    snapshot = None
+    try:
+        refs = touched(command, policy, namespace)
+    except NotRestorable:
+        refs = None
+    if fault_type in IN_SCOPE and refs:
+        snapshot = take(namespace, refs, get)
+    try:
+        exit_code = run(command)
+        harm = measure_harm()
+        passed = check()
+    except BaseException:
+        if snapshot is not None and snapshot.objects:
+            restore(fault_type, snapshot, get, put)
+        raise
+    restored = None
+    rollout_errors = []
+    if not passed and snapshot is not None and snapshot.objects:
+        restored = restore(fault_type, snapshot, get, put)
+        for ref in snapshot.objects:
+            if ref[0] != "Deployment":
+                continue
+            try:
+                rolled_out(ref)
+            except RuntimeError as error:
+                rollout_errors.append(f"{ref[0]}/{ref[1]}: {error}")
+    return Execution(
+        command=command,
+        exit_code=exit_code,
+        harm=harm,
+        check_passed=passed,
+        restore=restored,
+        rollout_errors=tuple(rollout_errors),
+        result=applied_result(harm, any_working_candidate, restore_attempted=restored is not None),
+    )
+
+
+def kubectl_run(context: str | None = None, timeout: float = 300):
+    """Return a run for apply_with_check: the command split with shlex, never through a shell.
+
+    The context is put after kubectl. A timeout returns -1 and does not raise, so the check and
+    the restore still run. Not unit tested and never run by CI; scripts/run_execution_check.py
+    runs it on a cluster.
+    """
+
+    def run(command: str) -> int:
+        args = shlex.split(command)
+        if context:
+            args[1:1] = ["--context", context]
+        try:
+            return subprocess.run(args, capture_output=True, text=True, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            return -1
+
+    return run
+
+
+def kubectl_rolled_out(namespace: str, context: str | None = None, timeout: int = 300):
+    """Return a rolled_out for apply_with_check that runs kubectl rollout status."""
+    base = ["kubectl", *(["--context", context] if context else []), "-n", namespace]
+
+    def rolled_out(ref: ObjectRef) -> None:
+        name = f"{ref[0].lower()}/{ref[1]}"
+        try:
+            run = subprocess.run(
+                [*base, "rollout", "status", name, f"--timeout={timeout}s"],
+                capture_output=True,
+                text=True,
+                timeout=timeout + 30,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError(f"timed out after {error.timeout} s") from error
+        if run.returncode != 0:
+            raise RuntimeError(run.stderr.strip())
+
+    return rolled_out
