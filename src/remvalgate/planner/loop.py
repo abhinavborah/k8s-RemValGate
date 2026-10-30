@@ -25,7 +25,7 @@ from remvalgate.planner.chat import Chat
 from remvalgate.retrieval import Retriever
 
 # the fault types of the pool, as the retrieval corpus names them
-# the fault types of the pool with the one-line descriptions of the AIOpsLab paper, Table 2
+# the fault types of the pool, with descriptions shortened from the AIOpsLab paper, Table 2
 FAULT_TYPES = {
     "TargetPortMisconfig": "a service targetPort does not match the container port",
     "ScalePod": "a deployment was scaled to zero pods",
