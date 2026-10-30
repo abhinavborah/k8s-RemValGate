@@ -123,13 +123,28 @@ def test_an_exec_no_snapshot_holds_escalates_without_a_restore():
     assert classify(execution.result) is Outcome.APPLIED_INEFFECTIVE
 
 
-def test_an_empty_snapshot_puts_nothing_back_and_the_end_state_decides():
+def test_an_empty_snapshot_puts_nothing_back_and_the_escalation_is_not_recovered():
     cluster = Cluster()
     command = f"kubectl delete pod media-service-abc -n {NS}"
+    # the fault is gone, but an escalation counts as not recovered
     execution = _apply(cluster, command, passed=False, harm=_harm(False, False))
     assert cluster.calls == ["run", "harm", "check"]
     assert execution.escalated and execution.restore is None
-    assert classify(execution.result) is Outcome.RECOVERED
+    assert classify(execution.result) is Outcome.APPLIED_INEFFECTIVE
+
+
+def test_a_service_only_snapshot_is_restored_with_no_rollout_wait():
+    cluster = Cluster()
+    service = {
+        "kind": "Service",
+        "metadata": {"name": "user-mention-service", "namespace": NS},
+        "spec": {"ports": [{"port": 9090, "targetPort": 9090}]},
+    }
+    cluster.live[("Service", "user-mention-service")] = copy.deepcopy(service)
+    command = f"kubectl patch svc user-mention-service -p '{{}}' -n {NS}"
+    execution = _apply(cluster, command, "misconfig_k8s", passed=False, harm=_harm(False, True))
+    assert cluster.calls == ["run", "harm", "check", "replace"]
+    assert execution.restore.restored and execution.rollout_errors == ()
 
 
 def test_a_rollout_that_fails_is_recorded_and_the_case_still_escalates():
@@ -144,13 +159,16 @@ def test_a_rollout_that_fails_is_recorded_and_the_case_still_escalates():
     assert execution.escalated
 
 
-def test_a_measurement_that_raises_restores_before_the_error_propagates():
+@pytest.mark.parametrize("stage", ["run", "measure_harm", "check"])
+def test_a_step_that_raises_restores_and_waits_before_the_error_propagates(stage):
     cluster = Cluster()
 
-    def broken():
-        raise RuntimeError("kubectl get pods failed")
+    def broken(*_):
+        raise RuntimeError(f"{stage} failed")
 
-    with pytest.raises(RuntimeError, match="get pods"):
+    steps = {"run": cluster.run, "measure_harm": lambda: _harm(False, False), "check": lambda: True}
+    steps[stage] = broken
+    with pytest.raises(RuntimeError, match=f"{stage} failed") as raised:
         apply_with_check(
             SCALE,
             "scale_pods_to_zero",
@@ -159,13 +177,13 @@ def test_a_measurement_that_raises_restores_before_the_error_propagates():
             namespace=NS,
             get=cluster.get,
             put=cluster.put,
-            run=cluster.run,
-            measure_harm=broken,
-            check=lambda: True,
             rolled_out=cluster.rolled_out,
+            **steps,
         )
-    assert cluster.calls == ["run", "replace"]
+    assert cluster.calls[-2:] == ["replace", "rollout media-service"]
     assert cluster.live[("Deployment", "media-service")]["spec"]["replicas"] == 0
+    # the restore result travels with the error, so a failed restore is not silent
+    assert "restored True" in raised.value.__notes__[0]
 
 
 def test_a_rejected_command_never_runs():

@@ -8,7 +8,8 @@ for a command no snapshot can undo, a failing check escalates without a restore.
 in every case, before any restore, since it describes what the action did.
 
 The result is recorded with applied_result: the candidate ran, so it is applied even when it was
-restored and escalated, and a restored candidate is never recovered.
+restored and escalated. An escalated candidate is never recovered, whether or not anything was
+restored, since an escalation counts as not recovered.
 
 The kubectl calls and the eval are injected, as in harm.py and snapshot.py, so CI tests the logic
 without a cluster.
@@ -17,7 +18,7 @@ without a cluster.
 import shlex
 import subprocess
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from remvalgate.harness.allowlist import Policy
 from remvalgate.harness.harm import HarmResult
@@ -79,8 +80,9 @@ def apply_with_check(
     RuntimeError if it does not roll out. get and put are as in snapshot.restore.
 
     Raises ValueError for a fault type in neither scope list, before the command runs. If run,
-    measure_harm or check raises, the snapshot is restored before the error propagates, so a
-    failed measurement does not leave the action in place for the next candidate.
+    measure_harm or check raises, the snapshot is restored and its Deployments waited for before
+    the error propagates, with the restore result added as a note on the error, so a failed
+    measurement does not leave the action in place for the next candidate.
     """
     if fault_type not in IN_SCOPE | OUT_OF_SCOPE:
         raise ValueError(f"unknown fault type {fault_type!r}")
@@ -91,25 +93,27 @@ def apply_with_check(
         refs = None
     if fault_type in IN_SCOPE and refs:
         snapshot = take(namespace, refs, get)
+    can_restore = snapshot is not None and bool(snapshot.objects)
     try:
         exit_code = run(command)
         harm = measure_harm()
         passed = check()
-    except BaseException:
-        if snapshot is not None and snapshot.objects:
-            restore(fault_type, snapshot, get, put)
+    except BaseException as error:
+        if can_restore:
+            restored, rollout_errors = _undo(fault_type, snapshot, get, put, rolled_out)
+            error.add_note(
+                f"snapshot restored before this error: restored {restored.restored}, "
+                f"changed {list(restored.changed)}, errors {list(restored.errors)}, "
+                f"rollout errors {rollout_errors}"
+            )
         raise
-    restored = None
-    rollout_errors = []
-    if not passed and snapshot is not None and snapshot.objects:
-        restored = restore(fault_type, snapshot, get, put)
-        for ref in snapshot.objects:
-            if ref[0] != "Deployment":
-                continue
-            try:
-                rolled_out(ref)
-            except RuntimeError as error:
-                rollout_errors.append(f"{ref[0]}/{ref[1]}: {error}")
+    restored, rollout_errors = None, []
+    if not passed and can_restore:
+        restored, rollout_errors = _undo(fault_type, snapshot, get, put, rolled_out)
+    result = applied_result(harm, any_working_candidate, restore_attempted=restored is not None)
+    if not passed:
+        # an escalation is never recovered, also when nothing was restored
+        result = replace(result, recovered=False)
     return Execution(
         command=command,
         exit_code=exit_code,
@@ -117,8 +121,22 @@ def apply_with_check(
         check_passed=passed,
         restore=restored,
         rollout_errors=tuple(rollout_errors),
-        result=applied_result(harm, any_working_candidate, restore_attempted=restored is not None),
+        result=result,
     )
+
+
+def _undo(fault_type, snapshot, get, put, rolled_out) -> tuple[RestoreResult, list[str]]:
+    """Restore the snapshot, then wait for each restored Deployment, recording any that fail."""
+    restored = restore(fault_type, snapshot, get, put)
+    rollout_errors = []
+    for ref in snapshot.objects:
+        if ref[0] != "Deployment":
+            continue
+        try:
+            rolled_out(ref)
+        except RuntimeError as error:
+            rollout_errors.append(f"{ref[0]}/{ref[1]}: {error}")
+    return restored, rollout_errors
 
 
 def kubectl_run(context: str | None = None, timeout: float = 300):
