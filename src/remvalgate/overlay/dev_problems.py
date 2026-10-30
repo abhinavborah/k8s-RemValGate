@@ -1,6 +1,7 @@
 """Problems authored in this repository: the development problems designated in
-docs/development_problems.md (E3-S8, authored in E3-S9), and the pool variant of
-AssignNonExistentNode described in docs/problem_inventory.md.
+docs/development_problems.md (E3-S8, authored in E3-S9), the pool variant of
+AssignNonExistentNode described in docs/problem_inventory.md, and the confirmation problems in
+docs/confirmation_problems.md (E3-S10).
 
 Imports aiopslab at module level, so only the overlay factories import this module.
 """
@@ -17,6 +18,7 @@ from aiopslab.orchestrator.problems.k8s_target_port_misconfig import (
 from aiopslab.orchestrator.problems.scale_pod import ScalePodSocialNetMitigation
 from kubernetes.client.exceptions import ApiException
 
+from remvalgate.overlay import confirmation
 from remvalgate.overlay.checks import has_available_replica, poll_until
 
 
@@ -58,3 +60,19 @@ class AssignNonExistentNodeUniqueIdMitigation(AssignNonExistentNodeAvailableMiti
 
 def target_port_user_mention() -> K8STargetPortMisconfigMitigation:
     return K8STargetPortMisconfigMitigation(faulty_service="user-mention-service")
+
+
+class ScalePodSocialGraphMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = confirmation.SERVICE
+
+
+class AssignNonExistentNodeSocialGraphMitigation(AssignNonExistentNodeAvailableMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = confirmation.SERVICE
+
+
+def target_port_social_graph() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service=confirmation.SERVICE)

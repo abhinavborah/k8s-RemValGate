@@ -162,15 +162,18 @@ inside each `Orchestrator` and has no hook for outside entries, so an overlay en
 an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
 AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
 refused. The shipped overlay holds the three development problems
-([docs/development_problems.md](docs/development_problems.md)) and the pool variant of
-AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), defined in
+([docs/development_problems.md](docs/development_problems.md)), the pool variant of
+AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)) and the three
+confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)), defined in
 `src/remvalgate/overlay/dev_problems.py`. The known fixes are in
 `src/remvalgate/overlay/fixes.py`.
 
 `scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. `scripts/validate_overlay_problems.py` validates each overlay problem: it
-logs a creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
-`kubectl` command, checks that the eval passes and recovers the fault. Run it with Social Network
+constructed Orchestrator. `scripts/validate_overlay_problems.py` validates the overlay problems it
+is given, or with none given every overlay problem except the confirmation slice: for each it logs a
+creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
+`kubectl` command, checks that the eval passes and recovers the fault. A confirmation problem is
+created once: `log_creation` refuses a second creation touch for it. Run it with Social Network
 deployed and Ready. Both need the cluster, so CI does not run them.
 
 `scripts/run_dev_end_to_end.py` runs one development problem end to end (story E1-S3, R1.3). A
@@ -190,6 +193,14 @@ fix, a damaging command and a delete of the object, and after each restore check
 Services and Deployments equal their state before the command. It compares specs and labels and
 does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
 run it.
+
+`scripts/run_execution_check.py` is the hand check for the execution loop (story E8-S2, R8.2):
+snapshot, apply, harm after the settle window, the readiness check and probes, and a restore with
+escalation when the check fails. It runs the ScalePod known fix (kept, RECOVERED), a wrong target
+port (restored, APPLIED_INEFFECTIVE) and a patch that breaks another Deployment during an
+AssignNonExistentNode fault (restored, APPLIED_HARMFUL), and checks that each restore leaves the
+Services and Deployments as they were after the injection. `--settle` shortens the 120 second
+window. Run it with Social Network deployed and Ready; CI does not run it.
 
 `scripts/run_pilot.py` is the five-rollout timing pilot (story E9-S1, gate G2). It runs the known
 fix of the three development problems, then the first two again, through the Orchestrator's parser
@@ -242,6 +253,13 @@ YAML
 uv run python -c "from aiopslab.service.telemetry.prometheus import Prometheus; Prometheus().deploy()"
 ```
 
+`scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
+problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
+through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
+after the settle window. The baselines are in `src/remvalgate/baselines/`. Nothing is appended to
+the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
+so CI does not run it; CI tests the baselines on synthetic cluster listings.
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
@@ -256,7 +274,7 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
 `write_manifest` when it finishes.
 
 - **Run manifests** (`<run_id>.json`) are written next to the rollout's logs on shared drive storage.
-  The `runs/` folder is ignored by git, except for the touch log.
+  The `runs/` folder is ignored by git, except for the touch log and the confirmation seal.
 - **The evaluation-set touch log** is `runs/touch_log.jsonl`, committed, one JSON line per use of a
   primary-pool or confirmation-slice problem, and one per creation touch: `log_creation` logs the
   validation of a new problem in any slice, with a run id that starts with `create-`, a prefix
@@ -265,12 +283,18 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   may put the added lines in any order; each entry carries its own timestamp, so order is not used.
 - **Refusals.** A pool or confirmation run is refused when it has no touch entry, when its run id is
   already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
-  does not ignore (new files included). A pool run is also refused while the registry holds no
-  confirmation-slice id (gate G1). Development runs are not logged and may run with neither a
+  does not ignore (new files included). A confirmation run is refused in every case for now: the
+  slice is opened once, at the end, by a run path added in #59. A pool run is also refused until
+  the confirmation slice is sealed (gate G1): `runs/confirmation_seal.json` must cover the registry's confirmation ids, the
+  touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
+  under the run's AIOpsLab commit must match the record
+  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). Run ids starting with `seal-`
+  are kept for the seal touches. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
   9 current pool problems, one of them the overlay variant of AssignNonExistentNode
   ([docs/problem_inventory.md](docs/problem_inventory.md)), and the development problems designated
   in
-  [docs/development_problems.md](docs/development_problems.md). The pool extension, the
-  confirmation slice and the singleton problems are not in it yet.
+  [docs/development_problems.md](docs/development_problems.md), and the three confirmation problems
+  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The pool extension and the
+  singleton problems are not in it yet.
