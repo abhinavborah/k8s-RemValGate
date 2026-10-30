@@ -167,7 +167,8 @@ def run_one(orch, problem_id, name, baseline, clean, policy, settle) -> dict:
                 NS,
                 settle_seconds=settle,
             )
-            result = applied_result(harm, True)
+            # the baselines take no snapshot and restore nothing
+            result = applied_result(harm, True, restore_attempted=False)
         else:
             # nothing was applied: the development problems have a known fix, so a working
             # candidate exists

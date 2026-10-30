@@ -258,6 +258,14 @@ def test_the_rule_refuses_a_namespace_outside_the_sandbox(namespace):
         fault_type_rule(obs, namespace)
 
 
+@pytest.mark.parametrize("namespace", ["default", "kube-system", "Bad_NS"])
+def test_retrieval_only_refuses_a_namespace_outside_the_sandbox(namespace):
+    # the recorded stub fix has no namespace flag, so without the guard it would take this one
+    obs = observe(listing(deployment("a", replicas=0)))
+    with pytest.raises(ValueError, match="namespace"):
+        retrieval_only(_stub(), obs, DEV, namespace)
+
+
 # --- baseline 2: retrieval only --------------------------------------------------------------
 
 
