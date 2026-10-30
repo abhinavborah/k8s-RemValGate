@@ -24,8 +24,9 @@ from remvalgate.harness.toolcall import Schemas
 from remvalgate.planner.chat import Chat
 from remvalgate.retrieval import Retriever
 
-# the fault types of the pool, as the retrieval corpus names them
-# the fault types of the pool, with descriptions shortened from the AIOpsLab paper, Table 2
+# the fault types of the pool, with descriptions adapted from the AIOpsLab paper, Table 2. The
+# TargetPortMisconfig text names a mechanism (targetPort against the container port) that the
+# paper does not state; the other four follow the paper.
 FAULT_TYPES = {
     "TargetPortMisconfig": "a service targetPort does not match the container port",
     "ScalePod": "a deployment was scaled to zero pods",
@@ -76,6 +77,8 @@ class Step:
     observation: str
     completion_tokens: int
     seconds: float
+    # why the server stopped: "length" means the reply was cut at the token cap
+    finish_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -192,11 +195,15 @@ def plan(
     k: int = 3,
     max_observation_chars: int = 4000,
 ) -> Plan:
-    """Run the loop. Raises RetrieverRefused for a problem the retriever does not serve.
+    """Run the loop. Raises RetrieverRefused for a problem the retriever does not serve, and
+    ValueError for a tool that has no help text here or no schema.
 
     observation is one read-only look at the cluster after the injection, taken by the caller.
     The model is shown it, and it is the retrieval query, so retrieval depends on the problem.
     """
+    unsupported = (tools - _TOOL_HELP.keys()) | (tools - schemas.tools.keys())
+    if unsupported:
+        raise ValueError(f"no help text or no schema for tools {sorted(unsupported)}")
     hits = retriever.retrieve(observation, problem_id, k)
     past = "\n".join(
         f"- {h.entry.fault_type} on {h.entry.target_service}: {h.entry.summary}. "
@@ -241,12 +248,12 @@ def plan(
                     observation = f"Refused: {observation}"
         except ValueError as error:
             observation = f"Refused: {error}. Reply with one JSON object."
-        steps.append(Step(turn, completion.text, tool, arguments, observation, *_cost(completion)))
         if turn == max_turns - 1:
             observation += "\nThis is your last turn. Reply with the final answer now."
+        steps.append(Step(turn, completion.text, tool, arguments, observation, *_cost(completion)))
         messages.append({"role": "user", "content": observation})
     return Plan(None, None, None, Stop.TURN_CAP, tuple(steps), retrieved, system)
 
 
-def _cost(completion) -> tuple[int, float]:
-    return completion.completion_tokens, completion.seconds
+def _cost(completion) -> tuple[int, float, str]:
+    return completion.completion_tokens, completion.seconds, completion.finish_reason

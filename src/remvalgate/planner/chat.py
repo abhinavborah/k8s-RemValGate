@@ -25,6 +25,7 @@ class Completion:
     text: str
     completion_tokens: int
     seconds: float
+    finish_reason: str = ""
 
 
 class Chat(Protocol):
@@ -35,7 +36,8 @@ class Chat(Protocol):
 class OpenAIChat:
     model: str
     base_url: str = "http://localhost:1234/v1"
-    # on by default after the E5-S1 comparison (docs/compute.md); off sends reasoning_effort none
+    # on by default, one member's choice with the caveats in docs/compute.md; off sends
+    # reasoning_effort none
     thinking: bool = True
     # the Qwen3.5 card's non-thinking settings, used in both modes so the modes differ in one
     # thing, except presence_penalty: the card advises 1.5 against repetition, but repeated JSON
@@ -78,4 +80,5 @@ class OpenAIChat:
         seconds = time.perf_counter() - start
         # a server may leave a think block in the content, and it never belongs in the history
         text = _THINK.sub("", data["choices"][0]["message"].get("content") or "").strip()
-        return Completion(text, data["usage"]["completion_tokens"], seconds)
+        finish = data["choices"][0].get("finish_reason") or ""
+        return Completion(text, data["usage"]["completion_tokens"], seconds, finish)

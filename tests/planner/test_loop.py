@@ -184,3 +184,56 @@ def test_the_telemetry_tools_run_in_the_target_namespace_only(name):
     )
     assert tools.calls == [(name, {"namespace": NS, "duration": 5})]
     assert f"{name} works in namespace {NS} only" in result.steps[0].observation
+
+
+def test_a_tool_without_help_text_or_schema_fails_before_any_model_call():
+    chat = FakeChat([final()])
+    with pytest.raises(ValueError, match="read_traces"):
+        plan(
+            "t",
+            "o",
+            DEV,
+            NS,
+            chat=chat,
+            run_tool=FakeTools(),
+            retriever=RETRIEVER,
+            policy=POLICY,
+            schemas=SCHEMAS,
+            tools=frozenset({"exec_shell", "read_traces"}),
+        )
+    assert chat.seen == []
+
+
+def test_the_whole_default_tool_set_builds_a_prompt():
+    result, _, chat = run([final()])
+    system = chat.seen[0][0]["content"]
+    assert all(name in system for name in ("exec_shell", "get_logs", "get_metrics", "get_traces"))
+    assert result.system_prompt == system
+
+
+def test_the_recorded_observation_is_what_the_model_saw_including_the_last_turn_note():
+    replies = [tool("get_logs", namespace=NS, service="media-service")] * 2
+    result, _, chat = run(replies, max_turns=2)
+    assert result.steps[0].observation == chat.seen[1][-1]["content"]
+    assert "last turn" in result.steps[0].observation
+
+
+def test_the_finish_reason_of_each_turn_is_recorded():
+    class Cut(FakeChat):
+        def complete(self, messages):
+            done = super().complete(messages)
+            return Completion(done.text, done.completion_tokens, done.seconds, "length")
+
+    chat = Cut([final()])
+    result = plan(
+        "t",
+        "o",
+        DEV,
+        NS,
+        chat=chat,
+        run_tool=FakeTools(),
+        retriever=RETRIEVER,
+        policy=POLICY,
+        schemas=SCHEMAS,
+    )
+    assert result.steps[0].finish_reason == "length"

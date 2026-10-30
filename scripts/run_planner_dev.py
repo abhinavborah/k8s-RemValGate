@@ -51,7 +51,7 @@ from remvalgate.harness.manifest import (
 )
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
-from remvalgate.overlay.fixes import action, exec_shell
+from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
 from remvalgate.planner.loop import plan
 from remvalgate.planner.telemetry import preview
@@ -147,13 +147,6 @@ def prometheus_port_forward() -> subprocess.Popen:
     raise AssertionError("the Prometheus port-forward did not open")
 
 
-def tool_action(tool: str, arguments: dict) -> str:
-    if tool == "exec_shell":
-        return exec_shell(arguments["command"])
-    args = ", ".join(json.dumps(v) for v in arguments.values())
-    return action(f"{tool}({args})")
-
-
 async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Path) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
     orch.session = Session(results_dir=results_dir)
@@ -170,7 +163,7 @@ async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Pat
         def run_tool(tool, arguments):
             # plan() runs in a worker thread, so the coroutine goes back to this loop
             future = asyncio.run_coroutine_threadsafe(
-                orch.ask_env(tool_action(tool, arguments)), loop
+                orch.ask_env(tool_call(tool, arguments)), loop
             )
             # the tools save files and return a path: the model gets a bounded summary too
             return preview(tool, future.result(), 4000)

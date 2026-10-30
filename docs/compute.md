@@ -283,10 +283,13 @@ thinking-on arm was therefore run again on `b01d18b`, and both thinking-on rows 
 
 On `b01d18b`, the target port runs ended as one turn cap and two final answers that named the
 right fault type on the wrong service (`user-service`, not `user-mention-service`).
-Thinking on is the default from these results, one member's choice and not group-confirmed. It
-solved the two problems it finished in both thinking-on batches, and no run of either mode
-solved the target port problem. The admitted counts are the allow-list verdict on the returned
-command, not whether it fixes the fault.
+Thinking on is the default as one member's choice, not group-confirmed. In the two-tool
+comparison it solved the two problems it finished in both thinking-on batches (6 of 9 correct
+against 4 of 9 with thinking off), and no run of either mode solved the target port problem. That
+difference is not tested, the prompt was tuned with thinking off on these same problems, and the
+four-tool phase below has no thinking-off arm. The choice should be revisited once real retrieval
+replaces the stub. The admitted counts are the allow-list verdict on the returned command, not
+whether it fixes the fault.
 
 Limits:
 
@@ -306,6 +309,16 @@ Limits:
   about 8.5 minutes, so #72 has to share the diagnosis across candidates or accept the cost.
 - In this two-tool phase `get_metrics` and `get_traces` were not in the live set (no Prometheus, and
   no workload traffic, so an empty trace file). The four-tool phase below removes that deviation.
+- Thinking-on turns were capped at 4,096 new tokens. The model card recommends 32,768 for most
+  queries. Of 130 thinking-on turns in the 36 reported runs, 1 reached 4,096 tokens (target port,
+  seed 0 on `b01d18b`, turn 1) and was refused as having no JSON object, which is how a cut-off
+  reply looks. `finish_reason` was not recorded in these runs; the client records it from now on.
+  A higher cap was not tried.
+- Until the review of the pull request, the script passed tool arguments by position in the order
+  of the model's JSON keys, so a reply with `service` before `namespace` would have swapped the
+  two. It passes keywords now. In the 36 reported runs, 33 calls had more than one argument (all
+  `get_logs`), and none had its keys in a different order than the signature, so no reported
+  number is affected.
 - The manifests say `dirty: true` because two untracked handoff files were in the work tree. The
   batches that ran while `README.md` was being edited (seeds 1 and 2 on `7351e9d`) also had a
   modified tracked file; no code changed.
@@ -314,8 +327,8 @@ Limits:
 
 The manifests and transcripts of the 27 runs (54 files, the exploratory runs before commit
 `7351e9d` left out) are in one archive, and the logs of the two batches are beside it. They are
-meant for the shared Google Drive folder `k8s-RemValGate`, under `manifests/`; the archive was
-local when this was written and a member uploads it. A transcript holds each turn's reply, tool
+uploaded on 2026-10-30 to the shared Google Drive folder `k8s-RemValGate`, under `manifests/`; the
+sizes there match the local files (40142 bytes for the archive). A transcript holds each turn's reply, tool
 output, token count and time, the system prompt, the retrieved entries, and the chat settings. SHA-256:
 
 | File | SHA-256 |
@@ -374,8 +387,9 @@ time per rollout on top (the job is 35 s, plus the 12 s flush wait). Eight separ
 at the mean would take about 19 minutes, so #72 has to share the diagnosis across candidates or
 the group has to accept the cost.
 
-Files: the 18 manifests and transcripts of the nine runs and the log of the batch.
-SHA-256:
+Files: the 18 manifests and transcripts of the nine runs and the log of the batch, uploaded on
+2026-10-30 to `k8s-RemValGate/manifests/` (sizes matching the local files: 18686 bytes for the
+archive and 689 for the log). SHA-256:
 
 | File | SHA-256 |
 |---|---|
