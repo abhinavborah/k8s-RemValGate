@@ -1,7 +1,7 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.7 (draft for group review)
+**Version:** 1.8 (draft for group review)
 **Date:** 2026-10-30
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
@@ -237,7 +237,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 **Open questions**
 - Division of work among members (not yet agreed; assignees stay blank).
-- Left to #50: R2.3 takes harm after the 120 second settle window, but R2.4 reads harm before a restore, so the two differ when a check fails and the restore runs inside that window. Also open: how the run log records the restore, since APPLIED_INEFFECTIVE covers both a fault that remained and an action that was rolled back.
+- Resolved in #50: R2.3 and R2.4 do not differ. Harm is measured after the 120 second settle window and the check runs after it, so a restore never runs inside that window, and harm is always read before any restore. The execution record keeps the restore result and whether the check passed, so a run log tells a rolled-back action from a fault that remained even though both are APPLIED_INEFFECTIVE. Proposed in #50, pending group confirmation: an escalation is never recovered, also when nothing was restored (for example a pod delete), so R8.2 scores every failed check as not recovered.
 - Which GPU and cluster resources are available, and the cost of each.
 - Whether the TA's reply to version 2 will change the plan.
 
@@ -267,3 +267,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.5 | 2026-10-27 | Recorded the gate G4 decision: a pilot fine-tune scored by grouped cross-validation on the training problems of the whole pool with within-incident AUROC, G4 moved to M2, and R9.11 and review point 8 marked decided. After review: the G4 story's commitments are listed, the timing pilot is named in section 7.2 and R3.8, the training record count is stated, the pilot's GPU cost is marked as not costed, and the G4 metric is set apart from the primary metric. Proposed, pending group confirmation: G4 blocks all per-fold training including baseline 5, the decision is made once over the pool training problems and logged as a whole-pool touch, and a pilot interval that is not wholly below the threshold is inconclusive and keeps free-form. R6.4, R7.1, R9.11, section 7.2 and review point 8 updated to match. |
 | 1.6 | 2026-10-30 | Recorded the #84 decision: an escalation on a problem with no oracle label is its own outcome class, so R2.4 has six classes; an applied candidate that is restored and escalated is classified as applied, its harm is read before the restore, and it is never recovered. Updated R2.4 and section 7.2, and added an open question for #50 in section 9. |
 | 1.7 | 2026-10-30 | Refined R9.1 (proposed, pending group confirmation): the five-rollout pilot measures the per-rollout cost and checks the plan against it, K is checked on the oracle labels and R is set in the baseline-only run, as the edit to #52 states. Updated R9.1. |
+| 1.8 | 2026-10-30 | Resolved the section 9 open question left to #50: harm is read after the settle window and before any restore, so R2.3 and R2.4 agree, and the execution record keeps the restore result. Proposed, pending group confirmation: an escalation is never recovered, also when nothing was restored. Updated section 9. |

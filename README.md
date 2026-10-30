@@ -194,6 +194,14 @@ Services and Deployments equal their state before the command. It compares specs
 does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
 run it.
 
+`scripts/run_execution_check.py` is the hand check for the execution loop (story E8-S2, R8.2):
+snapshot, apply, harm after the settle window, the readiness check and probes, and a restore with
+escalation when the check fails. It runs the ScalePod known fix (kept, RECOVERED), a wrong target
+port (restored, APPLIED_INEFFECTIVE) and a patch that breaks another Deployment during an
+AssignNonExistentNode fault (restored, APPLIED_HARMFUL), and checks that each restore leaves the
+Services and Deployments as they were after the injection. `--settle` shortens the 120 second
+window. Run it with Social Network deployed and Ready; CI does not run it.
+
 `scripts/run_pilot.py` is the five-rollout timing pilot (story E9-S1, gate G2). It runs the known
 fix of the three development problems, then the first two again, through the Orchestrator's parser
 with a scripted agent, and times each phase: inject, pod status before the action, snapshot,
