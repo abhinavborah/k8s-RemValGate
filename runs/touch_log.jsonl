@@ -5,3 +5,6 @@
 {"problem_id": "conf-k8s_target_port-misconfig-mitigation-1", "run_id": "create-conf-k8s_target_port-misconfig-mitigation-1-20261029t175254z", "slice": "confirmation", "timestamp": "2026-10-29T17:52:54Z"}
 {"problem_id": "conf-scale_pod_zero_social_net-mitigation-1", "run_id": "create-conf-scale_pod_zero_social_net-mitigation-1-20261029t175304z", "slice": "confirmation", "timestamp": "2026-10-29T17:53:04Z"}
 {"problem_id": "conf-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "create-conf-assign_to_non_existent_node_social_net-mitigation-1-20261029t175344z", "slice": "confirmation", "timestamp": "2026-10-29T17:53:44Z"}
+{"problem_id": "conf-k8s_target_port-misconfig-mitigation-1", "run_id": "seal-conf-k8s_target_port-misconfig-mitigation-1-20261030t115121z", "slice": "confirmation", "timestamp": "2026-10-30T11:51:21Z"}
+{"problem_id": "conf-scale_pod_zero_social_net-mitigation-1", "run_id": "seal-conf-scale_pod_zero_social_net-mitigation-1-20261030t115121z", "slice": "confirmation", "timestamp": "2026-10-30T11:51:21Z"}
+{"problem_id": "conf-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "seal-conf-assign_to_non_existent_node_social_net-mitigation-1-20261030t115121z", "slice": "confirmation", "timestamp": "2026-10-30T11:51:21Z"}

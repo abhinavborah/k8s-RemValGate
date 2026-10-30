@@ -5,7 +5,9 @@ confirmation slice, authored before any pool rollout so that they exist to be se
 (#25). Nothing may be tuned or prompt-iterated on them. They are opened once, at the end (R9.6,
 #59).
 
-Status: authored and validated, not sealed. Validated on 2026-10-29 (UTC) on a two-node amd64
+Status: authored, validated and sealed. Sealed on 2026-10-30 at 11:51:21 UTC, at commit
+`41b6d86`: the record is `runs/confirmation_seal.json`, with one `seal-` touch per problem in
+`runs/touch_log.jsonl` (see Seal). Validated on 2026-10-29 (UTC) on a two-node amd64
 kind cluster: for each problem the eval failed with the fault injected, passed after the known fix,
 and the fault was recovered. The three creation touches are the `conf-` entries in
 `runs/touch_log.jsonl`. No system, model or LLM judge ran on them.
@@ -53,6 +55,28 @@ table is updated.
 Code under the AIOpsLab pin is covered by the pin alone. Any edit to `checks.py` changes all three
 checksums, even one that does not affect these problems, so such a change is checked by hand
 before the table is updated.
+
+## Seal
+
+Gate G1 (#25): no pool run starts until the slice is sealed. `scripts/seal_confirmation.py`, run
+once on a clean tree, checks that each problem has its creation touch and no other touch and that
+its checksum matches the table above. It then writes `runs/confirmation_seal.json` (the ids and
+checksums, the AIOpsLab pin, the commit and the time) and appends one `seal-` touch per problem to
+`runs/touch_log.jsonl`. It refuses a second seal. Nothing is built, injected or run.
+
+`start_run` refuses a pool run unless the seal record covers exactly the confirmation ids in
+`slices.json`, the touch log holds one `seal-` touch per id at the sealed time, and each checksum,
+recomputed under the run's AIOpsLab commit, equals the sealed one. A record written by hand,
+without the touches, does not open the gate. An edit to a definition, or a new AIOpsLab pin,
+therefore closes the gate again.
+
+Reopening it is a group decision recorded on #25, not a routine step:
+`scripts/seal_confirmation.py --reseal` then replaces the record and appends new `seal-` touches
+at the new time. The earlier record stays in git history and its touches stay in the log. A reseal
+is still refused if any problem has run.
+
+`start_run` refuses every confirmation run, sealed or not, so nothing touches the slice before it
+is opened. #59 adds the one path that opens it, once, after the analysis is final.
 
 ## Validation
 

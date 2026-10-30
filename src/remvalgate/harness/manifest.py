@@ -6,7 +6,12 @@ the AIOpsLab commit is not pinned, the work tree has changes git does not ignore
 is already in the log. write_manifest checks the entry again and compares the manifest with what
 start_run recorded, so a run without an entry gets no manifest.
 
-A pool run is refused while the registry holds no confirmation-slice id (gate G1).
+Every confirmation-slice run is refused: the slice is opened once, at the end (R9.6), by a run
+path not added yet. A pool run, and that path when it exists, is refused until the confirmation
+slice is sealed (gate G1):
+seal_confirmation writes the seal record beside the touch log and a seal touch per id, and
+start_run checks that both cover the registry's confirmation ids and that each checksum still
+matches.
 
 log_creation appends a creation touch for a problem validated with a known fix, in any slice.
 """
@@ -15,7 +20,7 @@ import dataclasses
 import json
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -31,6 +36,12 @@ _RUN_ID = re.compile(r"[a-z0-9][a-z0-9._-]*")
 _DEVICES = {"con", "prn", "aux", "nul"} | {f"{d}{i}" for d in ("com", "lpt") for i in range(1, 10)}
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 _TOUCH_KEYS = {"problem_id", "run_id", "slice", "timestamp"}
+# the seal record of the confirmation slice, beside the touch log (BRD 7.1, R3.3)
+SEAL_NAME = "confirmation_seal.json"
+_SEAL_KEYS = {"aiopslab", "checksums", "commit", "sealed"}
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+# (problem id, AIOpsLab commit) -> sha256 of the problem's definition
+Checksum = Callable[[str, str], str]
 # BRD terms: R is 1 unless baseline outcomes vary, at most 3
 _MAX_R = 3
 
@@ -238,13 +249,19 @@ class RunStart:
     timestamp: str
 
 
-def _append_touch(log_path: Path, entry: dict) -> None:
+def _sound_touches(log_path: Path) -> list[dict]:
+    """The touch log's entries, refusing a log that cannot take another line."""
     try:
         touches = read_touches(log_path)
     except ValueError as error:
         raise RunRefused(f"the touch log is damaged, repair it first: {error}") from error
     if log_path.exists() and log_path.read_bytes()[-1:] not in (b"", b"\n"):
         raise RunRefused("the touch log does not end in a newline, repair it first")
+    return touches
+
+
+def _append_touch(log_path: Path, entry: dict) -> None:
+    touches = _sound_touches(log_path)
     if any(e["run_id"] == entry["run_id"] for e in touches):
         raise RunRefused(f"run id {entry['run_id']!r} is already in the touch log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -262,18 +279,24 @@ def start_run(
     repo: str | Path,
     aiopslab_commit: str | None,
     now: datetime | None = None,
+    checksum: Checksum | None = None,
 ) -> RunStart:
-    """The entry point every run calls before it starts. Raises RunRefused to stop it."""
+    """The entry point every run calls before it starts. Raises RunRefused to stop it.
+
+    checksum defaults to the confirmation slice's own (overlay/confirmation.py).
+    """
     now = now or datetime.now(UTC)
     if now.tzinfo is None:
         raise ValueError("start_run now: expected an aware datetime, converted to UTC")
     _check_run_id(run_id, "start_run")
     if run_id.startswith("create-"):
         raise RunRefused("run ids starting with create- are kept for creation touches")
+    if run_id.startswith("seal-"):
+        raise RunRefused("run ids starting with seal- are kept for seal touches")
     slice_ = _slice_of(problem_id, registry)
-    # gate G1: the confirmation slice exists before any pool run (BRD 7.1, R3.3)
-    if slice_ is Slice.POOL and Slice.CONFIRMATION not in registry.slices.values():
-        raise RunRefused("a pool run needs the confirmation slice in the registry (gate G1)")
+    # the slice is opened once, at the end (R9.6); no run path opens it yet
+    if slice_ is Slice.CONFIRMATION:
+        raise RunRefused("the confirmation slice is opened once, at the end, by its own run path")
     log_path = Path(log_path)
     try:
         commit, dirty = git_state(repo, log_path)
@@ -291,6 +314,8 @@ def start_run(
         raise RunRefused(f"a {slice_} run needs a pinned AIOpsLab commit")
     if slice_ in LOGGED and dirty:
         raise RunRefused(f"a {slice_} run needs a tree with no uncommitted changes")
+    if slice_ in LOGGED:
+        check_seal(registry, log_path, aiopslab_commit, checksum)
     timestamp = now.astimezone(UTC).strftime(_TIMESTAMP)
     if slice_ in LOGGED:
         entry = {
@@ -330,7 +355,7 @@ def log_creation(
     _check_run_id(run_id, "log_creation")
     if slice_ is Slice.CONFIRMATION and any(
         e["problem_id"] == problem_id and e["run_id"].startswith("create-")
-        for e in read_touches(log_path)
+        for e in _sound_touches(Path(log_path))
     ):
         raise RunRefused(f"{problem_id!r} is a confirmation problem already created")
     entry = {
@@ -341,6 +366,128 @@ def log_creation(
     }
     _append_touch(Path(log_path), entry)
     return entry
+
+
+def _confirmation_ids(registry: Registry) -> list[str]:
+    ids = [i for i, s in registry.slices.items() if s is Slice.CONFIRMATION]
+    if not ids:
+        raise RunRefused(
+            "a pool or confirmation run needs the confirmation slice in the registry (gate G1)"
+        )
+    return ids
+
+
+def _default_checksum() -> Checksum:
+    # imported here: the overlay registers problems, which the rest of the harness never needs
+    from remvalgate.overlay.confirmation import checksum
+
+    return checksum
+
+
+def check_seal(
+    registry: Registry,
+    log_path: str | Path,
+    aiopslab_commit: str | None,
+    checksum: Checksum | None = None,
+) -> None:
+    """Gate G1 (BRD 7.1, R3.3): refuse unless the confirmation slice is sealed and unchanged.
+
+    The seal must cover exactly the registry's confirmation ids, the touch log must hold one
+    seal touch per id at the sealed time, and each checksum recomputed under this AIOpsLab
+    commit must equal the sealed one, so an edit to a definition, or a new pin, after the seal
+    closes the gate again.
+    """
+    ids = _confirmation_ids(registry)
+    path = Path(log_path).parent / SEAL_NAME
+    if not path.exists():
+        raise RunRefused("the confirmation slice is not sealed (gate G1)")
+    try:
+        seal = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        seal = None
+    if (
+        not isinstance(seal, dict)
+        or seal.keys() != _SEAL_KEYS
+        or not isinstance(seal["checksums"], dict)
+    ):
+        raise RunRefused(f"the seal record {path} is damaged (gate G1)")
+    if seal["checksums"].keys() != set(ids):
+        raise RunRefused("the seal does not cover the registry's confirmation ids (gate G1)")
+    # the record alone is not enough: seal_confirmation writes both, after its own checks
+    sealed = [
+        e["problem_id"]
+        for e in _sound_touches(Path(log_path))
+        if e["run_id"].startswith("seal-") and e["timestamp"] == seal["sealed"]
+    ]
+    if sorted(sealed) != sorted(ids):
+        raise RunRefused("the touch log does not show the slice as sealed (gate G1)")
+    checksum = checksum or _default_checksum()
+    changed = [i for i in ids if checksum(i, aiopslab_commit) != seal["checksums"][i]]
+    if changed:
+        raise RunRefused(f"changed since the seal (gate G1): {', '.join(changed)}")
+
+
+def seal_confirmation(
+    registry: Registry,
+    log_path: str | Path,
+    repo: str | Path,
+    aiopslab_commit: str,
+    checksum: Checksum,
+    now: datetime | None = None,
+    reseal: bool = False,
+) -> dict:
+    """Seal the confirmation slice once (gate G1): write the seal record and a seal touch per id.
+
+    Refused if the slice is already sealed, the tree has uncommitted changes, or an id has no
+    creation touch or has already run. Nothing is written when it is refused.
+
+    reseal replaces the record of a sealed slice, after a group decision such as a new AIOpsLab
+    pin. Its earlier seal touches stay in the log and no longer match the record's time; any
+    other run touch still refuses it.
+    """
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    ids = _confirmation_ids(registry)
+    log_path = Path(log_path)
+    path = log_path.parent / SEAL_NAME
+    # checked before anything is written, so a refusal leaves no half seal
+    touches = _sound_touches(log_path)
+    sealed = path.exists() or any(e["run_id"].startswith("seal-") for e in touches)
+    if sealed and not reseal:
+        raise RunRefused("the confirmation slice is already sealed")
+    if reseal and not path.exists():
+        raise RunRefused("the confirmation slice is not sealed, so there is nothing to reseal")
+    if reseal and any(e["timestamp"] == now.strftime(_TIMESTAMP) for e in touches):
+        raise RunRefused("a reseal needs a time after the sealed time")
+    commit, dirty = git_state(repo, log_path)
+    if dirty:
+        raise RunRefused("sealing needs a tree with no uncommitted changes")
+    for problem_id in ids:
+        runs = [e["run_id"] for e in touches if e["problem_id"] == problem_id]
+        if not any(r.startswith("create-") for r in runs):
+            raise RunRefused(f"{problem_id!r} has no creation touch")
+        if any(not r.startswith(("create-", "seal-")) for r in runs):
+            raise RunRefused(f"{problem_id!r} has already run, so it cannot be sealed")
+    sums = {i: checksum(i, aiopslab_commit) for i in ids}
+    if not all(isinstance(v, str) and _HEX64.fullmatch(v) for v in sums.values()):
+        raise ValueError("seal checksums: expected 64 lowercase hex characters")
+    seal = {
+        "aiopslab": aiopslab_commit,
+        "checksums": sums,
+        "commit": commit,
+        "sealed": now.strftime(_TIMESTAMP),
+    }
+    # "x": only an explicit reseal replaces a record; the earlier one stays in git history
+    with path.open("w" if reseal else "x", encoding="utf-8", newline="\n") as out:
+        out.write(json.dumps(seal, indent=2, sort_keys=True) + "\n")
+    for problem_id in ids:
+        entry = {
+            "problem_id": problem_id,
+            "run_id": f"seal-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}",
+            "slice": Slice.CONFIRMATION,
+            "timestamp": seal["sealed"],
+        }
+        _append_touch(log_path, entry)
+    return seal
 
 
 def write_manifest(

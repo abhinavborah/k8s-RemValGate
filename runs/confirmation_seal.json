@@ -1,0 +1,10 @@
+{
+  "aiopslab": "576c3f080c7ae2459a972afd4a2f8d5f01828430",
+  "checksums": {
+    "conf-assign_to_non_existent_node_social_net-mitigation-1": "0b422bfd8c08960d95973d5006fae2a7f98ec33cef5ec2d993eb3c1211241343",
+    "conf-k8s_target_port-misconfig-mitigation-1": "577e8add11e85922ba724101d3056e94025d6ef68b17b06f4bbb48e699769b22",
+    "conf-scale_pod_zero_social_net-mitigation-1": "d4d90821ceb3dcf86b13be78b9804f408bd3c91c1f1ba9302d69206ed39d6d92"
+  },
+  "commit": "41b6d86b4cbd7b877367dd6c18cba99d7fd8d31e",
+  "sealed": "2026-10-30T11:51:21Z"
+}
