@@ -150,6 +150,11 @@ The cluster is then checked against its clean snapshot. The five rollouts are th
 development problems, then the first two again. All five were not harmful and left no fault, and
 every reset matched the clean snapshot.
 
+The reset that was timed is the harness reset of #13, which returns the cluster to a clean state
+(`recover_fault` and the health wait). The reset between candidates in R3.5, checked against the
+saved post-injection state, was not timed here: #27 owns it, and whether it is a snapshot restore
+or a recovery and a new injection is decided there.
+
 This run replaces an earlier run of 2026-10-29 (commit `257e746`, mean 147.3 s, sd 16.3 s), whose
 reset ran `kubectl wait --for=condition=Ready pods --all` and nothing else. After the Assign
 problem, AIOpsLab's `recover_fault` deletes the Deployment and applies it again and returns
@@ -218,7 +223,7 @@ Limits of the pilot:
   by the image digests.
 - `dirty` is true in the manifests because two untracked handoff files were in the work tree.
 
-K and R are not set by this pilot. The ticket was changed to check the plan against the measured
+K and R are not set by this pilot. BRD R9.1 carries the same refinement as a proposal. The ticket was changed to check the plan against the measured
 time and keep K = 8 unless the budget fails, with R set in the baseline-only run. One member
 recommends keeping K = 8 and R = 1 (BRD terms: K is 8 planned, R is 1 unless baseline outcomes
 vary, at most 3). At the measured cost the harness uses about half of the planned time per
