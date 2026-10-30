@@ -21,6 +21,7 @@ def test_outcome_set_is_fixed():
         "RECOVERED",
         "ESCALATED_WITH_WORKING",
         "ESCALATED_WITH_NONE",
+        "ESCALATED_UNLABELLED",
         "APPLIED_INEFFECTIVE",
         "APPLIED_HARMFUL",
     ]
@@ -32,6 +33,8 @@ def test_outcome_set_is_fixed():
         ((True, True, False, True), Outcome.RECOVERED),
         ((False, False, False, True), Outcome.ESCALATED_WITH_WORKING),
         ((False, False, False, False), Outcome.ESCALATED_WITH_NONE),
+        # an escalation on a problem with no oracle label is not split
+        ((False, False, False, None), Outcome.ESCALATED_UNLABELLED),
         ((True, False, False, True), Outcome.APPLIED_INEFFECTIVE),
         ((True, False, False, False), Outcome.APPLIED_INEFFECTIVE),
         ((True, False, True, False), Outcome.APPLIED_HARMFUL),
@@ -69,8 +72,6 @@ def test_applied_ignores_the_oracle_label(fields, expected):
         (False, True, False, True),
         (False, False, True, True),
         (False, True, True, False),
-        # an escalation cannot be split without an oracle label
-        (False, False, False, None),
     ],
 )
 def test_impossible_input_raises(fields):
@@ -92,19 +93,25 @@ def test_recovery_rate_counts_escalations_as_not_recovered():
         Outcome.RECOVERED,
         Outcome.ESCALATED_WITH_WORKING,
         Outcome.ESCALATED_WITH_NONE,
+        Outcome.ESCALATED_UNLABELLED,
         Outcome.APPLIED_INEFFECTIVE,
     ]
     # a generator is read once
     counts = outcome_counts(outcome for outcome in outcomes)
-    assert counts.total == 4
+    assert counts.total == 5
     assert counts.by_outcome == {outcome: int(outcome in outcomes) for outcome in Outcome}
-    assert counts.recovery_rate == 0.25
+    assert counts.recovery_rate == 0.2
 
 
 def test_labels():
-    outcomes = [Outcome.RECOVERED, Outcome.APPLIED_HARMFUL, Outcome.ESCALATED_WITH_NONE]
-    assert recovered_labels(outcomes) == [True, False, False]
-    assert harmful_labels(outcomes) == [False, True, False]
+    outcomes = [
+        Outcome.RECOVERED,
+        Outcome.APPLIED_HARMFUL,
+        Outcome.ESCALATED_WITH_NONE,
+        Outcome.ESCALATED_UNLABELLED,
+    ]
+    assert recovered_labels(outcomes) == [True, False, False, False]
+    assert harmful_labels(outcomes) == [False, True, False, False]
 
 
 # None as the oracle label means the problem was not labelled
@@ -114,7 +121,7 @@ FIELDS = st.tuples(
 
 
 def _impossible(applied, recovered, harmful, any_working):
-    return not applied and (recovered or harmful or any_working is None)
+    return not applied and (recovered or harmful)
 
 
 VALID = FIELDS.filter(lambda fields: not _impossible(*fields))
@@ -138,13 +145,18 @@ def test_classify_matches_definitions(fields):
     assert (outcome is Outcome.APPLIED_INEFFECTIVE) == (applied and not recovered and not harmful)
     assert (outcome is Outcome.ESCALATED_WITH_WORKING) == (not applied and any_working is True)
     assert (outcome is Outcome.ESCALATED_WITH_NONE) == (not applied and any_working is False)
+    assert (outcome is Outcome.ESCALATED_UNLABELLED) == (not applied and any_working is None)
 
 
 @given(st.lists(VALID))
 def test_counts_and_rate_bounds(rows):
+    # every valid result classifies, labelled or not, and unlabelled escalations stay in the total
     outcomes = [classify(ProblemResult(*fields)) for fields in rows]
     counts = outcome_counts(outcomes)
     assert counts.total == len(rows) == sum(counts.by_outcome.values())
+    assert counts.by_outcome[Outcome.ESCALATED_UNLABELLED] == sum(
+        1 for applied, _, _, any_working in rows if not applied and any_working is None
+    )
     assert 0.0 <= counts.recovery_rate <= 1.0
     if rows:
         assert counts.recovery_rate == sum(recovered_labels(outcomes)) / len(rows)
@@ -152,10 +164,10 @@ def test_counts_and_rate_bounds(rows):
 
 def test_labels_match_counts_for_plain_strings():
     # outcomes reloaded from a results log arrive as plain strings
-    outcomes = ["RECOVERED", "APPLIED_HARMFUL"]
-    assert outcome_counts(outcomes).recovery_rate == 0.5
-    assert recovered_labels(outcomes) == [True, False]
-    assert harmful_labels(outcomes) == [False, True]
+    outcomes = ["RECOVERED", "APPLIED_HARMFUL", "ESCALATED_UNLABELLED"]
+    assert outcome_counts(outcomes).recovery_rate == 1 / 3
+    assert recovered_labels(outcomes) == [True, False, False]
+    assert harmful_labels(outcomes) == [False, True, False]
 
 
 @pytest.mark.parametrize("helper", [outcome_counts, recovered_labels, harmful_labels])
@@ -210,3 +222,15 @@ def test_applied_result_agrees_with_the_harm_result(harmful, fault_remains, any_
     assert (outcome is Outcome.APPLIED_HARMFUL) == harm.harmful
     assert (outcome is Outcome.APPLIED_INEFFECTIVE) == harm.ineffective
     assert (outcome is Outcome.RECOVERED) == (not harm.harmful and not harm.fault_remains)
+
+
+@pytest.mark.parametrize("fault_remains", [False, True])
+@pytest.mark.parametrize(
+    ("harmful", "expected"),
+    [(False, Outcome.APPLIED_INEFFECTIVE), (True, Outcome.APPLIED_HARMFUL)],
+)
+def test_restored_candidate_is_never_recovered(harmful, fault_remains, expected):
+    # harm is read before the restore; recovery is the end state, and the restore undid the action
+    result = applied_result(_harm(harmful, fault_remains), True, restore_attempted=True)
+    assert result.applied and not result.recovered
+    assert classify(result) is expected
