@@ -238,3 +238,63 @@ tokens per rollout. That run was decode only, one greedy sequence from a one-sen
 no prompt processing and no gate scoring, and sampling the K candidates as a batch may be faster
 per token. How the budget splits over the K candidates depends on how the plan counts a rollout,
 which the BRD does not state.
+
+## Planner size and thinking mode, story E5-S1, 2026-10-30 (UTC)
+
+Choice of one member, not group-confirmed. The planner is Qwen3.5-4B, the same family as the gate
+(BRD R7.2), so the shared model family between planner and gate stays a confound for the group
+to weigh. It was served on a Mac (Apple M4 Pro, 24 GB, Docker Desktop at 12 GB) from LM Studio as
+the GGUF build `qwen/qwen3.5-4b@q8_0` (5.16 GB file, 4.80 GiB reported at load, context 16384),
+not the bf16 weights of the Kaggle smoke run, so these times are for this host and build only.
+Hugging Face lists no Instruct checkpoint for Qwen3.5: its non-thinking mode is the same weights
+with thinking turned off (collection and model card read 2026-10-30). Qwen3-4B-Instruct-2507 is a
+separate checkpoint and was not tried. The model sees the cluster only through `exec_shell`
+limited to `kubectl get` and `describe`, and `get_logs`.
+
+The thinking switch is sent as `reasoning_effort: "none"`. LM Studio ignored
+`chat_template_kwargs`, a top-level `enable_thinking` and a `reasoning` object (183 reasoning
+tokens each, against 0 with `reasoning_effort`, checked 2026-10-30). Its `seed` is honoured: three
+identical requests at temperature 0.7 gave identical text. Sampling follows the model card for
+non-thinking mode (temperature 0.7, top p 0.8, top k 20) with no presence penalty, 1024 new tokens
+per turn, and 4096 with thinking on. At most 8 turns, tool output cut at 4,000 characters.
+
+Eighteen runs on the three development problems on commit `7351e9d`: three seeds (0, 1, 2) per
+problem and mode, one run each. No evaluation-set touch was logged. The prompt was tuned on the
+first rounds with thinking off, on these same problems, so the numbers are descriptive and carry
+no inferential weight. A run is correct when both the fault type and the service match the
+injected fault.
+
+| Mode | Runs | Final answer | Fault type | Service | Both | Command admitted | Mean turns | Mean tokens | Mean s per run (max) |
+|---|---|---|---|---|---|---|---|---|---|
+| Thinking off | 9 | 9 | 6 | 5 | 4 | 6 | 6.4 | 245 | 18 (23) |
+| Thinking on | 9 | 6 | 6 | 6 | 6 | 6 | 5.0 | 1,747 | 53 (88) |
+
+| Problem | Both correct, off | Both correct, on | Hit the turn cap, on |
+|---|---|---|---|
+| Target port misconfiguration | 0 of 3 | 0 of 3 | 3 of 3 |
+| ScalePod | 2 of 3 | 3 of 3 | 0 of 3 |
+| Assign to a non-existent node | 2 of 3 | 3 of 3 | 0 of 3 |
+
+Thinking on is the default from this result, one member's choice and not group-confirmed.
+It solved the two problems it finished and never finished the target port problem. Both
+modes failed that one. The admitted counts are the allow-list verdict on the returned command,
+not whether it fixes the fault.
+
+Limits:
+
+- Three problems and three seeds, one family of faults. The difference between the modes is 6 of
+  9 against 4 of 9, which is not a tested difference.
+- The stub retriever returned the same top entry (`stub-002`, a ScalePod runbook) for every run,
+  because it scores word overlap and the cluster listing shares words with that entry. It may
+  push answers toward ScalePod. It is replaced by retrieval configuration (iii) before any pool
+  run.
+- One planner run takes 53 s on average with thinking on, 88 s at most. The plan leaves about 2.6
+  minutes per rollout for the model. Sampling K = 8 candidates is #72: eight separate runs at this
+  speed would take about 7 minutes, so #72 has to share the diagnosis across candidates or accept
+  the cost.
+- `get_metrics` and `get_traces` are not in the live set. The cluster has no Prometheus. A test
+  call of `get_traces` ran but returned an empty file ("No services found"), because the harness
+  sends no workload traffic. This departs from the story's acceptance criteria, which name both
+  tools.
+- The Mac build is a quantized conversion, not the Kaggle bf16 weights, and the pool host may
+  differ. Dev results from one build do not carry to another.

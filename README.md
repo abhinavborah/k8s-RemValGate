@@ -199,6 +199,19 @@ summary under `runs/manifests/`, which git ignores, and logs no touch. The resul
 [docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
 it, and it takes about 12 minutes.
 
+`scripts/run_planner_dev.py` runs the planner (story E5-S1) on the development problems. For each
+problem it injects the fault, takes one read-only look at the cluster, and runs the loop in
+`src/remvalgate/planner/`: at most 8 turns, one JSON object per turn, tool calls through the
+Orchestrator's parser. Diagnosis uses read-only `exec_shell` (`kubectl get` and `describe`) and
+`get_logs`; `get_metrics` and `get_traces` are not in the live set, because the cluster has no
+Prometheus and the harness sends no workload traffic, so traces are empty. The planner returns a
+diagnosis (a fault type from a closed list and a service name) and one command, which the
+allow-list checks and the script never runs. It then checks that the cluster did not change and
+resets. The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking
+switch is sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other
+fields tried. `--model-version` is required and goes into the manifest with the thinking setting.
+Run it with Social Network deployed and Ready and the model loaded; CI does not run it.
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
