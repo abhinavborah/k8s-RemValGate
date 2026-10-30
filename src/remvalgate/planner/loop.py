@@ -119,10 +119,11 @@ def _clip(text: str, tool: str, limit: int) -> str:
 
 
 def _json_object(reply: str) -> dict:
-    start, end = reply.find("{"), reply.rfind("}")
-    if start < 0 or end < start:
+    start = reply.find("{")
+    if start < 0:
         raise ValueError("no JSON object in the reply")
-    obj = json.loads(reply[start : end + 1])
+    # the first object only: a model sometimes adds a stray closing brace after it
+    obj, _ = json.JSONDecoder().raw_decode(reply[start:])
     if not isinstance(obj, dict):
         raise ValueError("the reply is not a JSON object")
     return obj

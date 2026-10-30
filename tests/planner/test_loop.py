@@ -156,7 +156,22 @@ def test_the_tool_set_is_a_parameter():
 
 def test_retrieval_follows_the_observation_and_is_recorded():
     scaled, _, _ = run([final()], observation="deployment scaled to zero replicas, no pod")
-    pending, _, _ = run([final()], observation="pod Pending, node selector names a missing node")
+    pending, _, chat = run([final()], observation="pod Pending, node selector names a missing node")
     assert scaled.retrieved[0] == ("stub-002", 1)
     assert pending.retrieved[0] == ("stub-003", 1)
-    assert "Pending" in pending.system_prompt or NS in pending.system_prompt
+    assert chat.seen[0][0]["content"] == pending.system_prompt
+
+
+@pytest.mark.parametrize("suffix", ["\n}", "\n" + tool("get_logs", namespace=NS, service="x")])
+def test_only_the_first_json_object_of_a_reply_is_read(suffix):
+    reply = tool("get_logs", namespace=NS, service="media-service") + suffix
+    result, tools, _ = run([reply, final()])
+    assert tools.calls == [("get_logs", {"namespace": NS, "service": "media-service"})]
+    assert result.stop is Stop.FINAL
+
+
+def test_text_before_the_json_object_is_skipped():
+    result, tools, _ = run(
+        ["Checking the logs.\n" + tool("get_logs", namespace=NS, service="s"), final()]
+    )
+    assert len(tools.calls) == 1
