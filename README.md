@@ -223,7 +223,7 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
 `write_manifest` when it finishes.
 
 - **Run manifests** (`<run_id>.json`) are written next to the rollout's logs on shared drive storage.
-  The `runs/` folder is ignored by git, except for the touch log.
+  The `runs/` folder is ignored by git, except for the touch log and the confirmation seal.
 - **The evaluation-set touch log** is `runs/touch_log.jsonl`, committed, one JSON line per use of a
   primary-pool or confirmation-slice problem, and one per creation touch: `log_creation` logs the
   validation of a new problem in any slice, with a run id that starts with `create-`, a prefix
