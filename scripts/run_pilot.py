@@ -7,11 +7,13 @@ appended to runs/touch_log.jsonl.
 
 A rollout is one injection, the known fix sent as exec_shell actions through the Orchestrator's
 parser and action handlers, the harm window of detect_harm (one settle window, default 120 s) and
-AIOpsLab's recover_fault. The phases are timed apart, so a per-rollout cost can be built from them
-under any rollout shape:
+AIOpsLab's recover_fault, followed by a wait until every workload of the clean cluster is healthy
+again, since recover_fault returns without waiting after it deletes and applies a Deployment. The
+phases are timed apart, so a per-rollout cost can be built from them under any rollout shape:
 
     inject, pre (the pod status taken before the action, waiting for the fault to show where it
-    shows late), snapshot (the objects the fix touches), execute, settle (detect_harm), recover.
+    shows late), snapshot (the objects the fix touches), execute, settle (detect_harm), recover
+    (recover_fault and the health wait).
 
 The five rollouts are the three development problems and a repeat of the first two. The manifests
 and a summary go to runs/manifests/, which git ignores.
@@ -108,6 +110,19 @@ def eval_remains(prob):
     return remains
 
 
+def wait_until_healthy(keys: set[str], timeout: float = 300) -> None:
+    # parse_pods drops terminating pods, so an old pod cannot stand in for a missing new one
+    deadline = time.perf_counter() + timeout
+    while True:
+        status = pods()
+        waiting = sorted(k for k in keys if k not in status or not status[k].healthy)
+        if not waiting:
+            return
+        if time.perf_counter() > deadline:
+            raise AssertionError(f"not healthy after {timeout} s: {waiting}")
+        time.sleep(0.5)
+
+
 def wait_until_unhealthy(key: str, timeout: float = 90) -> None:
     deadline = time.perf_counter() + timeout
     while time.perf_counter() < deadline:
@@ -143,7 +158,9 @@ async def execute(orch, prob, problem_id: str, commands: list[str], results_dir:
     orch.session.end()
 
 
-async def rollout(orch, problem_id: str, clean: dict, settle: float, results_dir: Path) -> dict:
+async def rollout(
+    orch, problem_id: str, clean: dict, workloads: set[str], settle: float, results_dir: Path
+) -> dict:
     start_all = time.perf_counter()
     prob = orch.probs.get_problem_instance(problem_id)
     commands = known_fix(problem_id, NS)
@@ -182,7 +199,7 @@ async def rollout(orch, problem_id: str, clean: dict, settle: float, results_dir
     finally:
         start = time.perf_counter()
         prob.recover_fault()
-        kubectl("wait", "--for=condition=Ready", "pods", "--all", "--timeout=300s")
+        wait_until_healthy(workloads)
         times["recover"] = time.perf_counter() - start
     left = changed(clean, objects())
     check(not left, f"{problem_id}: the reset left the cluster changed: {left}")
@@ -207,6 +224,7 @@ def main() -> int:
     orch = new_orchestrator(results_dir=OUT_DIR)
     kubectl("wait", "--for=condition=Ready", "pods", "--all", "--timeout=60s")
     clean = objects()
+    workloads = set(pods())
     check(all(s.healthy for s in pods().values()), "the clean cluster has an unhealthy pod")
     nodes = len(kubectl("get", "nodes", "-o", "name").stdout.split())
     print(f"cluster {CONTEXT}: {nodes} nodes, {len(pods())} workloads, settle {settle} s")
@@ -218,7 +236,7 @@ def main() -> int:
         run_id = f"pilot-{stamp}-{index}-{problem_id.removeprefix('dev-').split('-')[0]}"
         # a development problem is not logged, so this appends no touch
         run = start_run(run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now)
-        times = asyncio.run(rollout(orch, problem_id, clean, settle, OUT_DIR / run_id))
+        times = asyncio.run(rollout(orch, problem_id, clean, workloads, settle, OUT_DIR / run_id))
         manifest = Manifest(
             run_id=run_id,
             problem_id=problem_id,
