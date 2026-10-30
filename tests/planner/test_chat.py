@@ -1,5 +1,8 @@
 import io
 import json
+import urllib.error
+
+import pytest
 
 from remvalgate.planner.chat import OpenAIChat
 
@@ -28,3 +31,14 @@ def test_thinking_is_on_by_default_and_leaves_reasoning_effort_out(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
     OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
     assert "reasoning_effort" not in sent[0]
+
+
+def test_a_refused_request_reports_the_server_text(monkeypatch):
+    def refuse(request, timeout):
+        raise urllib.error.HTTPError(
+            request.full_url, 400, "Bad Request", {}, io.BytesIO(b"context full")
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", refuse)
+    with pytest.raises(RuntimeError, match="context full"):
+        OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])

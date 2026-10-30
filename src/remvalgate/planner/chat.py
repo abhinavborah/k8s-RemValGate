@@ -9,6 +9,7 @@ may need another field.
 import json
 import re
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -68,8 +69,12 @@ class OpenAIChat:
             {"Content-Type": "application/json"},
         )
         start = time.perf_counter()
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            data = json.load(response)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                data = json.load(response)
+        except urllib.error.HTTPError as error:
+            # the status line alone does not say why a server refused the request
+            raise RuntimeError(f"{error}: {error.read().decode(errors='replace')[:500]}") from error
         seconds = time.perf_counter() - start
         # a server may leave a think block in the content, and it never belongs in the history
         text = _THINK.sub("", data["choices"][0]["message"].get("content") or "").strip()
