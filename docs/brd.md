@@ -1,7 +1,7 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.6 (draft for group review)
+**Version:** 1.7 (draft for group review)
 **Date:** 2026-10-30
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
@@ -192,7 +192,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
-| R9.1 | Five-rollout timing pilot on development problems (gate G2), which sets K and R and produces no AUROC, and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). | Must | M1 |
+| R9.1 | Five-rollout timing pilot on development problems (gate G2), which sets K and R and produces no AUROC, and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). Refined 2026-10-30 (proposed, see #52): the pilot measures the per-rollout cost and checks the plan against it; K is checked on the oracle labels of #27 and R is set in #53. | Must | M1 |
 | R9.2 | Main runs with R fixed by the stated rule, and every primary-pool use logged. | Must | M2 |
 | R9.3 | Primary analysis: gate against baseline 5 at candidate level with the confirmed interval method, plus descriptive problem-level recovery, and the number of problems with mixed outcomes. | Must | M2 |
 | R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
@@ -266,3 +266,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.4 | 2026-10-26 | Recorded the headroom check decision: baseline 3c stands in for baseline 5 at gate G3, the check runs before any gate or planner training, at least 5 recoverable problems are required, and oracle labelling (R3.5) moves to M1. Updated G3, R3.5, R6.6, R9.10 and review point 7. After review: both counts come from the oracle labels, the test behind the 5 net wins is named, the M1 scope of R3.5 and the schedule risk are stated, and 3c's retrieval configuration is named. |
 | 1.5 | 2026-10-27 | Recorded the gate G4 decision: a pilot fine-tune scored by grouped cross-validation on the training problems of the whole pool with within-incident AUROC, G4 moved to M2, and R9.11 and review point 8 marked decided. After review: the G4 story's commitments are listed, the timing pilot is named in section 7.2 and R3.8, the training record count is stated, the pilot's GPU cost is marked as not costed, and the G4 metric is set apart from the primary metric. Proposed, pending group confirmation: G4 blocks all per-fold training including baseline 5, the decision is made once over the pool training problems and logged as a whole-pool touch, and a pilot interval that is not wholly below the threshold is inconclusive and keeps free-form. R6.4, R7.1, R9.11, section 7.2 and review point 8 updated to match. |
 | 1.6 | 2026-10-30 | Recorded the #84 decision: an escalation on a problem with no oracle label is its own outcome class, so R2.4 has six classes; an applied candidate that is restored and escalated is classified as applied, its harm is read before the restore, and it is never recovered. Updated R2.4 and section 7.2, and added an open question for #50 in section 9. |
+| 1.7 | 2026-10-30 | Refined R9.1 (proposed, pending group confirmation): the five-rollout pilot measures the per-rollout cost and checks the plan against it, K is checked on the oracle labels and R is set in the baseline-only run, as the edit to #52 states. Updated R9.1. |
