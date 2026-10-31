@@ -75,8 +75,9 @@ review and the application code:
   first.
 - `compose-post-service` is the entry point, so its symptoms sit in the injected service itself, the
   easier case to localize.
-- AIOpsLab picks targets so that their dependencies differ and reuses services across fault types
-  (arXiv 2501.06706, section 3.3). No paper found rules on these specific services.
+- AIOpsLab picks targets so that their dependencies differ (arXiv 2501.06706, section 3.3), and its
+  ScalePod and AssignNonExistentNode tasks both target `user-service` under the pin, so it reuses a
+  service across fault types. No paper found rules on these specific services.
 
 The symptoms are read from the code and are checked by the validation in #117. Fold assignment (#26)
 goes by fault type, so a service shared across types does not change the folds.
