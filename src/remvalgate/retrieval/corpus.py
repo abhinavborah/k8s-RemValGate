@@ -9,7 +9,10 @@ fault type of the pool with no past incident among the training incidents. build
 and refuses a leak.
 
 The incident records are supplied by the caller as PastFix entries whose entry_id is the problem
-id. Runbook entries are general steps for a fault type and carry an id of their own. The pool
+id. Runbook entries are general steps for a fault type and carry an id of their own, which must
+not contain the stem of a fault type (k8s_target_port-misconfig, revoke_auth, user_unregistered,
+scale_pod_zero, assign_to_non_existent_node), since check_corpus then reads it as a problem id and
+refuses it; runbook-ScalePod is fine. The pool
 needs at least two instances of every fault type for the last check to hold in every fold.
 """
 
@@ -72,6 +75,10 @@ def check_corpus(
     held_out = {problem_id for problem_id, f in assignment.items() if f == fold}
     held_fixes = {e.fix_command.strip() for e in incidents if e.entry_id in held_out}
     messages = []
+    # the fix check is only as complete as incidents, so a held-out problem with no record there
+    # would let a copy of its fix through
+    for problem_id in sorted(held_out - {e.entry_id for e in incidents}):
+        messages.append(f"{problem_id}: a held-out problem with no record in the incidents")
     for entry in corpus:
         if entry.entry_id in held_out:
             messages.append(f"{entry.entry_id}: a held-out incident is in the corpus")

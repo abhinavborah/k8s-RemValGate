@@ -282,6 +282,29 @@ def test_a_held_out_incident_does_not_hide_a_fault_type_with_no_training_inciden
     assert any("ScalePod: no past incident" in m for m in messages)
 
 
+def test_a_held_out_problem_with_no_record_cannot_make_the_fix_check_pass_vacuously():
+    copy = PastFix(
+        **{
+            **runbook()[0].__dict__,
+            "entry_id": "runbook-copy",
+            "fix_command": incident(held_out(0)[0]).fix_command,
+        }
+    )
+    training_only = [e for e in INCIDENTS if ASSIGNMENT[e.entry_id] != 0]
+    with pytest.raises(ValueError, match="no record in the incidents"):
+        build(0, incidents=training_only, runbook=[*runbook(), copy])
+    messages = check_corpus(build(0), 0, ASSIGNMENT, training_only)
+    assert [m for m in messages if "no record" in m] == [
+        f"{p}: a held-out problem with no record in the incidents" for p in sorted(held_out(0))
+    ]
+
+
+def test_a_runbook_id_that_contains_a_fault_type_stem_is_refused():
+    named_after_the_stem = PastFix(**{**runbook()[0].__dict__, "entry_id": "runbook-revoke_auth"})
+    with pytest.raises(ValueError, match="not a problem of the pool"):
+        build(0, runbook=[*runbook(), named_after_the_stem])
+
+
 def test_check_ignores_whitespace_when_it_compares_fixes():
     padded = PastFix(
         **{
