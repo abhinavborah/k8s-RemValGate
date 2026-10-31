@@ -7,10 +7,13 @@ import pytest
 from remvalgate.planner.chat import OpenAIChat
 
 
-def fake_urlopen(captured, content):
+def fake_urlopen(captured, content, **choice):
     def urlopen(request, timeout):
         captured.append(json.loads(request.data))
-        body = {"choices": [{"message": {"content": content}}], "usage": {"completion_tokens": 7}}
+        body = {
+            "choices": [{"message": {"content": content}, **choice}],
+            "usage": {"completion_tokens": 7},
+        }
         return io.BytesIO(json.dumps(body).encode())
 
     return urlopen
@@ -42,3 +45,30 @@ def test_a_refused_request_reports_the_server_text(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", refuse)
     with pytest.raises(RuntimeError, match="context full"):
         OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+
+
+def test_a_seed_given_to_one_call_overrides_the_client_seed_for_that_call_only(monkeypatch):
+    sent = []
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
+    chat = OpenAIChat(model="m", seed=3)
+    chat.complete([{"role": "user", "content": "hi"}], seed=11)
+    chat.complete([{"role": "user", "content": "hi"}])
+    assert [body["seed"] for body in sent] == [11, 3]
+
+
+def test_the_log_probability_is_the_sum_over_content_tokens_or_none(monkeypatch):
+    sent = []
+    tokens = {"content": [{"token": "a", "logprob": -0.5}, {"token": "b", "logprob": -0.25}]}
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "ab", logprobs=tokens))
+    hi = [{"role": "user", "content": "hi"}]
+    assert OpenAIChat(model="m").complete(hi, logprobs=True).logprob == -0.75
+    assert sent[0]["logprobs"] is True
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "ab", logprobs=None))
+    assert OpenAIChat(model="m").complete(hi, logprobs=True).logprob is None
+
+
+def test_logprobs_are_asked_for_only_when_a_call_wants_them(monkeypatch):
+    sent = []
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
+    OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+    assert "logprobs" not in sent[0]
