@@ -79,7 +79,7 @@ review and the application code:
   ScalePod and AssignNonExistentNode tasks both target `user-service` under the pin, so it reuses a
   service across fault types. No paper found rules on these specific services.
 
-The symptoms are read from the code and are checked by the validation in #117. Fold assignment (#26)
+The symptoms are read from the code; the validation in #117 checks the eval only. Fold assignment (#26)
 goes by fault type, so a service shared across types does not change the folds.
 
 The definitions are in `src/remvalgate/overlay/dev_problems.py`, the known fixes in
@@ -89,8 +89,8 @@ none of which changed, so gate G1 stays open.
 
 ## Validation
 
-Pending. `scripts/validate_overlay_problems.py` needs a live cluster with Social Network deployed.
-Run it with explicit ids, since with none it revalidates every overlay problem outside the
+Done in #117, with the commands below. `scripts/validate_overlay_problems.py` needs a live cluster
+with Social Network deployed. Run it with explicit ids, since with none it revalidates every overlay problem outside the
 confirmation slice, which appends further creation touches. TargetPortMisconfig (#110):
 
     uv run python scripts/validate_overlay_problems.py pool-k8s_target_port-misconfig-mitigation-4 pool-k8s_target_port-misconfig-mitigation-5 pool-k8s_target_port-misconfig-mitigation-6
@@ -104,5 +104,13 @@ AssignNonExistentNode (#112):
     uv run python scripts/validate_overlay_problems.py pool-assign_to_non_existent_node_social_net-mitigation-2 pool-assign_to_non_existent_node_social_net-mitigation-3
 
 Each problem must fail the eval with the fault injected, pass it after the known fix, and recover
-cleanly. The result and the creation touches, three for #110, two for #111 and two for #112, are
-recorded here once each run is done.
+cleanly.
+
+Run on 2026-10-31 (UTC) in one call with all seven ids, on the two node kind cluster at AIOpsLab
+`576c3f080c7ae2459a972afd4a2f8d5f01828430`: all 7 problems passed. Each failed the eval with the
+fault injected, passed it after the known fix, and was recovered. Afterwards all 27 Social Network
+pods were Running and neither timeline deployment kept a `nodeSelector`. The 7 creation touches, three
+for #110, two for #111 and two for #112, are in `runs/touch_log.jsonl`. The confirmation slice was
+not touched, and its three checksums and the pin still equal `runs/confirmation_seal.json`. The run
+checks the eval only, so the compose request failures expected for the two AssignNonExistentNode
+problems stay read from the code.
