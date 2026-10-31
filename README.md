@@ -155,6 +155,26 @@ printed nothing (checked 2026-10-27), so the deploy does not dirty the pin. The 
 refuses a pool or confirmation run while the repository has any uncommitted or untracked file, so
 check `git status --porcelain` before such a run.
 
+The four RevokeAuth and UserUnregistered pool problems run on AIOpsLab's Hotel Reservation
+application, in `test-hotel-reservation` ([docs/problem_inventory.md](docs/problem_inventory.md)).
+Deploy it beside Social Network with
+
+```
+uv run python scripts/deploy_hotel_reservation.py
+kubectl --context kind-kind wait --for=condition=Ready pods --all -n test-hotel-reservation --timeout=900s
+```
+
+On 2026-10-31 the first deploy, with every image pulled, took about 4 minutes: 19 pods Ready and 6
+PersistentVolumeClaims bound to the default `standard` storage class. Both nodes then used about 3.2
+GiB with the two applications deployed. The pin stayed clean. The manifests name three images by a
+moving tag, so a later pull can differ; the digests in use were:
+
+- `yinfangchen/hotelreservation:latest`: `sha256:c46c018d412ab466c4cb3ae93b1aaf1a373968e2fafc2767f15539f50cd1683a`
+- `library/mongo:4.4.6`: `sha256:6efa052039903e731e4a5550c68a13c4869ddc93742c716332883fd9c77eb79b`
+- `library/memcached` (no tag): `sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
+- `hashicorp/consul:latest`: `sha256:259fd02f2544fe1aa03fa49efd3b105c8dd67106d710a72f5e898110266356f7`
+- `jaegertracing/all-in-one:1.57`: `sha256:8f165334f418ca53691ce358c19b4244226ed35c5d18408c5acf305af2065fb9`
+
 ### Overlay
 
 New problem definitions go in `src/remvalgate/overlay/`. AIOpsLab builds its problem registry

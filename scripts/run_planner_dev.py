@@ -82,7 +82,10 @@ TASK = (
 
 def start_workload(prob) -> None:
     # Wrk returns once the job's pod is ready, not when the job is complete
-    url = f"{get_frontend_url(prob.app)}/wrk2-api/post/compose"
+    url = get_frontend_url(prob.app)
+    # Hotel Reservation's payload script picks its own paths, as in AIOpsLab's own workload
+    if prob.namespace == NS:
+        url += "/wrk2-api/post/compose"
     Wrk(
         rate=WORKLOAD["rate"], dist="exp", connections=4, duration=WORKLOAD["duration"], threads=2
     ).start_workload(payload_script=prob.payload_script, url=url)
