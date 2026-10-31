@@ -92,7 +92,7 @@ Figure~\ref{fig:system} shows the system with its build status.
   arr/.style={-{Stealth[length=4pt]},line width=0.5pt}]
 \node[built] (F) at (0,0) {Fault injection\\AIOpsLab on kind};
 \node[stub]  (R) at (3.5,0) {Retrieval\\per-fold corpus};
-\node[stub]  (P) at (7,0) {Planner (open PR \#106)\\Qwen3.5-4B, 4 tools\\$K=8$ candidates\\one command per run today};
+\node[stub]  (P) at (7,0) {Planner (\#106, merged)\\Qwen3.5-4B, 4 tools\\$K=8$ candidates\\one command per run today};
 \node[built] (A) at (10.5,0) {Allow-list and\\namespace check};
 \node[notb]  (G) at (14,0) {Gate\\LoRA scorer + threshold};
 \node[built] (S) at (10.5,-2.6) {Snapshot, apply,\\120 s settle,\\harm and readiness check};
@@ -124,8 +124,9 @@ Figure~\ref{fig:system} shows the system with its build status.
 
 26 of 69 stories are done and 5 more have an open draft pull request. E1 (foundations, 7
 stories) and E2 (evaluation harness, 8 stories) are complete. 26 pull requests are merged,
-with 6 merged on 2026-10-30 alone. CI runs tests and lint on every pull request. 816 unit
-tests are collected, including the planner in open PR \#106. Table~\ref{tab:epics} and
+with 6 merged on 2026-10-30 alone. CI runs tests and lint on every pull request. The counts
+are as of 2026-10-30. The planner pull request (\#106) merged on 2026-10-31 and closed
+story \#36. 816 unit tests were collected at the head of \#106 on 2026-10-30. Table~\ref{tab:epics} and
 Fig.~\ref{fig:progress} give the counts per epic.
 
 \begin{table}[!t]
@@ -178,7 +179,7 @@ E10 Reporting and submission & 6 & 0 & 1 & 5\\
 \label{fig:progress}
 \end{figure}
 
-Open pull requests: \#106 planner, \#108 grouped fold assignment, \#109 per-fold retrieval
+Open pull requests at the cutoff: \#106 planner (merged 2026-10-31), \#108 grouped fold assignment, \#109 per-fold retrieval
 corpus, \#113 three target-port pool problems, \#114 an earlier draft of this report by
 another member.
 

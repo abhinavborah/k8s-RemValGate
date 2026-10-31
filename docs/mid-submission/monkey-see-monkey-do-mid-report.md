@@ -28,7 +28,7 @@ Capabilities and why we use them:
 ```mermaid
 flowchart LR
   F["Fault injection<br/>AIOpsLab on kind<br/>built"] --> R["Retrieval<br/>per-fold corpus<br/>stub only"]
-  R --> P["Planner (open PR #106)<br/>Qwen3.5-4B, 4 tools<br/>K = 8 candidates<br/>one command per run today"]
+  R --> P["Planner (#106, merged)<br/>Qwen3.5-4B, 4 tools<br/>K = 8 candidates<br/>one command per run today"]
   P --> A["Allow-list and<br/>namespace check<br/>built"]
   A --> G["Gate<br/>LoRA scorer + threshold<br/>to build"]
   G -->|clears threshold| S["Snapshot, apply,<br/>120 s settle,<br/>harm and readiness check<br/>built"]
@@ -40,7 +40,7 @@ flowchart LR
 
 ## 3. Progress
 
-26 of 69 stories are done and 5 more have an open draft pull request. E1 (foundations, 7 stories) and E2 (evaluation harness, 8 stories) are complete. 26 pull requests are merged, with 6 merged on 2026-10-30 alone. CI runs tests and lint on every pull request. 816 unit tests are collected, including the planner in open PR #106.
+26 of 69 stories are done and 5 more have an open draft pull request. E1 (foundations, 7 stories) and E2 (evaluation harness, 8 stories) are complete. 26 pull requests are merged, with 6 merged on 2026-10-30 alone. CI runs tests and lint on every pull request. The counts are as of 2026-10-30. The planner pull request (#106) merged on 2026-10-31 and closed story #36. 816 unit tests were collected at the head of #106 on 2026-10-30.
 
 | Epic | Stories | Done | Open PR | Remaining |
 |---|---|---|---|---|
@@ -56,7 +56,7 @@ flowchart LR
 | E10 Reporting and submission | 6 | 0 | 1 | 5 |
 | Total | 69 | 26 | 5 | 38 |
 
-Open pull requests: #106 planner, #108 grouped fold assignment, #109 per-fold retrieval corpus, #113 three target-port pool problems, #114 an earlier draft of this report by another member.
+Open pull requests at the cutoff: #106 planner (merged 2026-10-31), #108 grouped fold assignment, #109 per-fold retrieval corpus, #113 three target-port pool problems, #114 an earlier draft of this report by another member.
 
 ### 3.1 System built so far
 
