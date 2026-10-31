@@ -150,7 +150,7 @@ Run files carry SHA-256 checksums and are stored on the shared Drive folder.
 | Planner latency | 140 s mean and 261 s max against a 156 s allowance; K = 8 separate runs take about 19 min | Share one diagnosis across candidates (#72) |
 | Hard fault type | 0 of 3 on TargetPortMisconfig in every arm | Larger open Qwen planner as fallback |
 | Thinking mode cost | 7 to 10 times the tokens for 6 of 9 against 4 of 9 correct | Report as descriptive; add a thinking-off arm to the four-tool phase |
-| Training compute | LoRA needs 150 to 240 GPU-hours; one Kaggle account gives 30 GPU-hours a week, about 90 in the window | A second account, or a 0.6B to 1.7B gate |
+| Training compute | LoRA needs 150 to 240 GPU-hours; one Kaggle account gives 30 GPU-hours a week, about 90 in the window | A second account; if compute still falls short, the 0.6B to 1.7B fallback sizes (R7.2) |
 | Shared model family | Planner and gate are both Qwen3.5-4B | Measure overlap; state as a limitation |
 | Little data | 96 training records per fold; 16 clusters make bootstrap intervals under-cover | G4 pilot; counts with rates |
 | Weak confirmation slice | 3 problems on one service | Qualitative use only |
@@ -158,7 +158,7 @@ Run files carry SHA-256 checksums and are stored on the shared Drive folder.
 
 ## 10. Timeline to final submission
 
-Fixed dates: final submission 2026-11-15 with no extension; project evaluations 2026-11-16 to 2026-11-19. The plan below follows the dependency order in the tracker. To fit the window it cuts the Gemma gate and head ablations (#48), the extrinsic ablation of the fourth retrieval configuration, the full rerun without retrieval (#34), the singleton check (#28, #73), and the latency overhead measurement (#51). The gate uses the 0.6B to 1.7B size or a second GPU account.
+Fixed dates: final submission 2026-11-15 with no extension; project evaluations 2026-11-16 to 2026-11-19. The plan below follows the dependency order in the tracker. To fit the window it cuts the Gemma gate and head ablations (#48), the extrinsic ablation of the fourth retrieval configuration, the full rerun without retrieval (#34), the singleton check (#28, #73), and the latency overhead measurement (#51). The gate stays at 4B. If compute falls short, the options are a second GPU account or the 0.6B to 1.7B fallback sizes (requirement R7.2).
 
 ```mermaid
 gantt
