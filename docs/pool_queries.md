@@ -84,8 +84,8 @@ What the queries show, read from the records:
 
 The observation shows Deployments and pods, not Services, so a wrong `targetPort` leaves no trace
 in it: the 6 TargetPortMisconfig queries differ only in pod names and ages, and retrieval on them
-cannot tell the faulted service. The symptom query also names `media-frontend` on every problem,
-a healthy Service on a port its Deployment does not declare (the limit stated in
+cannot tell the faulted service. The symptom query also names `media-frontend` on every Social
+Network problem, a healthy Service on a port its Deployment does not declare (the limit stated in
 `src/remvalgate/baselines/observe.py`).
 
 The namespace gives the database faults away. Only the 4 database problems run on Hotel
