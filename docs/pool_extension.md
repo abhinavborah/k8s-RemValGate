@@ -63,9 +63,23 @@ problem of this type, so no two share one. Leaving out the development services 
 `compose-post-service`, `home-timeline-service`, `post-storage-service`, `text-service` and
 `user-timeline-service`. Each already has a problem of another type in the pool: one each for
 `compose-post-service` and the two timeline services, and two each for `text-service` and
-`post-storage-service`. The pair above is proposed, a pick between the three with one, and is
-pending group confirmation, which is recorded on #112 when it comes. Fold assignment (#26) goes by
-fault type, so a service shared across types does not change the folds.
+`post-storage-service`. The pair above comes from the three with one and was chosen on a literature
+review and the application code:
+
+- Both are on the compose-post write path that the workload drives. `ComposePostHandler.h` in the
+  Social Network source under the pin writes the user timeline, then the home timeline, and waits
+  on both, so the fault shows as failed compose requests with errors in `compose-post-service`, not
+  only as Pending pods.
+- The two fail at different points. With `user-timeline-service` down, the request stops before the
+  home timeline write. With `home-timeline-service` down, the post and the user timeline are written
+  first.
+- `compose-post-service` is the entry point, so its symptoms sit in the injected service itself, the
+  easier case to localize.
+- AIOpsLab picks targets so that their dependencies differ and reuses services across fault types
+  (arXiv 2501.06706, section 3.3). No paper found rules on these specific services.
+
+The symptoms are read from the code and are checked by the validation in #117. Fold assignment (#26)
+goes by fault type, so a service shared across types does not change the folds.
 
 The definitions are in `src/remvalgate/overlay/dev_problems.py`, the known fixes in
 `src/remvalgate/overlay/fixes.py`, and the ids in `src/remvalgate/harness/slices.json` under
