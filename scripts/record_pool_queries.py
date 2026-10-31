@@ -45,6 +45,8 @@ from remvalgate.baselines.observe import observe, symptom_query
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
+    HOTEL_RESERVATION,
+    SOCIAL_NETWORK,
     Manifest,
     Slice,
     load_registry,
@@ -58,7 +60,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "queries"
 CONTEXT = "kind-kind"
 AGENT = "query-recorder"
-NAMESPACES = ("test-social-network", "test-hotel-reservation")
+NAMESPACES = (SOCIAL_NETWORK, HOTEL_RESERVATION)
 
 
 def snapshot(namespace: str) -> dict:
@@ -77,8 +79,7 @@ def reset(prob) -> None:
     )
 
 
-async def record(orch, problem_id: str, clean: dict, results_dir: Path) -> dict:
-    prob = orch.probs.get_problem_instance(problem_id)
+async def record(orch, prob, problem_id: str, clean: dict, results_dir: Path) -> dict:
     namespace = prob.namespace
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
@@ -109,7 +110,7 @@ async def record(orch, problem_id: str, clean: dict, results_dir: Path) -> dict:
     for ns in NAMESPACES:
         left = changed(clean[ns], snapshot(ns))
         check(not left, f"{problem_id}: the reset left {ns} changed: {left}")
-    return {"query": query, "seconds": seconds, "listing": listing, "namespace": namespace}
+    return {"query": query, "seconds": seconds, "listing": listing}
 
 
 def main(requested: list[str]) -> int:
@@ -136,8 +137,19 @@ def main(requested: list[str]) -> int:
     for problem_id in selected:
         now = datetime.now(UTC)
         run_id = f"query-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
-        run = start_run(run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now)
-        result = asyncio.run(record(orch, problem_id, clean, OUT_DIR / run_id))
+        prob = orch.probs.get_problem_instance(problem_id)
+        # start_run refuses the run before its touch unless this is the problem's own namespace
+        run = start_run(
+            run_id,
+            problem_id,
+            registry,
+            TOUCH_LOG,
+            ROOT,
+            pinned_commit(ROOT),
+            now,
+            namespace=prob.namespace,
+        )
+        result = asyncio.run(record(orch, prob, problem_id, clean, OUT_DIR / run_id))
         manifest = Manifest(
             run_id=run_id,
             problem_id=problem_id,
@@ -151,7 +163,7 @@ def main(requested: list[str]) -> int:
             k=1,
             r=1,
             aiopslab_commit=run.aiopslab_commit,
-            cluster={"context": CONTEXT, "namespace": result["namespace"], "nodes": nodes},
+            cluster={"context": CONTEXT, "namespace": run.namespace, "nodes": nodes},
             timestamp=run.timestamp,
         )
         path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)

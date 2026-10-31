@@ -14,6 +14,8 @@ from hypothesis import strategies as st
 from remvalgate import overlay
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
+    HOTEL_RESERVATION,
+    SOCIAL_NETWORK,
     Manifest,
     RunRefused,
     RunStart,
@@ -22,6 +24,7 @@ from remvalgate.harness.manifest import (
     git_state,
     load_registry,
     log_creation,
+    logged_namespace,
     read_manifest,
     read_touches,
     require_touch,
@@ -88,7 +91,7 @@ def _manifest(**changes):
         k=8,
         r=1,
         aiopslab_commit=PIN,
-        cluster={"kind": "kind", "nodes": 1},
+        cluster={"kind": "kind", "nodes": 1, "namespace": SOCIAL_NETWORK},
         timestamp="2026-10-27T10:15:00Z",
     )
     values.update(changes)
@@ -134,11 +137,26 @@ def _repo(tmp_path):
     return repo
 
 
-def _start(tmp_path, problem_id, run_id="run-0001", aiopslab_commit=PIN, repo=None):
+def _start(
+    tmp_path,
+    problem_id,
+    run_id="run-0001",
+    aiopslab_commit=PIN,
+    repo=None,
+    namespace=SOCIAL_NETWORK,
+):
     repo = repo or _repo(tmp_path)
     log = repo / "runs" / "touch_log.jsonl"
     start = start_run(
-        run_id, problem_id, _registry(tmp_path), log, repo, aiopslab_commit, NOW, checksum=_sum
+        run_id,
+        problem_id,
+        _registry(tmp_path),
+        log,
+        repo,
+        aiopslab_commit,
+        NOW,
+        checksum=_sum,
+        namespace=namespace,
     )
     return start, log, repo
 
@@ -162,6 +180,7 @@ def _recorded(manifest):
         dirty=manifest.dirty,
         aiopslab_commit=manifest.aiopslab_commit,
         timestamp=manifest.timestamp,
+        namespace=manifest.cluster.get("namespace"),
     )
 
 
@@ -475,7 +494,17 @@ def test_dirty_tree_recorded_for_development(tmp_path):
 
 def test_touch_log_append_does_not_make_tree_dirty(tmp_path):
     start, log, repo = _start(tmp_path, POOL)
-    second = start_run("run-0002", POOL, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
+    second = start_run(
+        "run-0002",
+        POOL,
+        _registry(tmp_path),
+        log,
+        repo,
+        PIN,
+        NOW,
+        checksum=_sum,
+        namespace=SOCIAL_NETWORK,
+    )
     assert (start.dirty, second.dirty) == (False, False)
     assert second.commit == start.commit
 
@@ -606,7 +635,7 @@ def test_manifest_refused_when_it_disagrees_with_run_start(tmp_path, changes):
 def test_reused_run_id_refused(tmp_path):
     _, log, repo = _start(tmp_path, POOL)
     with pytest.raises(RunRefused, match="already in the touch log"):
-        start_run("run-0001", POOL, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
+        _start(tmp_path, POOL, repo=repo)
     assert len(_runs(log)) == 1
 
 
@@ -668,7 +697,17 @@ def test_appends_never_change_earlier_lines(problem_ids):
         registry = load_registry(_write_registry(tmp, _registry_data()))
         snapshots = []
         for i, problem_id in enumerate(problem_ids):
-            start_run(f"run-{i}", problem_id, registry, log, repo, PIN, NOW, checksum=_sum)
+            start_run(
+                f"run-{i}",
+                problem_id,
+                registry,
+                log,
+                repo,
+                PIN,
+                NOW,
+                checksum=_sum,
+                namespace=SOCIAL_NETWORK,
+            )
             snapshots.append(log.read_bytes())
         logged = [p for p in problem_ids if p != DEV]
         assert len(_runs(log)) == len(logged)
@@ -769,7 +808,9 @@ def test_seal_records_checksums_and_logs_a_seal_touch(tmp_path):
     # the sealed slice, once committed, opens gate G1
     _git(repo, "add", "runs")
     _git(repo, "commit", "-q", "-m", "seal")
-    start_run("run-0001", POOL, registry, log, repo, PIN, NOW, checksum=_sum)
+    start_run(
+        "run-0001", POOL, registry, log, repo, PIN, NOW, checksum=_sum, namespace=SOCIAL_NETWORK
+    )
 
 
 def test_seal_refused_twice(tmp_path):
@@ -903,3 +944,35 @@ def test_reseal_refused_at_the_sealed_time(tmp_path):
     with pytest.raises(RunRefused, match="sealed time"):
         seal_confirmation(registry, log, repo, "d" * 40, _sum, NOW, reseal=True)
     assert log.read_bytes() == before
+
+
+# namespace
+
+
+def test_logged_namespace_maps_the_database_pool_problems_to_hotel_reservation():
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
+    hotel = {i for i in pool if logged_namespace(i) == HOTEL_RESERVATION}
+    assert hotel == {i for i in pool if i.startswith(("revoke_auth_", "user_unregistered_"))}
+    assert len(hotel) == 4
+    assert {logged_namespace(i) for i in pool} - {HOTEL_RESERVATION} == {SOCIAL_NETWORK}
+
+
+@pytest.mark.parametrize("namespace", [None, HOTEL_RESERVATION])
+def test_logged_run_in_another_namespace_refused_before_the_touch(tmp_path, namespace):
+    repo = _repo(tmp_path)
+    with pytest.raises(RunRefused, match="runs in 'test-social-network'"):
+        _start(tmp_path, POOL, repo=repo, namespace=namespace)
+    assert _runs(repo / "runs" / "touch_log.jsonl") == []
+
+
+def test_unlogged_run_needs_no_namespace(tmp_path):
+    start, _, _ = _start(tmp_path, DEV, namespace=None)
+    assert start.namespace is None
+
+
+def test_manifest_naming_another_namespace_refused(tmp_path):
+    start, log, repo = _start(tmp_path, POOL)
+    cluster = {"kind": "kind", "nodes": 1, "namespace": HOTEL_RESERVATION}
+    with pytest.raises(RunRefused, match="cluster namespace"):
+        write_manifest(_for(start, cluster=cluster), start, repo / "m", _registry(tmp_path), log)

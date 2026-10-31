@@ -13,6 +13,12 @@ seal_confirmation writes the seal record beside the touch log and a seal touch p
 start_run checks that both cover the registry's confirmation ids and that each checksum still
 matches.
 
+A logged run also names the namespace it runs in, and start_run refuses it before the touch
+unless that is the problem's own: the 4 RevokeAuth and UserUnregistered pool problems run on Hotel
+Reservation, the rest of the pool on Social Network (docs/problem_inventory.md). write_manifest
+then refuses a manifest whose cluster names another namespace. So a run script that hard-codes
+Social Network cannot spend a touch on a Hotel Reservation problem.
+
 log_creation appends a creation touch for a problem validated with a known fix, in any slice.
 """
 
@@ -55,6 +61,23 @@ class Slice(StrEnum):
 
 # uses of these slices are evaluation-set touches (BRD 7.3)
 LOGGED = frozenset({Slice.POOL, Slice.CONFIRMATION})
+
+SOCIAL_NETWORK = "test-social-network"
+HOTEL_RESERVATION = "test-hotel-reservation"
+# the pool problems on Hotel Reservation (docs/problem_inventory.md, rows 4 to 7)
+_HOTEL_POOL = frozenset(
+    {
+        "revoke_auth_mongodb-mitigation-1",
+        "revoke_auth_mongodb-mitigation-2",
+        "user_unregistered_mongodb-mitigation-1",
+        "user_unregistered_mongodb-mitigation-2",
+    }
+)
+
+
+def logged_namespace(problem_id: str) -> str:
+    """The namespace a pool or confirmation problem runs in."""
+    return HOTEL_RESERVATION if problem_id in _HOTEL_POOL else SOCIAL_NETWORK
 
 
 class RunRefused(Exception):
@@ -252,6 +275,8 @@ class RunStart:
     dirty: bool
     aiopslab_commit: str | None
     timestamp: str
+    # the namespace a logged run named; None for an unlogged run that named none
+    namespace: str | None = None
 
 
 def _sound_touches(log_path: Path) -> list[dict]:
@@ -285,10 +310,12 @@ def start_run(
     aiopslab_commit: str | None,
     now: datetime | None = None,
     checksum: Checksum | None = None,
+    namespace: str | None = None,
 ) -> RunStart:
     """The entry point every run calls before it starts. Raises RunRefused to stop it.
 
-    checksum defaults to the confirmation slice's own (overlay/confirmation.py).
+    checksum defaults to the confirmation slice's own (overlay/confirmation.py). namespace is the
+    one the run acts in, required for a logged run and checked against logged_namespace.
     """
     now = now or datetime.now(UTC)
     if now.tzinfo is None:
@@ -321,6 +348,11 @@ def start_run(
         raise RunRefused(f"a {slice_} run needs a tree with no uncommitted changes")
     if slice_ in LOGGED:
         check_seal(registry, log_path, aiopslab_commit, checksum)
+    if slice_ in LOGGED and namespace != logged_namespace(problem_id):
+        raise RunRefused(
+            f"{problem_id!r} runs in {logged_namespace(problem_id)!r}, "
+            f"but the run names {namespace!r}"
+        )
     timestamp = now.astimezone(UTC).strftime(_TIMESTAMP)
     if slice_ in LOGGED:
         entry = {
@@ -338,6 +370,7 @@ def start_run(
         dirty=dirty,
         aiopslab_commit=aiopslab_commit,
         timestamp=timestamp,
+        namespace=namespace,
     )
 
 
@@ -515,6 +548,8 @@ def write_manifest(
         manifest.timestamp,
     ) != recorded:
         raise RunRefused("the manifest disagrees with what start_run recorded")
+    if start.slice in LOGGED and manifest.cluster.get("namespace") != start.namespace:
+        raise RunRefused(f"the manifest's cluster namespace is not {start.namespace!r}")
     require_touch(manifest.run_id, manifest.problem_id, registry, log_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

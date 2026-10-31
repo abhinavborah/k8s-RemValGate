@@ -30,8 +30,9 @@ come back by the time it is taken, so the retrieval metrics should report them a
     uv run python scripts/record_pool_queries.py
 
 Each of the 16 pool problems is injected once in a pool run: `start_run` appends a touch to
-`runs/touch_log.jsonl` and refuses the run unless the confirmation slice is sealed (gate G1) and the
-tree is clean. After the observation the fault is reset with AIOpsLab's recover step, and the
+`runs/touch_log.jsonl` and refuses the run unless the confirmation slice is sealed (gate G1), the
+tree is clean and the run names the problem's own namespace (`logged_namespace` in
+`src/remvalgate/harness/manifest.py`), so no pool run can spend a touch in the wrong application. After the observation the fault is reset with AIOpsLab's recover step, and the
 Services and Deployments of both applications must equal their state before the run. No model runs
 and nothing is tuned.
 
