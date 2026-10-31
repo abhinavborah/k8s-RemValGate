@@ -58,7 +58,8 @@ that does not exist, and the known fix removes it and waits for the rollout.
 
 The other AssignNonExistentNode problems target `user-service` (pool), `unique-id-service`
 (development) and `social-graph-service` (confirmation). #112 asks for a service not used by another
-problem of this type, so no two share one. Five services were free of this type:
+problem of this type, so no two share one. Leaving out the development services and
+`url-shorten-service`, five services were free of this type:
 `compose-post-service`, `home-timeline-service`, `post-storage-service`, `text-service` and
 `user-timeline-service`. Each already has a problem of another type in the pool: one each for
 `compose-post-service` and the two timeline services, and two each for `text-service` and
