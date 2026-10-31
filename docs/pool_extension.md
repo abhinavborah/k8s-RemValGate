@@ -23,7 +23,8 @@ back to 1 and waits for the rollout.
 The other ScalePod problems target `user-service` (pool), `media-service` (development) and
 `social-graph-service` (confirmation), so no two ScalePod problems share a service. `text-service`
 and `post-storage-service` are also the targets of two upstream TargetPortMisconfig problems in the
-pool. That is allowed, since the folds group problems by fault type. `compose-post-service` is not
+pool. A service can be shared across fault types, as `user-service` already is in the pool.
+`compose-post-service` is not
 used, since every request of the ScalePod workload composes a post, and `url-shorten-service` stays unused,
 since the MongoDBAuthMissing singleton deletes its pods.
 

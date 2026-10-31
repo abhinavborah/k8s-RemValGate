@@ -184,13 +184,38 @@ def test_each_pool_scale_pod_problem_has_its_own_service_and_scales_it_back(numb
     assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] == Slice.POOL
 
 
+def _faulty_service(path: Path, cls: str) -> str:
+    # the one value the class assigns to self.faulty_service, read from its source
+    (node,) = [
+        n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef) and n.name == cls
+    ]
+    (value,) = [
+        n.value
+        for n in ast.walk(node)
+        if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == "self.faulty_service"
+    ]
+    # the confirmation classes assign confirmation.SERVICE
+    return getattr(confirmation, value.attr) if isinstance(value, ast.Attribute) else value.value
+
+
 def test_no_two_scale_pod_problems_share_a_service():
-    # upstream -1 targets user-service; the rest are the overlay classes (docs/pool_extension.md)
-    services = ["user-service"]
-    for problem_id, fix in FIXES.items():
-        if "scale_pod_zero" in problem_id:
-            services.append(fix[0][2])
-    assert len(services) == len(set(services)) == 5
+    dev_problems = Path(overlay.__file__).with_name("dev_problems.py")
+    services = {
+        problem_id: _faulty_service(dev_problems, factory.problem)
+        for problem_id, factory in overlay.PROBLEMS.items()
+        if "scale_pod_zero" in problem_id
+    }
+    # an upstream ScalePod problem keeps the service its base task sets
+    upstream = [
+        i for i in load_registry(DEFAULT_REGISTRY_PATH).slices
+        if "scale_pod_zero" in i and i not in overlay.PROBLEMS
+    ]  # fmt: skip
+    base = (
+        Path(__file__).resolve().parents[1]
+        / "external/AIOpsLab/aiopslab/orchestrator/problems/scale_pod/scale_pod_social_net.py"
+    )
+    services |= {i: _faulty_service(base, "ScalePodSocialNetBaseTask") for i in upstream}
+    assert len(set(services.values())) == len(services)
 
 
 # the confirmation slice: static checks only, since building a confirmation problem in a test
