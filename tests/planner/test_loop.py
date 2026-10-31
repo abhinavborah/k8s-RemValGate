@@ -7,7 +7,7 @@ from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay.fixes import tool_call
 from remvalgate.planner.chat import Completion
-from remvalgate.planner.loop import FAULT_TYPES, Stop, plan
+from remvalgate.planner.loop import FAULT_TYPES, Stop, plan, sample
 from remvalgate.retrieval import RetrieverRefused
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -38,10 +38,12 @@ def final(**overrides):
 class FakeChat:
     def __init__(self, replies):
         self._replies = iter(replies)
-        self.seen = []
+        self.seen, self.seeds, self.logprobs = [], [], []
 
-    def complete(self, messages):
+    def complete(self, messages, seed=None, logprobs=False):
         self.seen.append(list(messages))
+        self.seeds.append(seed)
+        self.logprobs.append(logprobs)
         return Completion(next(self._replies), 10, 0.5)
 
 
@@ -221,8 +223,8 @@ def test_the_recorded_observation_is_what_the_model_saw_including_the_last_turn_
 
 def test_the_finish_reason_of_each_turn_is_recorded():
     class Cut(FakeChat):
-        def complete(self, messages):
-            done = super().complete(messages)
+        def complete(self, messages, seed=None, logprobs=False):
+            done = super().complete(messages, seed, logprobs)
             return Completion(done.text, done.completion_tokens, done.seconds, "length")
 
     chat = Cut([final()])
@@ -258,3 +260,84 @@ def test_a_malformed_diagnosis_command_is_refused_and_never_ends_the_run(command
     result, tools, _ = run([tool("exec_shell", command=command), final()])
     assert result.stop is Stop.FINAL and tools.calls == []
     assert result.steps[0].observation.startswith("Refused")
+
+
+def command(text):
+    return json.dumps({"command": text})
+
+
+def draw(replies, k=None, seed=5, result=None):
+    result = result or run([tool("exec_shell", command=f"kubectl -n {NS} get pods"), final()])[0]
+    chat = FakeChat(replies)
+    k = len(replies) if k is None else k
+    return sample(result, NS, chat=chat, policy=POLICY, k=k, seed=seed), chat
+
+
+def test_k_candidates_are_sampled_from_one_diagnosis_with_distinct_recorded_seeds():
+    candidates, chat = draw([command(FIX)] * 3, seed=5)
+    assert len(candidates) == 3
+    assert chat.seeds == [5, 6, 7] and [c.seed for c in candidates] == [5, 6, 7]
+    assert chat.logprobs == [True] * 3
+    assert all(c.command == FIX and c.verdict.admitted and c.rejection is None for c in candidates)
+    # every draw sees the same messages, so only the seed differs
+    assert all(seen == chat.seen[0] for seen in chat.seen)
+
+
+def test_the_draws_see_the_diagnosis_but_not_its_command():
+    result, _, plan_chat = run([tool("exec_shell", command=f"kubectl -n {NS} get pods"), final()])
+    # the diagnosis loop keeps the client's seed and asks for no logprobs
+    assert plan_chat.seeds == [None, None] and plan_chat.logprobs == [False, False]
+    _, chat = draw([command(FIX)], result=result)
+    messages = chat.seen[0]
+    assert messages[: len(result.context)] == list(result.context)
+    assert result.context == tuple(plan_chat.seen[-1])
+    answer = json.loads(messages[-2]["content"])["final"]
+    assert messages[-2]["role"] == "assistant" and "command" not in answer
+    assert answer["fault_type"] == "ScalePod" and answer["service"] == "media-service"
+    assert FIX not in json.dumps(messages) and f"kubectl -n {NS}" in messages[-1]["content"]
+
+
+@pytest.mark.parametrize(
+    ("reply", "reason"),
+    [
+        ("no json here", "no JSON object"),
+        (json.dumps({"command": " "}), "no non-empty command"),
+        (tool("exec_shell", command=f"kubectl -n {NS} get pods"), "no non-empty command"),
+        (command("kubectl delete namespace kube-system"), "allow-list: "),
+    ],
+)
+def test_a_candidate_is_rejected_with_a_reason_and_never_raises(reply, reason):
+    (candidate,), _ = draw([reply])
+    assert reason in candidate.rejection
+    assert candidate.verdict is None or not candidate.verdict.admitted
+
+
+def test_an_inadmissible_candidate_keeps_its_command_and_verdict():
+    (candidate,), _ = draw([command("kubectl delete namespace kube-system")])
+    assert candidate.command == "kubectl delete namespace kube-system"
+    assert candidate.rejection == f"allow-list: {candidate.verdict.reason}"
+
+
+def test_a_reply_cut_at_the_token_cap_is_rejected_as_cut():
+    class Cut(FakeChat):
+        def complete(self, messages, seed=None, logprobs=False):
+            done = super().complete(messages, seed, logprobs)
+            return Completion(done.text, done.completion_tokens, done.seconds, "length", -1.5)
+
+    result = run([final()])[0]
+    (candidate,) = sample(result, NS, chat=Cut(['{"command": "kub']), policy=POLICY, k=1, seed=0)
+    assert candidate.rejection == "the reply was cut at the token cap"
+    assert candidate.finish_reason == "length" and candidate.logprob == -1.5
+
+
+def test_an_answer_in_the_final_format_still_yields_its_command():
+    (candidate,), _ = draw([final()])
+    assert candidate.command == FIX and candidate.rejection is None
+
+
+def test_a_plan_without_a_diagnosis_or_a_k_below_one_is_refused_before_any_model_call():
+    capped = run([tool("get_logs", namespace=NS, service="s")], max_turns=1)[0]
+    with pytest.raises(ValueError, match="no diagnosis"):
+        draw([command(FIX)], result=capped)
+    with pytest.raises(ValueError, match="at least 1"):
+        draw([], k=0)

@@ -1,4 +1,5 @@
-"""Hand run for story E5-S1: the planner on development problems, through AIOpsLab's interface.
+"""Hand run for stories E5-S1 and E5-S5: the planner on development problems, through AIOpsLab's
+interface, then K candidate commands sampled from its diagnosis.
 
 Needs aiopslab/config.yml, the kind cluster with Social Network Ready (README), and an
 OpenAI-compatible server with the planner model loaded (default LM Studio on port 1234), so it is
@@ -7,7 +8,8 @@ appends nothing to runs/touch_log.jsonl.
 
 Per problem: inject, run the planner (tool calls go through the Orchestrator's parser and action
 handlers, so quoting is the one a real agent meets), check the cluster is unchanged by the
-diagnosis, reset. The planner's command is checked by the allow-list and never run. The tools
+diagnosis, reset. The planner's command and the K candidates are checked by the allow-list and
+never run; a run that ends at the turn cap has no diagnosis and samples none. The tools
 write files to the current directory (get_traces and get_metrics do), so the script changes into a
 scratch folder under runs/. The transcript and a manifest go to runs/manifests/, which git ignores.
 
@@ -17,7 +19,7 @@ wrk2 workload, waits for it to finish and for the tracer's flush, and deletes th
 The Jaeger sampler keeps 1 percent of requests, so a short workload leaves no traces.
 
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
-        [--no-thinking] [--problem ID ...]
+        [--no-thinking] [--problem ID ...] [--candidates K]
 """
 
 import argparse
@@ -53,7 +55,7 @@ from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan
+from remvalgate.planner.loop import plan, sample
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -147,7 +149,9 @@ def prometheus_port_forward() -> subprocess.Popen:
     raise AssertionError("the Prometheus port-forward did not open")
 
 
-async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Path) -> dict:
+async def run_problem(
+    orch, problem_id: str, clean: dict, chat, results_dir: Path, k: int, seed: int
+) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
@@ -183,13 +187,27 @@ async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Pat
             policy=load_policy(DEFAULT_POLICY_PATH),
             schemas=load_schemas(DEFAULT_SCHEMAS_PATH),
         )
+        candidates = ()
+        if result.diagnosis is not None:
+            candidates = await asyncio.to_thread(
+                sample,
+                result,
+                NS,
+                chat=chat,
+                policy=load_policy(DEFAULT_POLICY_PATH),
+                k=k,
+                seed=seed,
+            )
         orch.session.end()
         left = changed(injected, snapshot())
         check(not left, f"the diagnosis changed the cluster: {left}")
     finally:
         remove_workload()
         reset(prob)
-    return dataclasses.asdict(result) | {"first_observation": first}
+    return dataclasses.asdict(result) | {
+        "first_observation": first,
+        "candidates": [dataclasses.asdict(c) for c in candidates],
+    }
 
 
 def main() -> int:
@@ -198,7 +216,11 @@ def main() -> int:
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--problem", action="append", choices=PROBLEMS)
     parser.add_argument("--seed", type=int, default=0)
+    # K = 8 is the submitted proposal's value, not group-confirmed; the timing pilot may change it
+    parser.add_argument("--candidates", type=int, default=8, help="K, candidates per problem")
     args = parser.parse_args()
+    if args.candidates < 1:
+        parser.error("--candidates must be at least 1")
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
@@ -221,7 +243,11 @@ def main() -> int:
             run_id = f"planner-{problem_id}-{mode}-{now.strftime('%Y%m%dt%H%M%Sz')}".lower()
             run = start_run(run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now)
             orch = new_orchestrator(results_dir=OUT_DIR / run_id)
-            transcript = asyncio.run(run_problem(orch, problem_id, clean, chat, OUT_DIR / run_id))
+            transcript = asyncio.run(
+                run_problem(
+                    orch, problem_id, clean, chat, OUT_DIR / run_id, args.candidates, args.seed
+                )
+            )
             manifest = Manifest(
                 run_id=run_id,
                 problem_id=problem_id,
@@ -232,18 +258,28 @@ def main() -> int:
                 model_version=f"{args.model_version}; thinking={'on' if args.thinking else 'off'}",
                 model_date=now.strftime("%Y-%m-%d"),
                 seed=args.seed,
-                k=1,
+                k=args.candidates,
                 r=1,
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": "kind-kind", "namespace": NS, "nodes": 2},
                 timestamp=run.timestamp,
+                # the draws use seeds seed to seed + K - 1; the diagnosis turns use seed
+                sampling={
+                    **{
+                        n: getattr(chat, n)
+                        for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+                    },
+                    "seeds": list(range(args.seed, args.seed + args.candidates)),
+                },
             )
             path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
-            # the planner's defaults and the chat settings, so two runs can be told apart
+            # the planner's defaults and the chat settings, so two runs can be told apart; plan's
+            # k is the retrieval depth, not K
             defaults = inspect.signature(plan).parameters
             transcript["config"] = {
                 **dataclasses.asdict(chat),
-                **{n: defaults[n].default for n in ("max_turns", "k", "max_observation_chars")},
+                **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
+                "retrieval_k": defaults["k"].default,
             }
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
@@ -255,7 +291,15 @@ def main() -> int:
             print(f"{problem_id} [{mode}]: stop={transcript['stop']} turns={len(steps)}")
             print(f"  diagnosis={transcript['diagnosis']}")
             print(f"  command={transcript['command']} admitted={verdict.get('admitted')}")
+            drawn = transcript["candidates"]
+            admitted = sum(c["rejection"] is None for c in drawn)
             print(f"  tokens={tokens} seconds={seconds:.1f}")
+            # apart from the diagnosis, so the cost of K can be read from a run
+            print(
+                f"  candidates={len(drawn)} admitted={admitted}"
+                f" tokens={sum(c['completion_tokens'] for c in drawn)}"
+                f" seconds={sum(c['seconds'] for c in drawn):.1f}"
+            )
             print(f"  manifest {path}")
     finally:
         forward.terminate()
