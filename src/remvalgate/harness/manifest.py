@@ -141,6 +141,9 @@ class Manifest:
     cluster: dict
     # when the run started, UTC
     timestamp: str
+    # the planner's sampling settings (temperature, seeds and so on); empty for a run with no
+    # sampling step, and absent from manifests written before it existed
+    sampling: dict = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
         _check_run_id(self.run_id, "manifest")
@@ -163,13 +166,15 @@ class Manifest:
             raise ValueError(
                 "manifest aiopslab_commit: expected 40 lowercase hex characters or null"
             )
-        try:
-            # the round trip rejects NaN, tuples and other values JSON does not keep
-            exact = json.loads(json.dumps(self.cluster, allow_nan=False)) == self.cluster
-        except (TypeError, ValueError):
-            exact = False
-        if not isinstance(self.cluster, dict) or not exact:
-            raise ValueError("manifest cluster: expected a JSON object")
+        for name in ("cluster", "sampling"):
+            value = getattr(self, name)
+            try:
+                # the round trip rejects NaN, tuples and other values JSON does not keep
+                exact = json.loads(json.dumps(value, allow_nan=False)) == value
+            except (TypeError, ValueError):
+                exact = False
+            if not isinstance(value, dict) or not exact:
+                raise ValueError(f"manifest {name}: expected a JSON object")
         if not _matches(self.timestamp, _TIMESTAMP, 20):
             raise ValueError("manifest timestamp: expected UTC as YYYY-MM-DDTHH:MM:SSZ")
 
@@ -526,7 +531,13 @@ def read_manifest(path: str | Path) -> Manifest:
     if not isinstance(data, dict):
         raise ValueError("manifest: expected a JSON object")
     fields = {f.name for f in dataclasses.fields(Manifest)}
-    missing = fields - data.keys()
+    # a field with a default may be absent, so older manifests still read
+    required = {
+        f.name
+        for f in dataclasses.fields(Manifest)
+        if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING
+    }
+    missing = required - data.keys()
     extra = data.keys() - fields
     if missing or extra:
         raise ValueError(f"manifest keys: missing {sorted(missing)}, unexpected {sorted(extra)}")

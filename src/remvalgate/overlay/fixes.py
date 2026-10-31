@@ -5,20 +5,21 @@ Kept apart from that script, which imports aiopslab, so a test checks the keys i
 
 import json
 import shlex
-from collections.abc import Iterable, Set
+from collections.abc import Iterable, Mapping, Set
 
 # the targetPort the target-port problem breaks and its known fix restores
 TARGET_PORT = 9090
 
+
+def _restore_target_port(service: str) -> list[list[str]]:
+    op = {"op": "replace", "path": "/spec/ports/0/targetPort", "value": TARGET_PORT}
+    patch = json.dumps([op])
+    return [["patch", "service", service, "--type=json", "-p", patch]]
+
+
 # problem id -> the known fix, as kubectl argument lists run in order
 FIXES = {
-    "dev-k8s_target_port-misconfig-mitigation-1": [
-        [
-            "patch", "service", "user-mention-service", "--type=json",
-            "-p", json.dumps([{"op": "replace", "path": "/spec/ports/0/targetPort",
-                               "value": TARGET_PORT}]),
-        ],
-    ],
+    "dev-k8s_target_port-misconfig-mitigation-1": _restore_target_port("user-mention-service"),
     "dev-scale_pod_zero_social_net-mitigation-1": [
         ["scale", "deployment", "media-service", "--replicas=1"],
         ["rollout", "status", "deployment/media-service", "--timeout=300s"],
@@ -36,6 +37,31 @@ FIXES = {
             "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
         ],
         ["rollout", "status", "deployment/user-service", "--timeout=300s"],
+    ],
+    "pool-k8s_target_port-misconfig-mitigation-4": _restore_target_port("compose-post-service"),
+    "pool-k8s_target_port-misconfig-mitigation-5": _restore_target_port("home-timeline-service"),
+    "pool-k8s_target_port-misconfig-mitigation-6": _restore_target_port("user-timeline-service"),
+    "pool-scale_pod_zero_social_net-mitigation-2": [
+        ["scale", "deployment", "text-service", "--replicas=1"],
+        ["rollout", "status", "deployment/text-service", "--timeout=300s"],
+    ],
+    "pool-scale_pod_zero_social_net-mitigation-3": [
+        ["scale", "deployment", "post-storage-service", "--replicas=1"],
+        ["rollout", "status", "deployment/post-storage-service", "--timeout=300s"],
+    ],
+    "pool-assign_to_non_existent_node_social_net-mitigation-2": [
+        [
+            "patch", "deployment", "home-timeline-service", "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", "deployment/home-timeline-service", "--timeout=300s"],
+    ],
+    "pool-assign_to_non_existent_node_social_net-mitigation-3": [
+        [
+            "patch", "deployment", "user-timeline-service", "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", "deployment/user-timeline-service", "--timeout=300s"],
     ],
     "conf-k8s_target_port-misconfig-mitigation-1": [
         [
@@ -62,14 +88,27 @@ def action(call: str) -> str:
     return f"```\n{call}\n```"
 
 
-def exec_shell(command: str) -> str:
+def exec_shell(command: str, timeout: int | None = None) -> str:
     # AIOpsLab's parser strips every double quote at both ends of the command, so a command that
     # ends in one would lose its last character when parsed
     if command.endswith('"'):
         raise ValueError(
             f"a command ending in a double quote does not survive the parser: {command}"
         )
-    return action('exec_shell("' + command.replace('"', '\\"') + '")')
+    extra = "" if timeout is None else f", timeout={int(timeout)}"
+    return action('exec_shell("' + command.replace('"', '\\"') + '"' + extra + ")")
+
+
+def tool_call(tool: str, arguments: Mapping[str, object]) -> str:
+    """The action text for a tool call a planner made.
+
+    Arguments go by keyword, so the order of the keys in the model's JSON never decides which
+    parameter gets which value (get_logs takes namespace first, then service).
+    """
+    if tool == "exec_shell":
+        return exec_shell(arguments["command"], arguments.get("timeout"))
+    args = ", ".join(f"{name}={json.dumps(value)}" for name, value in arguments.items())
+    return action(f"{tool}({args})")
 
 
 def known_fix(problem_id: str, namespace: str) -> list[str]:
