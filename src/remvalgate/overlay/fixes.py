@@ -19,13 +19,7 @@ def _restore_target_port(service: str) -> list[list[str]]:
 
 # problem id -> the known fix, as kubectl argument lists run in order
 FIXES = {
-    "dev-k8s_target_port-misconfig-mitigation-1": [
-        [
-            "patch", "service", "user-mention-service", "--type=json",
-            "-p", json.dumps([{"op": "replace", "path": "/spec/ports/0/targetPort",
-                               "value": TARGET_PORT}]),
-        ],
-    ],
+    "dev-k8s_target_port-misconfig-mitigation-1": _restore_target_port("user-mention-service"),
     "dev-scale_pod_zero_social_net-mitigation-1": [
         ["scale", "deployment", "media-service", "--replicas=1"],
         ["rollout", "status", "deployment/media-service", "--timeout=300s"],
