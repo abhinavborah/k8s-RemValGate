@@ -248,8 +248,8 @@ the GGUF build `qwen/qwen3.5-4b@q8_0` (5.16 GB file, 4.80 GiB reported at load, 
 not the bf16 weights of the Kaggle smoke run, so these times are for this host and build only.
 Hugging Face lists no Instruct checkpoint for Qwen3.5: its non-thinking mode is the same weights
 with thinking turned off (collection and model card read 2026-10-30). Qwen3-4B-Instruct-2507 is a
-separate checkpoint and was not tried. The model sees the cluster only through `exec_shell`
-limited to `kubectl get` and `describe`, and `get_logs`.
+separate checkpoint and was not tried. In the two-tool phase the model saw the cluster only
+through `exec_shell` limited to `kubectl get` and `describe`, and `get_logs`.
 
 The thinking switch is sent as `reasoning_effort: "none"`. LM Studio ignored
 `chat_template_kwargs`, a top-level `enable_thinking` and a `reasoning` object (183 reasoning
@@ -379,8 +379,15 @@ the wrong service (`nginx-thrift`), and hit the cap twice. One ScalePod run answ
 turn with no evidence and a command the allow-list rejected.
 
 All 5 `get_traces` calls and all 5 `get_metrics` calls returned data. The latest trace call came
-141 s into a run, inside Jaeger's 5-minute window; a call after about 250 s could miss the
-traffic, and the slowest run took 261 s. These runs do not show that the telemetry helped. There is no run with the tools removed to
+141 s into a run. The trace window was not honoured, which a later review found in the saved
+exports: in three of them 88 to 99 percent of the spans started before the run began, and the
+first span of every non-empty export is the same, from 14:18:34 UTC. A summary could therefore
+show the previous problem's error spans. AIOpsLab asks Jaeger's `/api/traces` for a `lookback`
+in seconds, and Jaeger documents that API as internal and undocumented (Jaeger APIs page, read
+2026-10-31), so the bound is not guaranteed. The planner script now
+keeps only spans that started after the injection (2026-10-31). The nine runs used the unfiltered
+summary and were not repeated, so their trace summaries are unreliable. These runs do not show
+that the telemetry helped. There is no run with the tools removed to
 compare against: that is #38. Each planner run now takes 140 s of model time on average, which is
 over the 2.6 minutes (156 s) the plan leaves per rollout, and the workload adds about 45 s of wall
 time per rollout on top (the job is 35 s, plus the 12 s flush wait). Eight separate runs for K = 8

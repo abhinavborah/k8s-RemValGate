@@ -5,6 +5,7 @@ import pytest
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
+from remvalgate.overlay.fixes import tool_call
 from remvalgate.planner.chat import Completion
 from remvalgate.planner.loop import FAULT_TYPES, Stop, plan
 from remvalgate.retrieval import RetrieverRefused
@@ -237,3 +238,23 @@ def test_the_finish_reason_of_each_turn_is_recorded():
         schemas=SCHEMAS,
     )
     assert result.steps[0].finish_reason == "length"
+
+
+def test_a_call_the_harness_cannot_run_is_not_reported_as_a_malformed_turn():
+    # a command that ends in a double quote passes the allow-list but not the action parser
+    quoted = f'kubectl -n {NS} get pods -l "app=media-service"'
+    result, _, chat = run([tool("exec_shell", command=quoted), final()], fake=tool_call)
+    seen = chat.seen[1][-1]["content"]
+    assert "could not run this call" in seen and "Reply with one JSON object" not in seen
+    assert result.stop is Stop.FINAL
+
+
+@pytest.mark.parametrize(
+    "command",
+    ['kubectl -n NS get pods -l "app', "kubectl -n NS get pods \\", "", "kubectl --bogus get pods"],
+)
+def test_a_malformed_diagnosis_command_is_refused_and_never_ends_the_run(command):
+    command = command.replace("NS", NS)
+    result, tools, _ = run([tool("exec_shell", command=command), final()])
+    assert result.stop is Stop.FINAL and tools.calls == []
+    assert result.steps[0].observation.startswith("Refused")

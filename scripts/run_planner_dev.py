@@ -155,6 +155,8 @@ async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Pat
     loop = asyncio.get_running_loop()
     try:
         prob.inject_fault()
+        # the trace export carries spans from before its window, so the summary keeps later ones
+        injected_at = int(time.time() * 1e6)
         check(changed(clean, snapshot()), "the injection left the cluster unchanged")
         await asyncio.to_thread(start_workload, prob)
         orch.session.start()
@@ -166,7 +168,7 @@ async def run_problem(orch, problem_id: str, clean: dict, chat, results_dir: Pat
                 orch.ask_env(tool_call(tool, arguments)), loop
             )
             # the tools save files and return a path: the model gets a bounded summary too
-            return preview(tool, future.result(), 4000)
+            return preview(tool, future.result(), 4000, since=injected_at)
 
         first = await orch.ask_env(exec_shell(f"kubectl -n {NS} get deployments,pods"))
         result = await asyncio.to_thread(

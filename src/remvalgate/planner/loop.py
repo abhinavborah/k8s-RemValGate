@@ -223,6 +223,9 @@ def plan(
         tool = arguments = None
         try:
             obj = _json_object(completion.text)
+        except ValueError as error:
+            observation = f"Refused: {error}. Reply with one JSON object."
+        else:
             if "final" in obj:
                 result = _final(obj)
                 if not isinstance(result, str):
@@ -242,12 +245,16 @@ def plan(
                     observation = _read_only_error(arguments["command"], policy, schemas, namespace)
                 if observation is None and arguments.get("namespace", namespace) != namespace:
                     observation = f"{tool} works in namespace {namespace} only"
-                if observation is None:
-                    observation = _clip(run_tool(tool, arguments), tool, max_observation_chars)
-                else:
+                if observation is not None:
                     observation = f"Refused: {observation}"
-        except ValueError as error:
-            observation = f"Refused: {error}. Reply with one JSON object."
+                else:
+                    try:
+                        output = run_tool(tool, arguments)
+                    except ValueError as error:
+                        # the harness could not run a valid call: not a malformed turn
+                        observation = f"{tool} could not run this call: {error}"
+                    else:
+                        observation = _clip(output, tool, max_observation_chars)
         if turn == max_turns - 1:
             observation += "\nThis is your last turn. Reply with the final answer now."
         steps.append(Step(turn, completion.text, tool, arguments, observation, *_cost(completion)))

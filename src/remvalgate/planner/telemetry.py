@@ -14,10 +14,12 @@ _TRACES = re.compile(r"exported to: (.+?)\s*$")
 _METRICS = re.compile(r"exported to directory: (.+?)\s*$", re.MULTILINE)
 
 
-def _traces_summary(path: Path, top: int) -> list[str]:
+def _traces_summary(path: Path, top: int, since: int | None) -> list[str]:
     spans: dict[str, list[float]] = defaultdict(lambda: [0, 0, 0.0])
     with path.open(newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
+            if since is not None and int(row["start_time"]) < since:
+                continue
             entry = spans[row["service_name"]]
             entry[0] += 1
             entry[1] += row["has_error"] == "True"
@@ -32,7 +34,7 @@ def _traces_summary(path: Path, top: int) -> list[str]:
     return lines
 
 
-def _metrics_summary(directory: Path, top: int) -> list[str]:
+def _metrics_summary(directory: Path, top: int, since: int | None) -> list[str]:
     lines = ["metric: series, then the highest last values as pod=value"]
     for path in sorted(directory.rglob("*.csv")):
         last: dict[str, tuple[int, float]] = {}
@@ -47,8 +49,12 @@ def _metrics_summary(directory: Path, top: int) -> list[str]:
     return lines
 
 
-def preview(tool: str, output: str, limit: int, top: int = 3) -> str:
+def preview(tool: str, output: str, limit: int, top: int = 3, since: int | None = None) -> str:
     """Return the tool's output with a summary of the saved data, cut to limit characters.
+
+    since is a time in microseconds since the epoch: spans that started earlier are left out of the
+    trace summary. The tool's export carries spans from before its window, so a caller that knows
+    when the fault was injected passes that time. The metrics summary ignores it.
 
     A tool other than get_traces and get_metrics, or an output with no path, comes back as it is.
     """
@@ -64,5 +70,8 @@ def preview(tool: str, output: str, limit: int, top: int = 3) -> str:
     if match is None or not Path(match.group(1)).exists():
         return output
     head = output.split("\n", 1)[0]
-    text = "\n".join([head, *summarise(Path(match.group(1)), top)])
-    return text if len(text) <= limit else f"{text[:limit]}\n[preview cut, {len(text)} characters]"
+    text = "\n".join([head, *summarise(Path(match.group(1)), top, since)])
+    if len(text) <= limit:
+        return text
+    note = f"\n[preview cut, {len(text)} characters]"
+    return text[: limit - len(note)] + note

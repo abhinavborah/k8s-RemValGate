@@ -49,7 +49,22 @@ def test_the_preview_is_cut_to_the_limit(tmp_path):
         + "".join(f"a,{i},0,svc{i},op,1,10,False,x\n" for i in range(30)),
     )
     out = preview("get_traces", f"Traces data exported to: {csv_path}", 120)
-    assert "[preview cut" in out
+    assert "[preview cut" in out and len(out) <= 120
+
+
+def test_spans_that_started_before_since_are_left_out(tmp_path):
+    csv_path = _write(
+        tmp_path / "t.csv",
+        "trace_id,span_id,parent_span,service_name,operation_name,start_time,duration,has_error,response\n"
+        "a,1,0,previous,op,5,100,True,x\n"
+        "b,2,0,new,op,10,50,False,x\n"
+        "b,3,2,new,op,12,70,False,x\n",
+    )
+    out = preview("get_traces", f"Traces data exported to: {csv_path}", 2000, since=10)
+    assert "previous:" not in out and "new: 2, 0, 60" in out
+    assert "no spans" in preview(
+        "get_traces", f"Traces data exported to: {csv_path}", 2000, since=99
+    )
 
 
 def test_other_tools_and_missing_files_pass_through(tmp_path):
