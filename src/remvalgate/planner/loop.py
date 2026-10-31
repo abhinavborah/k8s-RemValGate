@@ -327,8 +327,9 @@ def sample(
     Raises ValueError for a plan with no diagnosis or a k below 1.
 
     Every draw sees the same messages: the diagnosis conversation, the diagnosis as the model's
-    answer with its command left out, so one command cannot anchor every draw, and a request
-    for one command. A candidate is never run.
+    answer with its command left out, and a request for one command. Only the accepted answer's
+    command is left out: earlier turns, a refused final answer among them, and the retrieved
+    past fixes in the task prompt are seen by every draw. A candidate is never run.
     """
     if result.diagnosis is None or not result.context:
         raise ValueError("the plan has no diagnosis to sample from")

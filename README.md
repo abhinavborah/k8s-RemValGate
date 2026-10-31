@@ -221,7 +221,8 @@ save files and return a path, so the model also gets a bounded summary of what t
 closed list and a service name) and one command, which the allow-list checks and the script never
 runs. It then samples K candidate commands from that diagnosis (`--candidates`, default 8, the
 submitted proposal's value): one model call each, with seeds `--seed` to `--seed` plus K minus 1, on
-the diagnosis conversation with the first command left out so it cannot anchor every draw. Each
+the diagnosis conversation with the accepted answer's command left out. Earlier turns, a refused
+final answer among them, and the retrieved past fixes are still seen by every draw. Each
 candidate is admitted by the allow-list or rejected with a reason, and none is run. Each candidate
 also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
 completions endpoint lists no `logprobs` parameter, so expect none there. The manifest
