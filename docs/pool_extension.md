@@ -57,14 +57,14 @@ that does not exist, and the known fix removes it and waits for the rollout.
 | `pool-assign_to_non_existent_node_social_net-mitigation-3` | `AssignNonExistentNodeUserTimelineMitigation` | `user-timeline-service` | remove the `nodeSelector` |
 
 The other AssignNonExistentNode problems target `user-service` (pool), `unique-id-service`
-(development) and `social-graph-service` (confirmation), so no two share a service, as the
-proposal counts a fault type once per service. Five services were free of this type:
+(development) and `social-graph-service` (confirmation). #112 asks for a service not used by another
+problem of this type, so no two share one. Five services were free of this type:
 `compose-post-service`, `home-timeline-service`, `post-storage-service`, `text-service` and
 `user-timeline-service`. Each already has a problem of another type in the pool: one each for
 `compose-post-service` and the two timeline services, and two each for `text-service` and
-`post-storage-service`. The two chosen come from the three with one, a pick between equal options.
-The proposal places the three AssignNonExistentNode problems in three different folds by fault type,
-so a service shared across types does not change the folds.
+`post-storage-service`. The pair above is proposed, a pick between the three with one, and is
+pending group confirmation, which is recorded on #112 when it comes. Fold assignment (#26) goes by
+fault type, so a service shared across types does not change the folds.
 
 The definitions are in `src/remvalgate/overlay/dev_problems.py`, the known fixes in
 `src/remvalgate/overlay/fixes.py`, and the ids in `src/remvalgate/harness/slices.json` under
