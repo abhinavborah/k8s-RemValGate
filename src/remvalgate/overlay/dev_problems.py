@@ -30,6 +30,18 @@ class ScalePodMediaMitigation(ScalePodSocialNetMitigation):
         self.faulty_service = "media-service"
 
 
+class ScalePodTextMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "text-service"
+
+
+class ScalePodPostStorageMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "post-storage-service"
+
+
 class AssignNonExistentNodeAvailableMitigation(AssignNonExistentNodeSocialNetMitigation):
     """The upstream task on user-service, with an eval that also needs an available replica."""
 

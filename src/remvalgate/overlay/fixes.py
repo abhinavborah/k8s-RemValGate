@@ -38,6 +38,17 @@ FIXES = {
         ],
         ["rollout", "status", "deployment/user-service", "--timeout=300s"],
     ],
+    "pool-k8s_target_port-misconfig-mitigation-4": _restore_target_port("compose-post-service"),
+    "pool-k8s_target_port-misconfig-mitigation-5": _restore_target_port("home-timeline-service"),
+    "pool-k8s_target_port-misconfig-mitigation-6": _restore_target_port("user-timeline-service"),
+    "pool-scale_pod_zero_social_net-mitigation-2": [
+        ["scale", "deployment", "text-service", "--replicas=1"],
+        ["rollout", "status", "deployment/text-service", "--timeout=300s"],
+    ],
+    "pool-scale_pod_zero_social_net-mitigation-3": [
+        ["scale", "deployment", "post-storage-service", "--replicas=1"],
+        ["rollout", "status", "deployment/post-storage-service", "--timeout=300s"],
+    ],
     "conf-k8s_target_port-misconfig-mitigation-1": [
         [
             "patch", "service", "social-graph-service", "--type=json",
@@ -56,9 +67,6 @@ FIXES = {
         ],
         ["rollout", "status", "deployment/social-graph-service", "--timeout=300s"],
     ],
-    "pool-k8s_target_port-misconfig-mitigation-4": _restore_target_port("compose-post-service"),
-    "pool-k8s_target_port-misconfig-mitigation-5": _restore_target_port("home-timeline-service"),
-    "pool-k8s_target_port-misconfig-mitigation-6": _restore_target_port("user-timeline-service"),
 }  # fmt: skip
 
 

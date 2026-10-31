@@ -89,6 +89,8 @@ def test_every_overlay_id_builds_its_intended_problem():
         "pool-k8s_target_port-misconfig-mitigation-4": "target_port_compose_post",
         "pool-k8s_target_port-misconfig-mitigation-5": "target_port_home_timeline",
         "pool-k8s_target_port-misconfig-mitigation-6": "target_port_user_timeline",
+        "pool-scale_pod_zero_social_net-mitigation-2": "ScalePodTextMitigation",
+        "pool-scale_pod_zero_social_net-mitigation-3": "ScalePodPostStorageMitigation",
         "conf-k8s_target_port-misconfig-mitigation-1": "target_port_social_graph",
         "conf-scale_pod_zero_social_net-mitigation-1": "ScalePodSocialGraphMitigation",
         "conf-assign_to_non_existent_node_social_net-mitigation-1": (
@@ -191,6 +193,59 @@ def test_each_pool_target_port_problem_has_its_own_service_and_the_shared_fix(nu
     ]
     assert passed == [service]
     assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] is Slice.POOL
+
+
+@pytest.mark.parametrize(
+    ("number", "cls", "service"),
+    [(2, "ScalePodTextMitigation", "text-service"),
+     (3, "ScalePodPostStorageMitigation", "post-storage-service")],
+)  # fmt: skip
+def test_each_pool_scale_pod_problem_has_its_own_service_and_scales_it_back(number, cls, service):
+    problem_id = f"pool-scale_pod_zero_social_net-mitigation-{number}"
+    assert FIXES[problem_id] == [
+        ["scale", "deployment", service, "--replicas=1"],
+        ["rollout", "status", f"deployment/{service}", "--timeout=300s"],
+    ]
+    # the class sets faulty_service after the base constructor, as the base hard-codes user-service
+    source = Path(overlay.__file__).with_name("dev_problems.py").read_text()
+    (node,) = [n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == cls]
+    assert [b.id for b in node.bases] == ["ScalePodSocialNetMitigation"]
+    assert f'self.faulty_service = "{service}"' in ast.get_source_segment(source, node)
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] == Slice.POOL
+
+
+def _faulty_service(path: Path, cls: str) -> str:
+    # the one value the class assigns to self.faulty_service, read from its source
+    (node,) = [
+        n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef) and n.name == cls
+    ]
+    (value,) = [
+        n.value
+        for n in ast.walk(node)
+        if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == "self.faulty_service"
+    ]
+    # the confirmation classes assign confirmation.SERVICE
+    return getattr(confirmation, value.attr) if isinstance(value, ast.Attribute) else value.value
+
+
+def test_no_two_scale_pod_problems_share_a_service():
+    dev_problems = Path(overlay.__file__).with_name("dev_problems.py")
+    services = {
+        problem_id: _faulty_service(dev_problems, factory.problem)
+        for problem_id, factory in overlay.PROBLEMS.items()
+        if "scale_pod_zero" in problem_id
+    }
+    # an upstream ScalePod problem keeps the service its base task sets
+    upstream = [
+        i for i in load_registry(DEFAULT_REGISTRY_PATH).slices
+        if "scale_pod_zero" in i and i not in overlay.PROBLEMS
+    ]  # fmt: skip
+    base = (
+        Path(__file__).resolve().parents[1]
+        / "external/AIOpsLab/aiopslab/orchestrator/problems/scale_pod/scale_pod_social_net.py"
+    )
+    services |= {i: _faulty_service(base, "ScalePodSocialNetBaseTask") for i in upstream}
+    assert len(set(services.values())) == len(services)
 
 
 # the confirmation slice: static checks only, since building a confirmation problem in a test

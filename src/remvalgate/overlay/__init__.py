@@ -36,6 +36,8 @@ PROBLEMS: dict[str, Factory] = {
     "pool-k8s_target_port-misconfig-mitigation-4": _local("target_port_compose_post"),
     "pool-k8s_target_port-misconfig-mitigation-5": _local("target_port_home_timeline"),
     "pool-k8s_target_port-misconfig-mitigation-6": _local("target_port_user_timeline"),
+    "pool-scale_pod_zero_social_net-mitigation-2": _local("ScalePodTextMitigation"),
+    "pool-scale_pod_zero_social_net-mitigation-3": _local("ScalePodPostStorageMitigation"),
     # the confirmation slice (docs/confirmation_problems.md); never tuned on, opened once
     "conf-k8s_target_port-misconfig-mitigation-1": _local("target_port_social_graph"),
     "conf-scale_pod_zero_social_net-mitigation-1": _local("ScalePodSocialGraphMitigation"),
