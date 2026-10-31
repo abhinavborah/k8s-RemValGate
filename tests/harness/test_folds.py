@@ -246,6 +246,19 @@ def test_check_catches_uneven_fold_sizes():
     assert any("size" in m for m in check_folds(bad))
 
 
+def test_check_catches_an_empty_assignment():
+    messages = check_folds({})
+    assert [m for m in messages if "no problems" in m] == [
+        f"fold {f} has no problems" for f in range(4)
+    ]
+
+
+def test_check_catches_a_fold_left_empty_when_the_sizes_differ_by_one():
+    # sizes [1, 1, 1, 0] differ by one, so only the empty fold shows the problem
+    three = dict(zip(pool({"TargetPortMisconfig": 3}), range(3), strict=True))
+    assert check_folds(three) == ["fold 3 has no problems"]
+
+
 def test_check_catches_a_fold_index_out_of_range():
     bad = good()
     bad[next(iter(bad))] = 4

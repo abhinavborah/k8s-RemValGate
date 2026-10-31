@@ -93,9 +93,10 @@ def check_folds(
 ) -> list[str]:
     """Return one message per broken invariant; an empty list means the folds are valid.
 
-    The checks: every fold index is an integer in 0..n_folds-1, the fold sizes differ by at most
-    one, and for each fault type the counts per fold differ by at most one. A fold index that is
-    not valid, and an id with no fault type, are reported and left out of the other checks.
+    The checks: every fold index is an integer in 0..n_folds-1, every fold has at least one
+    problem, the fold sizes differ by at most one, and for each fault type the counts per fold
+    differ by at most one. A fold index that is not valid, and an id with no fault type, are
+    reported and left out of the other checks.
 
     With expected_ids, for example pool_ids(registry), it also reports each expected id that has
     no fold and each assigned id that is not expected, so an assignment made for an older pool is
@@ -119,6 +120,10 @@ def check_folds(
             valid[problem_id] = fold
     sizes = Counter(valid.values())
     per_fold = [sizes[f] for f in range(n_folds)]
+    # assign_folds never leaves a fold empty, since it refuses fewer problems than folds
+    for fold, size in enumerate(per_fold):
+        if size == 0:
+            messages.append(f"fold {fold} has no problems")
     if valid and max(per_fold) - min(per_fold) > 1:
         messages.append(f"fold sizes differ by more than one: {per_fold}")
     by_type: dict[str, Counter] = {}
