@@ -91,6 +91,12 @@ def test_every_overlay_id_builds_its_intended_problem():
         "pool-k8s_target_port-misconfig-mitigation-6": "target_port_user_timeline",
         "pool-scale_pod_zero_social_net-mitigation-2": "ScalePodTextMitigation",
         "pool-scale_pod_zero_social_net-mitigation-3": "ScalePodPostStorageMitigation",
+        "pool-assign_to_non_existent_node_social_net-mitigation-2": (
+            "AssignNonExistentNodeHomeTimelineMitigation"
+        ),
+        "pool-assign_to_non_existent_node_social_net-mitigation-3": (
+            "AssignNonExistentNodeUserTimelineMitigation"
+        ),
         "conf-k8s_target_port-misconfig-mitigation-1": "target_port_social_graph",
         "conf-scale_pod_zero_social_net-mitigation-1": "ScalePodSocialGraphMitigation",
         "conf-assign_to_non_existent_node_social_net-mitigation-1": (
@@ -245,6 +251,50 @@ def test_no_two_scale_pod_problems_share_a_service():
         / "external/AIOpsLab/aiopslab/orchestrator/problems/scale_pod/scale_pod_social_net.py"
     )
     services |= {i: _faulty_service(base, "ScalePodSocialNetBaseTask") for i in upstream}
+    assert len(set(services.values())) == len(services)
+
+
+@pytest.mark.parametrize(
+    ("number", "cls", "service"),
+    [(2, "AssignNonExistentNodeHomeTimelineMitigation", "home-timeline-service"),
+     (3, "AssignNonExistentNodeUserTimelineMitigation", "user-timeline-service")],
+)  # fmt: skip
+def test_each_pool_assign_node_problem_has_its_own_service_and_removes_the_selector(
+    number, cls, service
+):
+    problem_id = f"pool-assign_to_non_existent_node_social_net-mitigation-{number}"
+    assert FIXES[problem_id] == [
+        [
+            "patch", "deployment", service, "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", f"deployment/{service}", "--timeout=300s"],
+    ]  # fmt: skip
+    # the stricter eval comes from the base, since the upstream eval passes with the fault in place
+    source = Path(overlay.__file__).with_name("dev_problems.py").read_text()
+    (node,) = [n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == cls]
+    assert [b.id for b in node.bases] == ["AssignNonExistentNodeAvailableMitigation"]
+    assert f'self.faulty_service = "{service}"' in ast.get_source_segment(source, node)
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] == Slice.POOL
+
+
+def test_no_two_assign_node_problems_share_a_service():
+    dev_problems = Path(overlay.__file__).with_name("dev_problems.py")
+    base = (
+        Path(__file__).resolve().parents[1]
+        / "external/AIOpsLab/aiopslab/orchestrator/problems/assign_non_existent_node"
+        / "assign_non_existent_node_social_net.py"
+    )
+    services = {}
+    for problem_id, factory in overlay.PROBLEMS.items():
+        if "assign_to_non_existent_node" not in problem_id:
+            continue
+        # the pool variant sets no service and keeps the one its upstream base task sets
+        if factory.problem == "AssignNonExistentNodeAvailableMitigation":
+            services[problem_id] = _faulty_service(base, "AssignNonExistentNodeSocialNetBaseTask")
+        else:
+            services[problem_id] = _faulty_service(dev_problems, factory.problem)
+    assert len(services) == 5
     assert len(set(services.values())) == len(services)
 
 

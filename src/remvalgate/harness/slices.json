@@ -1,5 +1,5 @@
 {
-  "placeholder": "Partial. The pool holds 14 problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode (docs/problem_inventory.md), the three TargetPortMisconfig problems of #110 and the two ScalePod problems of #111 (docs/pool_extension.md); #112 adds the rest of #24. The confirmation slice is authored in #71 and sealed in #25 (docs/confirmation_problems.md). Development problems are designated in docs/development_problems.md and authored in #70. Singleton ids are added with the exploratory check (R3.6), which sets how their runs are pinned and logged.",
+  "placeholder": "Partial. The pool holds 16 problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode (docs/problem_inventory.md), the three TargetPortMisconfig problems of #110, the two ScalePod problems of #111 and the two AssignNonExistentNode problems of #112 (docs/pool_extension.md). The confirmation slice is authored in #71 and sealed in #25 (docs/confirmation_problems.md). Development problems are designated in docs/development_problems.md and authored in #70. Singleton ids are added with the exploratory check (R3.6), which sets how their runs are pinned and logged.",
   "pool": [
     "k8s_target_port-misconfig-mitigation-1",
     "k8s_target_port-misconfig-mitigation-2",
@@ -14,7 +14,9 @@
     "pool-k8s_target_port-misconfig-mitigation-5",
     "pool-k8s_target_port-misconfig-mitigation-6",
     "pool-scale_pod_zero_social_net-mitigation-2",
-    "pool-scale_pod_zero_social_net-mitigation-3"
+    "pool-scale_pod_zero_social_net-mitigation-3",
+    "pool-assign_to_non_existent_node_social_net-mitigation-2",
+    "pool-assign_to_non_existent_node_social_net-mitigation-3"
   ],
   "confirmation": [
     "conf-k8s_target_port-misconfig-mitigation-1",

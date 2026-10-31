@@ -71,6 +71,18 @@ class AssignNonExistentNodeUniqueIdMitigation(AssignNonExistentNodeAvailableMiti
         self.faulty_service = "unique-id-service"
 
 
+class AssignNonExistentNodeHomeTimelineMitigation(AssignNonExistentNodeAvailableMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "home-timeline-service"
+
+
+class AssignNonExistentNodeUserTimelineMitigation(AssignNonExistentNodeAvailableMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "user-timeline-service"
+
+
 def target_port_user_mention() -> K8STargetPortMisconfigMitigation:
     return K8STargetPortMisconfigMitigation(faulty_service="user-mention-service")
 
