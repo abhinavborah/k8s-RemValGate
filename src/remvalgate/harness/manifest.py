@@ -141,8 +141,8 @@ class Manifest:
     cluster: dict
     # when the run started, UTC
     timestamp: str
-    # the planner's sampling settings (temperature, seeds and so on); empty for a run that
-    # samples nothing, and absent from manifests written before it existed
+    # the planner's sampling settings (temperature, seeds and so on); empty for a run with no
+    # sampling step, and absent from manifests written before it existed
     sampling: dict = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):

@@ -113,7 +113,8 @@ class Candidate:
     completion_tokens: int
     seconds: float
     finish_reason: str = ""
-    # the sum of the reply's token log-probabilities, None when the server returns none
+    # the sum of the reply's token log-probabilities, None when the server returns none or a
+    # token's value is unknown
     logprob: float | None = None
 
 

@@ -65,6 +65,10 @@ def test_the_log_probability_is_the_sum_over_content_tokens_or_none(monkeypatch)
     assert sent[0]["logprobs"] is True
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "ab", logprobs=None))
     assert OpenAIChat(model="m").complete(hi, logprobs=True).logprob is None
+    # -9999.0 marks a token outside the top 20, whose value is unknown
+    unknown = {"content": [{"token": "a", "logprob": -0.5}, {"token": "b", "logprob": -9999.0}]}
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "ab", logprobs=unknown))
+    assert OpenAIChat(model="m").complete(hi, logprobs=True).logprob is None
 
 
 def test_logprobs_are_asked_for_only_when_a_call_wants_them(monkeypatch):

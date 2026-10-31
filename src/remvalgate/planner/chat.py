@@ -9,8 +9,9 @@ A call can ask for logprobs (sampling does, the diagnosis loop does not). A serv
 them gives the completion the sum of its content tokens' log-probabilities, which ranks
 candidates by the planner's own confidence. LM Studio's chat completions page lists no logprobs
 parameter (read 2026-10-31), so it likely returns none and the sum is None. The OpenAI reference
-gives -9999.0 for a token outside the top 20, so a sum from such a server is not a true
-log-probability. Whether a thinking model's sum covers its thinking was not checked.
+gives -9999.0 for a token outside the top 20, a value that is not a log-probability, so a reply
+with such a token also gets None. Whether a thinking model's sum covers its thinking was not
+checked.
 """
 
 import json
@@ -33,7 +34,7 @@ class Completion:
     completion_tokens: int
     seconds: float
     finish_reason: str = ""
-    # None when the server returns no logprobs
+    # None when the server returns no logprobs or marks a token's value unknown
     logprob: float | None = None
 
 
@@ -99,6 +100,8 @@ class OpenAIChat:
         # a server may leave a think block in the content, and it never belongs in the history
         text = _THINK.sub("", data["choices"][0]["message"].get("content") or "").strip()
         finish = data["choices"][0].get("finish_reason") or ""
-        tokens = (data["choices"][0].get("logprobs") or {}).get("content")
-        logprob = sum(t["logprob"] for t in tokens) if tokens else None
+        tokens = (data["choices"][0].get("logprobs") or {}).get("content") or ()
+        values = [t["logprob"] for t in tokens]
+        # -9999.0 stands for a token outside the top 20, so the sum would be meaningless
+        logprob = sum(values) if values and -9999.0 not in values else None
         return Completion(text, data["usage"]["completion_tokens"], seconds, finish, logprob)

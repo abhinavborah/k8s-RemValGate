@@ -263,13 +263,14 @@ def main() -> int:
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": "kind-kind", "namespace": NS, "nodes": 2},
                 timestamp=run.timestamp,
-                # the draws use seeds seed to seed + K - 1; the diagnosis turns use seed
+                # the seeds of the draws made, empty when the plan had no diagnosis, so k is the
+                # K asked for and not always the number drawn; the diagnosis turns use seed
                 sampling={
                     **{
                         n: getattr(chat, n)
                         for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
                     },
-                    "seeds": list(range(args.seed, args.seed + args.candidates)),
+                    "seeds": [c["seed"] for c in transcript["candidates"]],
                 },
             )
             path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
