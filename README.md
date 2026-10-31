@@ -293,10 +293,10 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   are kept for the seal touches. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  14 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode
-  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the three TargetPortMisconfig and
-  two ScalePod problems of the pool extension ([docs/pool_extension.md](docs/pool_extension.md)).
-  It also holds the development problems designated in
-  [docs/development_problems.md](docs/development_problems.md), and the three confirmation problems
-  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The rest of the pool extension
-  and the singleton problems are not in it yet.
+  16 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode
+  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the three TargetPortMisconfig, two
+  ScalePod and two AssignNonExistentNode problems of the pool extension
+  ([docs/pool_extension.md](docs/pool_extension.md)). It also holds the development problems
+  designated in [docs/development_problems.md](docs/development_problems.md), and the three
+  confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The
+  singleton problems are not in it yet.

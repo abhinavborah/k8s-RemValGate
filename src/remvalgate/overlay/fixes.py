@@ -49,6 +49,20 @@ FIXES = {
         ["scale", "deployment", "post-storage-service", "--replicas=1"],
         ["rollout", "status", "deployment/post-storage-service", "--timeout=300s"],
     ],
+    "pool-assign_to_non_existent_node_social_net-mitigation-2": [
+        [
+            "patch", "deployment", "home-timeline-service", "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", "deployment/home-timeline-service", "--timeout=300s"],
+    ],
+    "pool-assign_to_non_existent_node_social_net-mitigation-3": [
+        [
+            "patch", "deployment", "user-timeline-service", "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", "deployment/user-timeline-service", "--timeout=300s"],
+    ],
     "conf-k8s_target_port-misconfig-mitigation-1": [
         [
             "patch", "service", "social-graph-service", "--type=json",
