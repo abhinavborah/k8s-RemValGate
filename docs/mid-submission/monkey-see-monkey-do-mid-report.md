@@ -4,8 +4,9 @@ Course CL3410, Language Models and Agents, Monsoon 2026. Status as of 2026-10-30
 
 Authors: Abhinav Borah, Dhawal Pawanarkar, Gargi Saini, Vivek Dhayal M K.
 
-Code: https://github.com/abhinavborah/k8s-RemValGate
-Project board: https://github.com/users/abhinavborah/projects/3
+**Code:** https://github.com/abhinavborah/k8s-RemValGate
+
+**Project board:** https://github.com/users/abhinavborah/projects/3
 
 ## Abstract
 
@@ -38,6 +39,8 @@ flowchart LR
   EV["Evaluator<br/>outcome classifier, metrics,<br/>manifest, touch log<br/>built"] -.-> S
 ```
 
+![System block diagram](figures/system.png) (source: `figures/system.puml`)
+
 ## 3. Progress
 
 26 of 69 stories are done and 5 more have an open draft pull request. E1 (foundations, 7 stories) and E2 (evaluation harness, 8 stories) are complete. 26 pull requests are merged, with 6 merged on 2026-10-30 alone. CI runs tests and lint on every pull request. The counts are as of 2026-10-30. The planner pull request (#106) merged on 2026-10-31 and closed story #36. 816 unit tests were collected at the head of #106 on 2026-10-30.
@@ -55,6 +58,8 @@ flowchart LR
 | E9 Experiments and analysis | 11 | 3 | 0 | 8 |
 | E10 Reporting and submission | 6 | 0 | 1 | 5 |
 | Total | 69 | 26 | 5 | 38 |
+
+![Stories per epic](figures/progress.png) (script: `figures/progress.py`)
 
 Open pull requests at the cutoff: #106 planner (merged 2026-10-31), #108 grouped fold assignment, #109 per-fold retrieval corpus, #113 three target-port pool problems, #114 an earlier draft of this report by another member.
 
@@ -187,5 +192,7 @@ gantt
   Main runs, analysis (#55, #56)           :d2, 2026-11-15, 1d
   Confirmation, final report, tag (#59, #62, #63) :d3, 2026-11-15, 1d
 ```
+
+![Proposed timeline](figures/timeline.png) (source: `figures/timeline.puml`)
 
 Main runs follow the fixed-R rule and feed the primary analysis (requirements R9.2, R9.3).
