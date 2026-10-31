@@ -86,6 +86,17 @@ def test_every_overlay_id_builds_its_intended_problem():
         "pool-assign_to_non_existent_node_social_net-mitigation-1": (
             "AssignNonExistentNodeAvailableMitigation"
         ),
+        "pool-k8s_target_port-misconfig-mitigation-4": "target_port_compose_post",
+        "pool-k8s_target_port-misconfig-mitigation-5": "target_port_home_timeline",
+        "pool-k8s_target_port-misconfig-mitigation-6": "target_port_user_timeline",
+        "pool-scale_pod_zero_social_net-mitigation-2": "ScalePodTextMitigation",
+        "pool-scale_pod_zero_social_net-mitigation-3": "ScalePodPostStorageMitigation",
+        "pool-assign_to_non_existent_node_social_net-mitigation-2": (
+            "AssignNonExistentNodeHomeTimelineMitigation"
+        ),
+        "pool-assign_to_non_existent_node_social_net-mitigation-3": (
+            "AssignNonExistentNodeUserTimelineMitigation"
+        ),
         "conf-k8s_target_port-misconfig-mitigation-1": "target_port_social_graph",
         "conf-scale_pod_zero_social_net-mitigation-1": "ScalePodSocialGraphMitigation",
         "conf-assign_to_non_existent_node_social_net-mitigation-1": (
@@ -161,6 +172,135 @@ def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_i
 def test_the_target_port_fix_patches_to_the_shared_port():
     patch = FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
     assert patch == '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]'
+
+
+@pytest.mark.parametrize(
+    ("number", "service"),
+    [(4, "compose-post-service"), (5, "home-timeline-service"), (6, "user-timeline-service")],
+)
+def test_each_pool_target_port_problem_has_its_own_service_and_the_shared_fix(number, service):
+    problem_id = f"pool-k8s_target_port-misconfig-mitigation-{number}"
+    (fix,) = FIXES[problem_id]
+    assert fix[:3] == ["patch", "service", service]
+    assert fix[-1] == FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
+    # the service passed in the body of the factory registered for this id, read from the source
+    tree = ast.parse(Path(overlay.__file__).with_name("dev_problems.py").read_text())
+    (function,) = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == overlay.PROBLEMS[problem_id].problem
+    ]
+    passed = [
+        k.value.value
+        for n in ast.walk(function)
+        if isinstance(n, ast.Call)
+        for k in n.keywords
+        if k.arg == "faulty_service" and isinstance(k.value, ast.Constant)
+    ]
+    assert passed == [service]
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] is Slice.POOL
+
+
+@pytest.mark.parametrize(
+    ("number", "cls", "service"),
+    [(2, "ScalePodTextMitigation", "text-service"),
+     (3, "ScalePodPostStorageMitigation", "post-storage-service")],
+)  # fmt: skip
+def test_each_pool_scale_pod_problem_has_its_own_service_and_scales_it_back(number, cls, service):
+    problem_id = f"pool-scale_pod_zero_social_net-mitigation-{number}"
+    assert FIXES[problem_id] == [
+        ["scale", "deployment", service, "--replicas=1"],
+        ["rollout", "status", f"deployment/{service}", "--timeout=300s"],
+    ]
+    _assert_sets_service_after_base(cls, "ScalePodSocialNetMitigation", service)
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] == Slice.POOL
+
+
+def _assert_sets_service_after_base(cls: str, base: str, service: str) -> None:
+    source = Path(overlay.__file__).with_name("dev_problems.py").read_text()
+    (node,) = [n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == cls]
+    assert [b.id for b in node.bases] == [base]
+    (init,) = [n for n in node.body if isinstance(n, ast.FunctionDef) and n.name == "__init__"]
+    # the base constructor hard-codes user-service, so the assignment must come after it
+    assert [ast.unparse(s) for s in init.body] == [
+        "super().__init__()",
+        f"self.faulty_service = {service!r}",
+    ]
+
+
+def _faulty_service(path: Path, cls: str) -> str:
+    # the one value the class assigns to self.faulty_service, read from its source
+    (node,) = [
+        n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef) and n.name == cls
+    ]
+    (value,) = [
+        n.value
+        for n in ast.walk(node)
+        if isinstance(n, ast.Assign) and ast.unparse(n.targets[0]) == "self.faulty_service"
+    ]
+    # the confirmation classes assign confirmation.SERVICE
+    return getattr(confirmation, value.attr) if isinstance(value, ast.Attribute) else value.value
+
+
+def test_no_two_scale_pod_problems_share_a_service():
+    dev_problems = Path(overlay.__file__).with_name("dev_problems.py")
+    services = {
+        problem_id: _faulty_service(dev_problems, factory.problem)
+        for problem_id, factory in overlay.PROBLEMS.items()
+        if "scale_pod_zero" in problem_id
+    }
+    # an upstream ScalePod problem keeps the service its base task sets
+    upstream = [
+        i for i in load_registry(DEFAULT_REGISTRY_PATH).slices
+        if "scale_pod_zero" in i and i not in overlay.PROBLEMS
+    ]  # fmt: skip
+    base = (
+        Path(__file__).resolve().parents[1]
+        / "external/AIOpsLab/aiopslab/orchestrator/problems/scale_pod/scale_pod_social_net.py"
+    )
+    services |= {i: _faulty_service(base, "ScalePodSocialNetBaseTask") for i in upstream}
+    assert len(set(services.values())) == len(services)
+
+
+@pytest.mark.parametrize(
+    ("number", "cls", "service"),
+    [(2, "AssignNonExistentNodeHomeTimelineMitigation", "home-timeline-service"),
+     (3, "AssignNonExistentNodeUserTimelineMitigation", "user-timeline-service")],
+)  # fmt: skip
+def test_each_pool_assign_node_problem_has_its_own_service_and_removes_the_selector(
+    number, cls, service
+):
+    problem_id = f"pool-assign_to_non_existent_node_social_net-mitigation-{number}"
+    assert FIXES[problem_id] == [
+        [
+            "patch", "deployment", service, "--type=json",
+            "-p", '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]',
+        ],
+        ["rollout", "status", f"deployment/{service}", "--timeout=300s"],
+    ]  # fmt: skip
+    # the stricter eval comes from the base, since the upstream eval passes with the fault in place
+    _assert_sets_service_after_base(cls, "AssignNonExistentNodeAvailableMitigation", service)
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] == Slice.POOL
+
+
+def test_no_two_assign_node_problems_share_a_service():
+    dev_problems = Path(overlay.__file__).with_name("dev_problems.py")
+    base = (
+        Path(__file__).resolve().parents[1]
+        / "external/AIOpsLab/aiopslab/orchestrator/problems/assign_non_existent_node"
+        / "assign_non_existent_node_social_net.py"
+    )
+    services = {}
+    for problem_id, factory in overlay.PROBLEMS.items():
+        if "assign_to_non_existent_node" not in problem_id:
+            continue
+        # the pool variant sets no service and keeps the one its upstream base task sets
+        if factory.problem == "AssignNonExistentNodeAvailableMitigation":
+            services[problem_id] = _faulty_service(base, "AssignNonExistentNodeSocialNetBaseTask")
+        else:
+            services[problem_id] = _faulty_service(dev_problems, factory.problem)
+    assert len(services) == 5
+    assert len(set(services.values())) == len(services)
 
 
 # the confirmation slice: static checks only, since building a confirmation problem in a test

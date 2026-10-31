@@ -1,7 +1,8 @@
 """Problems authored in this repository: the development problems designated in
 docs/development_problems.md (E3-S8, authored in E3-S9), the pool variant of
-AssignNonExistentNode described in docs/problem_inventory.md, and the confirmation problems in
-docs/confirmation_problems.md (E3-S10).
+AssignNonExistentNode described in docs/problem_inventory.md, the confirmation problems in
+docs/confirmation_problems.md (E3-S10) and the pool extension problems in docs/pool_extension.md
+(E3-S2).
 
 Imports aiopslab at module level, so only the overlay factories import this module.
 """
@@ -27,6 +28,18 @@ class ScalePodMediaMitigation(ScalePodSocialNetMitigation):
     def __init__(self):
         super().__init__()
         self.faulty_service = "media-service"
+
+
+class ScalePodTextMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "text-service"
+
+
+class ScalePodPostStorageMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "post-storage-service"
 
 
 class AssignNonExistentNodeAvailableMitigation(AssignNonExistentNodeSocialNetMitigation):
@@ -58,6 +71,18 @@ class AssignNonExistentNodeUniqueIdMitigation(AssignNonExistentNodeAvailableMiti
         self.faulty_service = "unique-id-service"
 
 
+class AssignNonExistentNodeHomeTimelineMitigation(AssignNonExistentNodeAvailableMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "home-timeline-service"
+
+
+class AssignNonExistentNodeUserTimelineMitigation(AssignNonExistentNodeAvailableMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "user-timeline-service"
+
+
 def target_port_user_mention() -> K8STargetPortMisconfigMitigation:
     return K8STargetPortMisconfigMitigation(faulty_service="user-mention-service")
 
@@ -76,3 +101,15 @@ class AssignNonExistentNodeSocialGraphMitigation(AssignNonExistentNodeAvailableM
 
 def target_port_social_graph() -> K8STargetPortMisconfigMitigation:
     return K8STargetPortMisconfigMitigation(faulty_service=confirmation.SERVICE)
+
+
+def target_port_compose_post() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service="compose-post-service")
+
+
+def target_port_home_timeline() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service="home-timeline-service")
+
+
+def target_port_user_timeline() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service="user-timeline-service")

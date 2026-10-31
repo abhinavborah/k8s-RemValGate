@@ -56,6 +56,7 @@ FIELDS = {
     "aiopslab_commit",
     "cluster",
     "timestamp",
+    "sampling",
 }
 
 
@@ -171,7 +172,11 @@ def test_default_registry_counts():
     # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     counts = Counter(registry.slices.values())
-    assert counts == {Slice.POOL: 9, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
+    assert counts == {Slice.POOL: 16, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
+    pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
+    assert sum(i.removeprefix("pool-").startswith("k8s_target_port") for i in pool) == 6
+    assert sum(i.removeprefix("pool-").startswith("scale_pod_zero") for i in pool) == 3
+    assert sum(i.removeprefix("pool-").startswith("assign_to_non_existent_node") for i in pool) == 3
 
 
 def test_development_ids_cannot_clash_with_upstream():
@@ -260,6 +265,8 @@ def test_manifest_json_sorted_keys(tmp_path):
         {"cluster": []},
         {"cluster": {"cpu": float("nan")}},
         {"cluster": {"nodes": (1, 2)}},
+        {"sampling": None},
+        {"sampling": {"temperature": float("inf")}},
     ],
 )
 def test_invalid_manifest_raises(changes):
@@ -285,6 +292,17 @@ def test_read_rejects_missing_or_extra_keys(tmp_path, change):
     path.write_text(json.dumps(data))
     with pytest.raises(ValueError, match="manifest keys"):
         read_manifest(path)
+
+
+def test_sampling_round_trips_and_an_older_manifest_without_it_still_reads(tmp_path):
+    sampled = _manifest(sampling={"temperature": 0.7, "seeds": [0, 1]})
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(dataclasses.asdict(sampled)))
+    assert read_manifest(path) == sampled
+    data = dataclasses.asdict(_manifest())
+    del data["sampling"]
+    path.write_text(json.dumps(data))
+    assert read_manifest(path).sampling == {}
 
 
 def test_read_rejects_unknown_slice(tmp_path):
