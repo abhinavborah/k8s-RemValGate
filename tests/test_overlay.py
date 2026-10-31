@@ -86,6 +86,9 @@ def test_every_overlay_id_builds_its_intended_problem():
         "pool-assign_to_non_existent_node_social_net-mitigation-1": (
             "AssignNonExistentNodeAvailableMitigation"
         ),
+        "pool-k8s_target_port-misconfig-mitigation-4": "target_port_compose_post",
+        "pool-k8s_target_port-misconfig-mitigation-5": "target_port_home_timeline",
+        "pool-k8s_target_port-misconfig-mitigation-6": "target_port_user_timeline",
         "pool-scale_pod_zero_social_net-mitigation-2": "ScalePodTextMitigation",
         "pool-scale_pod_zero_social_net-mitigation-3": "ScalePodPostStorageMitigation",
         "conf-k8s_target_port-misconfig-mitigation-1": "target_port_social_graph",
@@ -163,6 +166,33 @@ def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_i
 def test_the_target_port_fix_patches_to_the_shared_port():
     patch = FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
     assert patch == '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]'
+
+
+@pytest.mark.parametrize(
+    ("number", "service"),
+    [(4, "compose-post-service"), (5, "home-timeline-service"), (6, "user-timeline-service")],
+)
+def test_each_pool_target_port_problem_has_its_own_service_and_the_shared_fix(number, service):
+    problem_id = f"pool-k8s_target_port-misconfig-mitigation-{number}"
+    (fix,) = FIXES[problem_id]
+    assert fix[:3] == ["patch", "service", service]
+    assert fix[-1] == FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
+    # the service passed in the body of the factory registered for this id, read from the source
+    tree = ast.parse(Path(overlay.__file__).with_name("dev_problems.py").read_text())
+    (function,) = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == overlay.PROBLEMS[problem_id].problem
+    ]
+    passed = [
+        k.value.value
+        for n in ast.walk(function)
+        if isinstance(n, ast.Call)
+        for k in n.keywords
+        if k.arg == "faulty_service" and isinstance(k.value, ast.Constant)
+    ]
+    assert passed == [service]
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] is Slice.POOL
 
 
 @pytest.mark.parametrize(

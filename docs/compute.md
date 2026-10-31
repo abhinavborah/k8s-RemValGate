@@ -238,3 +238,167 @@ tokens per rollout. That run was decode only, one greedy sequence from a one-sen
 no prompt processing and no gate scoring, and sampling the K candidates as a batch may be faster
 per token. How the budget splits over the K candidates depends on how the plan counts a rollout,
 which the BRD does not state.
+
+## Planner size and thinking mode, story E5-S1, 2026-10-30 (UTC)
+
+Choice of one member, not group-confirmed. The planner is Qwen3.5-4B, the same family as the gate
+(BRD R7.2), so the shared model family between planner and gate stays a confound for the group
+to weigh. It was served on a Mac (Apple M4 Pro, 24 GB, Docker Desktop at 12 GB) from LM Studio as
+the GGUF build `qwen/qwen3.5-4b@q8_0` (5.16 GB file, 4.80 GiB reported at load, context 16384),
+not the bf16 weights of the Kaggle smoke run, so these times are for this host and build only.
+Hugging Face lists no Instruct checkpoint for Qwen3.5: its non-thinking mode is the same weights
+with thinking turned off (collection and model card read 2026-10-30). Qwen3-4B-Instruct-2507 is a
+separate checkpoint and was not tried. In the two-tool phase the model saw the cluster only
+through `exec_shell` limited to `kubectl get` and `describe`, and `get_logs`.
+
+The thinking switch is sent as `reasoning_effort: "none"`. LM Studio ignored
+`chat_template_kwargs`, a top-level `enable_thinking` and a `reasoning` object (183 reasoning
+tokens each, against 0 with `reasoning_effort`, checked 2026-10-30). Its `seed` is honoured: three
+identical requests at temperature 0.7 gave identical text. Sampling follows the model card for
+non-thinking mode (temperature 0.7, top p 0.8, top k 20) with no presence penalty, 1024 new tokens
+per turn, and 4096 with thinking on. At most 8 turns, tool output cut at 4,000 characters.
+
+Twenty-seven runs on the three development problems, three seeds (0, 1, 2) per problem, one run
+each: 18 on commit `7351e9d` (both modes) and 9 thinking-on runs repeated on commit `b01d18b`. No
+evaluation-set touch was logged. The prompt was tuned in earlier rounds with thinking off, on these
+same problems, so the numbers are descriptive and carry no inferential weight. A run is correct
+when both the fault type and the service match the injected fault.
+
+One thinking-on run on `7351e9d` (target port, seed 0) was lost to a bug in the planner's reply
+parser: the model put a stray closing brace after its JSON object and the parser refused all 8
+turns. `b01d18b` reads only the first JSON object. No other run in the 18 had such a refusal. The
+thinking-on arm was therefore run again on `b01d18b`, and both thinking-on rows are shown.
+
+| Mode, commit | Runs | Final answer | Fault type | Service | Both | Command admitted | Mean turns | Mean tokens | Mean s per run (max) |
+|---|---|---|---|---|---|---|---|---|---|
+| Thinking off, `7351e9d` | 9 | 9 | 6 | 5 | 4 | 6 | 6.4 | 245 | 18 (23) |
+| Thinking on, `7351e9d` | 9 | 6 | 6 | 6 | 6 | 6 | 5.0 | 1,747 | 53 (88) |
+| Thinking on, `b01d18b` | 9 | 8 | 8 | 6 | 6 | 8 | 3.4 | 2,351 | 64 (188) |
+
+| Problem | Both correct, off | Both correct, on (`7351e9d`) | Both correct, on (`b01d18b`) |
+|---|---|---|---|
+| Target port misconfiguration | 0 of 3 | 0 of 3 | 0 of 3 |
+| ScalePod | 2 of 3 | 3 of 3 | 3 of 3 |
+| Assign to a non-existent node | 2 of 3 | 3 of 3 | 3 of 3 |
+
+On `b01d18b`, the target port runs ended as one turn cap and two final answers that named the
+right fault type on the wrong service (`user-service`, not `user-mention-service`).
+Thinking on is the default as one member's choice, not group-confirmed. In the two-tool
+comparison it solved the two problems it finished in both thinking-on batches (6 of 9 correct
+against 4 of 9 with thinking off), and no run of either mode solved the target port problem. That
+difference is not tested, the prompt was tuned with thinking off on these same problems, and the
+four-tool phase below has no thinking-off arm. The choice should be revisited once real retrieval
+replaces the stub. The admitted counts are the allow-list verdict on the returned command, not
+whether it fixes the fault.
+
+Limits:
+
+- Three problems and three seeds, one family of faults. The difference between the modes is 6 of
+  9 against 4 of 9, which is not a tested difference.
+- The thinking-on arm used the model card's non-thinking sampling (temperature 0.7, top p 0.8,
+  top k 20). The card gives other values for thinking mode (temperature 1.0 and top p 0.95, or 0.6
+  and 0.95 for precise tasks) and advises a context of at least 128K to preserve thinking. These
+  runs used a context of 16,384. Results with the advised settings are not measured.
+- The stub retriever returned the same top entry (`stub-002`, a ScalePod runbook) for every run,
+  because it scores word overlap and the cluster listing shares words with that entry. It may
+  push answers toward ScalePod. It is replaced by retrieval configuration (iii) before any pool
+  run.
+- One planner run takes 64 s on average with thinking on, and the slowest took 188 s (7,491 tokens
+  over the run), which is above the 2.6 minutes the plan leaves per rollout
+  for the model. Sampling K = 8 candidates is #72: eight separate runs at the mean would take
+  about 8.5 minutes, so #72 has to share the diagnosis across candidates or accept the cost.
+- In this two-tool phase `get_metrics` and `get_traces` were not in the live set (no Prometheus, and
+  no workload traffic, so an empty trace file). The four-tool phase below removes that deviation.
+- Thinking-on turns were capped at 4,096 new tokens. The model card recommends 32,768 for most
+  queries. Of 130 thinking-on turns in the 36 reported runs, 1 reached 4,096 tokens (target port,
+  seed 0 on `b01d18b`, turn 1) and was refused as having no JSON object, which is how a cut-off
+  reply looks. `finish_reason` was not recorded in these runs; the client records it from now on.
+  A higher cap was not tried.
+- Until the review of the pull request, the script passed tool arguments by position in the order
+  of the model's JSON keys, so a reply with `service` before `namespace` would have swapped the
+  two. It passes keywords now. In the 36 reported runs, 33 calls had more than one argument (all
+  `get_logs`), and none had its keys in a different order than the signature, so no reported
+  number is affected.
+- The manifests say `dirty: true` because two untracked handoff files were in the work tree. The
+  batches that ran while `README.md` was being edited (seeds 1 and 2 on `7351e9d`) also had a
+  modified tracked file; no code changed.
+- The Mac build is a quantized conversion, not the Kaggle bf16 weights, and the pool host may
+  differ. Dev results from one build do not carry to another.
+
+The manifests and transcripts of the 27 runs (54 files, the exploratory runs before commit
+`7351e9d` left out) are in one archive, and the logs of the two batches are beside it. They are
+uploaded on 2026-10-30 to the shared Google Drive folder `k8s-RemValGate`, under `manifests/`; the
+sizes there match the local files (40142 bytes for the archive). A transcript holds each turn's reply, tool
+output, token count and time, the system prompt, the retrieved entries, and the chat settings. SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| `planner_runs_e5s1_20261030.tar.gz` | `e99c54a74ad14a98dd5677c8ce4167ac4b38f11794c297087545e632768440ab` |
+| `planner_seeds_20261030.log` (the seeds 1 and 2 batches of `7351e9d`) | `64e5df6e645852c5918ac040341fe004fd64c733c4a581b644a7dec6e76fb1b9` |
+| `planner_rerun_think_20261030.log` (thinking on, `b01d18b`) | `0e2a60e04d0d42aa7be50474087fc5afb7d253dbc49eaffe240155c1070c8efd` |
+
+### All four tools live, 2026-10-30 (UTC)
+
+The story names `exec_shell`, `get_logs`, `get_metrics` and `get_traces`. They all ran live in
+this phase, so the deviation above no longer holds. The earlier tables above are the two-tool
+phase and stay as the record of it.
+
+What was needed (README, Telemetry): Prometheus installed in the cluster with AIOpsLab's own
+deploy, on a StorageClass `openebs-hostpath` that this repository created on the existing
+local-path provisioner instead of installing OpenEBS; a port-forward to NodePort 32000, because the
+kind config maps no host ports; and a `wrk2` workload after each injection. The Jaeger client keeps
+1 percent of requests, so the problem's own workload (10 requests per second for 10 s, 107
+requests) left no traces. The script runs 100 per second for 30 s (3000 requests, a 1.5 MB trace
+file) and waits 12 s for the tracer to flush. The `wrk2-client` image ran on the arm64 nodes. Both
+tools save files and return a path, so the model also gets a summary cut to 4,000 characters
+(per service for traces, error spans first; per metric for metrics). `read_metrics` and
+`read_traces` are not used: the story does not name them.
+
+Nine thinking-on runs (three seeds, three problems) on commit `8371cba`, with the same settings as
+before. A first attempt of nine was stopped when the laptop slept: one run stalled on a stuck
+workload job and left a fault injected, and one got an HTTP 400 from the server whose text was not
+logged. The cluster was reset by hand, the client now reports the server's text, and the nine runs
+were redone. The stopped attempt's partial files are not counted. The manifests say
+`dirty: true` for the same two untracked handoff files; no tracked file changed during these runs.
+
+| Mode, commit | Runs | Final answer | Fault type | Service | Both | Command admitted | Mean turns | Mean tokens | Mean s per run (max) |
+|---|---|---|---|---|---|---|---|---|---|
+| Thinking on, two tools, `b01d18b` | 9 | 8 | 8 | 6 | 6 | 8 | 3.4 | 2,351 | 64 (188) |
+| Thinking on, four tools, `8371cba` | 9 | 7 | 7 | 6 | 6 | 6 | 6.0 | 2,336 | 140 (261) |
+
+| Problem | Both correct, four tools | Hit the turn cap |
+|---|---|---|
+| Target port misconfiguration | 0 of 3 | 2 of 3 |
+| ScalePod | 3 of 3 | 0 of 3 |
+| Assign to a non-existent node | 3 of 3 | 0 of 3 |
+
+Use of the tools in the nine runs: `exec_shell` 25 calls, `get_logs` 9, `get_metrics` 5 (in 5 runs),
+`get_traces` 5 (in 5 runs). Two calls named tools that do not exist (`describe` and
+`get_deployments`) and were refused. The target port runs named the right fault type once, with
+the wrong service (`nginx-thrift`), and hit the cap twice. One ScalePod run answered in its first
+turn with no evidence and a command the allow-list rejected.
+
+All 5 `get_traces` calls and all 5 `get_metrics` calls returned data. The latest trace call came
+141 s into a run. The trace window was not honoured, which a later review found in the saved
+exports: in three of them 88 to 99 percent of the spans started before the run began, and the
+first span of every non-empty export is the same, from 14:18:34 UTC. A summary could therefore
+show the previous problem's error spans. AIOpsLab asks Jaeger's `/api/traces` for a `lookback`
+in seconds, and Jaeger documents that API as internal and undocumented (Jaeger APIs page, read
+2026-10-31), so the bound is not guaranteed. The planner script now
+keeps only spans that started after the injection (2026-10-31). The nine runs used the unfiltered
+summary and were not repeated, so their trace summaries are unreliable. These runs do not show
+that the telemetry helped. There is no run with the tools removed to
+compare against: that is #38. Each planner run now takes 140 s of model time on average, which is
+over the 2.6 minutes (156 s) the plan leaves per rollout, and the workload adds about 45 s of wall
+time per rollout on top (the job is 35 s, plus the 12 s flush wait). Eight separate runs for K = 8
+at the mean would take about 19 minutes, so #72 has to share the diagnosis across candidates or
+the group has to accept the cost.
+
+Files: the 18 manifests and transcripts of the nine runs and the log of the batch, uploaded on
+2026-10-30 to `k8s-RemValGate/manifests/` (sizes matching the local files: 18686 bytes for the
+archive and 689 for the log). SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| `planner_runs_e5s1_fourtools_20261030.tar.gz` | `715caed66ce117d000309f688e2f907aaf9c3c316aa0840f427f82cdc459f7b0` |
+| `planner_fourtools_think_20261030_b.log` | `d1ceb28ddf268b5402ac43fba8882f98dd20f80af78c647b383cb710c1ad957d` |

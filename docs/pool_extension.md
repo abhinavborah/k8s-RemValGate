@@ -8,6 +8,23 @@ nothing is tuned or run on the pool here. A creation is not a system run.
 Ids take a `pool-` prefix and continue the numbering of their type, so no id clashes with an
 upstream id and the type stem in the id stays readable.
 
+## TargetPortMisconfig (#110)
+
+Three problems on Social Network (`test-social-network`), each built from
+`K8STargetPortMisconfigMitigation` with the service as argument. The fault rewrites `targetPort`
+9090 to 9999, and the known fix patches it back.
+
+| Problem id | Target service | Known fix |
+|---|---|---|
+| `pool-k8s_target_port-misconfig-mitigation-4` | `compose-post-service` | patch `targetPort` back to 9090 |
+| `pool-k8s_target_port-misconfig-mitigation-5` | `home-timeline-service` | patch `targetPort` back to 9090 |
+| `pool-k8s_target_port-misconfig-mitigation-6` | `user-timeline-service` | patch `targetPort` back to 9090 |
+
+Four Social Network services with `targetPort` 9090 are free of pool, development and confirmation
+problems (`docs/development_problems.md`, `docs/confirmation_problems.md`). These three are used.
+`url-shorten-service`, the fourth, stays unused, since the MongoDBAuthMissing singleton deletes its
+pods.
+
 ## ScalePod (#111)
 
 Two problems on Social Network (`test-social-network`), each a subclass of
@@ -35,9 +52,14 @@ none of which changed, so gate G1 stays open.
 
 Pending. `scripts/validate_overlay_problems.py` needs a live cluster with Social Network deployed.
 Run it with explicit ids, since with none it revalidates every overlay problem outside the
-confirmation slice, which appends further creation touches:
+confirmation slice, which appends further creation touches. TargetPortMisconfig (#110):
+
+    uv run python scripts/validate_overlay_problems.py pool-k8s_target_port-misconfig-mitigation-4 pool-k8s_target_port-misconfig-mitigation-5 pool-k8s_target_port-misconfig-mitigation-6
+
+ScalePod (#111):
 
     uv run python scripts/validate_overlay_problems.py pool-scale_pod_zero_social_net-mitigation-2 pool-scale_pod_zero_social_net-mitigation-3
 
 Each problem must fail the eval with the fault injected, pass it after the known fix, and recover
-cleanly. The result and the two creation touches are recorded here once the run is done.
+cleanly. The result and the creation touches, three for #110 and two for #111, are recorded here
+once each run is done.

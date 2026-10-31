@@ -211,6 +211,49 @@ summary under `runs/manifests/`, which git ignores, and logs no touch. The resul
 [docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
 it, and it takes about 12 minutes.
 
+`scripts/run_planner_dev.py` runs the planner (story E5-S1) on the development problems. For each
+problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
+read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`: at most 8 turns,
+one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
+limited to `kubectl get` and `describe`, `get_logs`, `get_metrics` and `get_traces`. The last two
+save files and return a path, so the model also gets a bounded summary of what they saved
+(`src/remvalgate/planner/telemetry.py`). The planner returns a diagnosis (a fault type from a
+closed list and a service name) and one command, which the allow-list checks and the script never
+runs. The script then checks that the cluster did not change, deletes the workload job and resets.
+The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
+sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other fields tried.
+`--model-version` is required and goes into the manifest with the thinking setting. Run it with
+Social Network deployed and Ready, Prometheus installed (below) and the model loaded; CI does not
+run it. Keep the laptop awake and plugged in: a sleep stalled the first attempt and left a fault
+injected.
+
+### Telemetry for `get_metrics` and `get_traces`
+
+- **Traces.** The Jaeger client keeps 1 percent of requests, so the script's workload is 100
+  requests per second for 30 s (3000 requests), then it waits 12 s for the tracer to flush. The
+  problem's own workload is 10 per second for 10 s and left no traces. The
+  `deathstarbench/wrk2-client` image ran on the arm64 nodes. The job and its ConfigMap are in the
+  `default` namespace and the script deletes them.
+- **Metrics.** `get_metrics` queries Prometheus at `localhost:32000`. The kind config maps no host
+  ports, so the script starts `kubectl port-forward -n observe svc/prometheus-server 32000:80`.
+  Install Prometheus once with AIOpsLab's own deploy. Its volume claim names the StorageClass
+  `openebs-hostpath`; this repository created that class on the cluster's existing local-path
+  provisioner instead of installing OpenEBS. The install took about 2.5 minutes and adds the
+  `observe` namespace (Prometheus, kube-state-metrics, node exporters, a pushgateway):
+
+```
+kubectl --context kind-kind apply -f - <<'YAML'
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: openebs-hostpath
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+YAML
+uv run python -c "from aiopslab.service.telemetry.prometheus import Prometheus; Prometheus().deploy()"
+```
+
 `scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
 problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
 through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
@@ -250,10 +293,10 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   are kept for the seal touches. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  11 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode
-  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the two ScalePod problems of the
-  pool extension ([docs/pool_extension.md](docs/pool_extension.md)). It also holds the development
-  problems designated in
+  14 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode
+  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the three TargetPortMisconfig and
+  two ScalePod problems of the pool extension ([docs/pool_extension.md](docs/pool_extension.md)).
+  It also holds the development problems designated in
   [docs/development_problems.md](docs/development_problems.md), and the three confirmation problems
   ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The rest of the pool extension
   and the singleton problems are not in it yet.

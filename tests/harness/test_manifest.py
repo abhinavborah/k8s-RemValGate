@@ -171,8 +171,9 @@ def test_default_registry_counts():
     # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     counts = Counter(registry.slices.values())
-    assert counts == {Slice.POOL: 11, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
+    assert counts == {Slice.POOL: 14, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
+    assert sum(i.removeprefix("pool-").startswith("k8s_target_port") for i in pool) == 6
     assert sum(i.removeprefix("pool-").startswith("scale_pod_zero") for i in pool) == 3
 
 

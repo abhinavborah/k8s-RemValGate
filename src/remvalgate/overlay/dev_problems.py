@@ -89,3 +89,15 @@ class AssignNonExistentNodeSocialGraphMitigation(AssignNonExistentNodeAvailableM
 
 def target_port_social_graph() -> K8STargetPortMisconfigMitigation:
     return K8STargetPortMisconfigMitigation(faulty_service=confirmation.SERVICE)
+
+
+def target_port_compose_post() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service="compose-post-service")
+
+
+def target_port_home_timeline() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service="home-timeline-service")
+
+
+def target_port_user_timeline() -> K8STargetPortMisconfigMitigation:
+    return K8STargetPortMisconfigMitigation(faulty_service="user-timeline-service")
