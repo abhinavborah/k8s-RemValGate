@@ -24,9 +24,7 @@ The other ScalePod problems target `user-service` (pool), `media-service` (devel
 `social-graph-service` (confirmation), so no two ScalePod problems share a service. `text-service`
 and `post-storage-service` are also the targets of two upstream TargetPortMisconfig problems in the
 pool. A service can be shared across fault types, as `user-service` already is in the pool.
-`compose-post-service` is not
-used, since every request of the ScalePod workload composes a post, and `url-shorten-service` stays unused,
-since the MongoDBAuthMissing singleton deletes its pods.
+`url-shorten-service` stays unused, since the MongoDBAuthMissing singleton deletes its pods.
 
 The definitions are in `src/remvalgate/overlay/dev_problems.py`, the known fixes in
 `src/remvalgate/overlay/fixes.py`, and the ids in `src/remvalgate/harness/slices.json` under
