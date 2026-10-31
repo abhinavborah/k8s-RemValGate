@@ -3,8 +3,9 @@
 A fold's corpus holds the recorded incidents of its training problems and the runbook entries,
 and nothing from the problems the fold holds out, so no evaluation incident can retrieve itself
 or its own recorded fix. check_corpus is the isolation test: it reports a held-out incident in the
-corpus, a corpus entry whose fix is the recorded fix of a held-out incident, and a fault type of
-the pool with no past incident in the corpus. build_corpus builds and refuses a leak.
+corpus, an incident that is not a problem of the pool, a corpus entry whose fix is the recorded
+fix of a held-out incident, and a fault type of the pool with no past incident among the training
+incidents. build_corpus builds and refuses a leak.
 
 The incident records are supplied by the caller as PastFix entries whose entry_id is the problem
 id. Runbook entries are general steps for a fault type and carry an id of their own. The pool
@@ -64,9 +65,17 @@ def check_corpus(
     for entry in corpus:
         if entry.entry_id in held_out:
             messages.append(f"{entry.entry_id}: a held-out incident is in the corpus")
-        elif entry.fix_command.strip() in held_fixes:
+        elif entry.source is Source.INCIDENT and entry.entry_id not in assignment:
+            messages.append(f"{entry.entry_id}: an incident that is not a problem of the pool")
+        if entry.entry_id not in held_out and entry.fix_command.strip() in held_fixes:
             messages.append(f"{entry.entry_id}: its fix is the recorded fix of a held-out incident")
-    present = {e.fault_type for e in corpus if e.source is Source.INCIDENT}
+    # the fault type is read from the id of a training incident, not from its label, and an
+    # incident outside the assignment does not count
+    present = {
+        fault_type(e.entry_id)
+        for e in corpus
+        if e.source is Source.INCIDENT and e.entry_id in assignment
+    }
     for type_ in sorted({fault_type(problem_id) for problem_id in assignment} - present):
         messages.append(f"{type_}: no past incident of this fault type in the corpus")
     return messages

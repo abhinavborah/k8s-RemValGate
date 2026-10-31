@@ -233,6 +233,34 @@ def test_check_catches_a_fault_type_with_no_incident():
     assert any("RevokeAuth" in m for m in messages)
 
 
+def stray(entry_id: str, fault_type_: str) -> PastFix:
+    # an incident whose id is not in the fold assignment, so it is no training problem of any fold
+    return PastFix(
+        entry_id=entry_id,
+        source=Source.INCIDENT,
+        fault_type=fault_type_,
+        target_service="demo-stray",
+        summary=f"incident {entry_id} of a synthetic fault",
+        fix_command=f"kubectl -n demo patch deployment demo-{entry_id} --type=json",
+    )
+
+
+def test_check_catches_an_incident_that_is_not_a_problem_of_the_pool():
+    # a confirmation slice problem has no fold, so it is neither held out nor a training problem
+    outsider = stray("conf-scale_pod_zero_social_net-mitigation-1", "ScalePod")
+    messages = check_corpus([*build(0), outsider], 0, ASSIGNMENT, INCIDENTS)
+    assert any(outsider.entry_id in m and "not a problem of the pool" in m for m in messages)
+
+
+def test_a_stray_incident_does_not_hide_a_fault_type_with_no_training_incident():
+    thinned = [
+        e for e in build(0) if not (e.source is Source.INCIDENT and e.fault_type == "ScalePod")
+    ]
+    messages = check_corpus([*thinned, stray("stray-1", "ScalePod")], 0, ASSIGNMENT, INCIDENTS)
+    assert any("ScalePod: no past incident" in m for m in messages)
+    assert any("stray-1" in m and "not a problem of the pool" in m for m in messages)
+
+
 def test_check_ignores_whitespace_when_it_compares_fixes():
     padded = PastFix(
         **{
