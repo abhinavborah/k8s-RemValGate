@@ -261,6 +261,27 @@ def test_a_stray_incident_does_not_hide_a_fault_type_with_no_training_incident()
     assert any("stray-1" in m and "not a problem of the pool" in m for m in messages)
 
 
+def test_a_confirmation_problem_labelled_as_a_runbook_entry_is_caught_by_check_and_build():
+    # the source label does not decide whether an id is a problem id
+    disguised = PastFix(
+        **{**runbook()[0].__dict__, "entry_id": "conf-scale_pod_zero_social_net-mitigation-1"}
+    )
+    messages = check_corpus([*build(0), disguised], 0, ASSIGNMENT, INCIDENTS)
+    assert any(disguised.entry_id in m and "not a problem of the pool" in m for m in messages)
+    with pytest.raises(ValueError, match="not a problem of the pool"):
+        build(0, runbook=[*runbook(), disguised])
+
+
+def test_a_held_out_incident_does_not_hide_a_fault_type_with_no_training_incident():
+    held = next(p for p in held_out(1) if fault_type(p) == "ScalePod")
+    thinned = [
+        e for e in build(1) if not (e.source is Source.INCIDENT and e.fault_type == "ScalePod")
+    ]
+    messages = check_corpus([*thinned, incident(held)], 1, ASSIGNMENT, INCIDENTS)
+    assert any(held in m and "held-out incident" in m for m in messages)
+    assert any("ScalePod: no past incident" in m for m in messages)
+
+
 def test_check_ignores_whitespace_when_it_compares_fixes():
     padded = PastFix(
         **{

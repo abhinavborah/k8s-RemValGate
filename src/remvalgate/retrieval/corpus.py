@@ -3,9 +3,10 @@
 A fold's corpus holds the recorded incidents of its training problems and the runbook entries,
 and nothing from the problems the fold holds out, so no evaluation incident can retrieve itself
 or its own recorded fix. check_corpus is the isolation test: it reports a held-out incident in the
-corpus, an incident that is not a problem of the pool, a corpus entry whose fix is the recorded
-fix of a held-out incident, and a fault type of the pool with no past incident among the training
-incidents. build_corpus builds and refuses a leak.
+corpus, an incident, or an entry of any source whose id reads as a problem id, that is not a
+problem of the pool, a corpus entry whose fix is the recorded fix of a held-out incident, and a
+fault type of the pool with no past incident among the training incidents. build_corpus builds
+and refuses a leak.
 
 The incident records are supplied by the caller as PastFix entries whose entry_id is the problem
 id. Runbook entries are general steps for a fault type and carry an id of their own. The pool
@@ -14,7 +15,7 @@ needs at least two instances of every fault type for the last check to hold in e
 
 from collections.abc import Mapping, Sequence
 
-from remvalgate.harness.folds import fault_type
+from remvalgate.harness.folds import FAULT_TYPES, fault_type
 from remvalgate.retrieval import PastFix, Source
 
 
@@ -48,6 +49,15 @@ def _validate(
         raise ValueError("duplicate entry ids among the incidents and the runbook entries")
 
 
+def _reads_as_problem_id(entry_id: str) -> bool:
+    """Whether the id carries the stem of a pool fault type, whatever the source label says.
+
+    A runbook id such as runbook-ScalePod carries no stem. An id that matches the stems of more
+    than one type still counts, since fault_type refuses it only for being ambiguous.
+    """
+    return any(stem in entry_id for stem in FAULT_TYPES)
+
+
 def check_corpus(
     corpus: Sequence[PastFix],
     fold: int,
@@ -65,16 +75,21 @@ def check_corpus(
     for entry in corpus:
         if entry.entry_id in held_out:
             messages.append(f"{entry.entry_id}: a held-out incident is in the corpus")
-        elif entry.source is Source.INCIDENT and entry.entry_id not in assignment:
-            messages.append(f"{entry.entry_id}: an incident that is not a problem of the pool")
+        elif entry.entry_id not in assignment and (
+            entry.source is Source.INCIDENT or _reads_as_problem_id(entry.entry_id)
+        ):
+            messages.append(
+                f"{entry.entry_id}: an incident, or an id that reads as a problem id, "
+                "that is not a problem of the pool"
+            )
         if entry.entry_id not in held_out and entry.fix_command.strip() in held_fixes:
             messages.append(f"{entry.entry_id}: its fix is the recorded fix of a held-out incident")
-    # the fault type is read from the id of a training incident, not from its label, and an
-    # incident outside the assignment does not count
+    # the fault type is read from the id of a training incident, not from its label; a held-out
+    # incident and an incident outside the assignment do not count
     present = {
         fault_type(e.entry_id)
         for e in corpus
-        if e.source is Source.INCIDENT and e.entry_id in assignment
+        if e.source is Source.INCIDENT and assignment.get(e.entry_id, fold) != fold
     }
     for type_ in sorted({fault_type(problem_id) for problem_id in assignment} - present):
         messages.append(f"{type_}: no past incident of this fault type in the corpus")
