@@ -190,7 +190,7 @@ def test_each_pool_target_port_problem_has_its_own_service_and_the_shared_fix(nu
         if k.arg == "faulty_service" and isinstance(k.value, ast.Constant)
     ]
     assert passed == [service]
-    assert problem_id in load_registry(DEFAULT_REGISTRY_PATH).slices
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] is Slice.POOL
 
 
 # the confirmation slice: static checks only, since building a confirmation problem in a test

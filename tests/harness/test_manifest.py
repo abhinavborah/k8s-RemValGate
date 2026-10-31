@@ -172,6 +172,8 @@ def test_default_registry_counts():
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     counts = Counter(registry.slices.values())
     assert counts == {Slice.POOL: 12, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
+    pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
+    assert sum(i.removeprefix("pool-").startswith("k8s_target_port") for i in pool) == 6
 
 
 def test_development_ids_cannot_clash_with_upstream():

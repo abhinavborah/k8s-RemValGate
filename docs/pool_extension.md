@@ -33,8 +33,8 @@ none of which changed, so gate G1 stays open.
 ## Validation
 
 Pending. `scripts/validate_overlay_problems.py` needs a live cluster with Social Network deployed.
-Run it with explicit ids, since with none it revalidates the development problems and the pool
-variant of AssignNonExistentNode, which appends further creation touches:
+Run it with explicit ids, since with none it also revalidates the development problems and the
+pool variant of AssignNonExistentNode, which appends further creation touches:
 
     uv run python scripts/validate_overlay_problems.py pool-k8s_target_port-misconfig-mitigation-4 pool-k8s_target_port-misconfig-mitigation-5 pool-k8s_target_port-misconfig-mitigation-6
 
