@@ -7,7 +7,7 @@ from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay.fixes import tool_call
 from remvalgate.planner.chat import Completion
-from remvalgate.planner.loop import FAULT_TYPES, Stop, plan, sample
+from remvalgate.planner.loop import FAULT_TYPES, Stop, plan, sample, task_text
 from remvalgate.retrieval import RetrieverRefused
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -341,3 +341,14 @@ def test_a_plan_without_a_diagnosis_or_a_k_below_one_is_refused_before_any_model
         draw([command(FIX)], result=capped)
     with pytest.raises(ValueError, match="at least 1"):
         draw([], k=0)
+
+
+def test_the_task_names_the_problems_own_application_and_namespace():
+    # the text the development runs used, from AIOpsLab's metadata name for Social Network
+    assert task_text("Social Network", "test-social-network") == (
+        "Users report errors from the social network application in namespace "
+        "test-social-network. Find the faulty service and give one command that fixes it."
+    )
+    hotel = task_text("Hotel Reservation", "test-hotel-reservation")
+    assert "hotel reservation application in namespace test-hotel-reservation" in hotel
+    assert "social" not in hotel
