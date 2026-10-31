@@ -10,8 +10,8 @@ differ by at most one. The fold sizes differ by at most one as well, which gives
 problems.
 
 assign_folds is deterministic and depends only on the set of ids, so the result is the same on
-every call. It changes when a problem is added, so assign once the pool is final and commit the
-result.
+every call. It changes when a problem is added, so the assignment of the committed 16-problem pool
+is pinned in tests/harness/test_folds.py, and a change to the pool shows there.
 """
 
 from collections import Counter

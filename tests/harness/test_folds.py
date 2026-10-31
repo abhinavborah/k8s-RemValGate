@@ -116,14 +116,38 @@ def test_the_result_is_the_same_on_every_call():
 # --- assign_folds on other pools and refusals -------------------------------------------------
 
 
-def test_the_committed_pool_of_nine_assigns_and_passes_the_check():
+# the assignment of the committed 16-problem pool; a change to the pool or the rule shows here
+POOL_FOLDS = {
+    "k8s_target_port-misconfig-mitigation-1": 0,
+    "k8s_target_port-misconfig-mitigation-2": 1,
+    "k8s_target_port-misconfig-mitigation-3": 2,
+    "pool-k8s_target_port-misconfig-mitigation-4": 3,
+    "pool-k8s_target_port-misconfig-mitigation-5": 0,
+    "pool-k8s_target_port-misconfig-mitigation-6": 1,
+    "pool-assign_to_non_existent_node_social_net-mitigation-1": 2,
+    "pool-assign_to_non_existent_node_social_net-mitigation-2": 3,
+    "pool-assign_to_non_existent_node_social_net-mitigation-3": 0,
+    "pool-scale_pod_zero_social_net-mitigation-2": 1,
+    "pool-scale_pod_zero_social_net-mitigation-3": 2,
+    "scale_pod_zero_social_net-mitigation-1": 3,
+    "revoke_auth_mongodb-mitigation-1": 0,
+    "revoke_auth_mongodb-mitigation-2": 1,
+    "user_unregistered_mongodb-mitigation-1": 2,
+    "user_unregistered_mongodb-mitigation-2": 3,
+}
+
+
+def test_the_committed_pool_of_sixteen_meets_every_criterion():
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     assignment = pool_folds(registry)
-    pool_ids = [i for i, s in registry.slices.items() if s is Slice.POOL]
-    assert sorted(assignment) == sorted(pool_ids)
-    assert check_folds(assignment) == []
-    sizes = Counter(assignment.values())
-    assert max(sizes.values()) - min(sizes.values()) <= 1
+    assert assignment == POOL_FOLDS
+    assert check_folds(assignment, expected_ids=pool_ids(registry)) == []
+    assert Counter(assignment.values()) == {0: 4, 1: 4, 2: 4, 3: 4}
+    assert sorted(per_fold(assignment, "TargetPortMisconfig")) == [1, 1, 2, 2]
+    for type_ in ["RevokeAuth", "UserUnregistered"]:
+        assert sorted(per_fold(assignment, type_)) == [0, 0, 1, 1]
+    for type_ in ["ScalePod", "AssignNonExistentNode"]:
+        assert sorted(per_fold(assignment, type_)) == [0, 1, 1, 1]
 
 
 def test_pool_folds_takes_only_the_pool_slice():
@@ -288,11 +312,11 @@ def test_check_reports_an_assigned_problem_that_is_not_in_the_pool():
 
 def test_an_assignment_made_for_nine_problems_is_caught_when_the_pool_grows_to_sixteen():
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    old = pool_folds(registry)
-    grown = [*pool_ids(registry), *pool({"TargetPortMisconfig": 6})[3:]]
-    # three new TargetPortMisconfig instances join the pool: the old assignment misses them
-    messages = check_folds(old, expected_ids=grown)
-    assert sum("no fold" in m for m in messages) == 3
+    # the first nine pool ids in the registry are the pool before the extension of #24
+    old = assign_folds(pool_ids(registry)[:9])
+    # the seven problems of the extension joined the pool: the old assignment misses them
+    messages = check_folds(old, expected_ids=pool_ids(registry))
+    assert sum("no fold" in m for m in messages) == 7
     # without the expected ids the stale assignment still looks valid
     assert check_folds(old) == []
 
