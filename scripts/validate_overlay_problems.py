@@ -1,4 +1,5 @@
-"""Hand check for stories E3-S9 and E3-S10: validate overlay problems with a known-fix command.
+"""Hand check for stories E3-S9, E3-S10 and E3-S2: validate overlay problems with a known-fix
+command.
 
 Needs aiopslab/config.yml, the kind cluster and Social Network deployed and Ready (README,
 Deploy and health check), so it is run by hand and never by CI or the tests. No system or model
@@ -17,7 +18,8 @@ A creation touch is not a system run, so it is logged for the pool variant too a
 not apply to it.
 
 With no ids it validates every overlay problem except the confirmation slice (the development
-problems and the pool variant of AssignNonExistentNode); the confirmation problems are validated
+problems, the pool variant of AssignNonExistentNode and the pool extension problems in
+docs/pool_extension.md); the confirmation problems are validated
 only when named, and only once: one that already has a creation touch is refused
 (docs/confirmation_problems.md).
 

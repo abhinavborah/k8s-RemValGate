@@ -163,8 +163,9 @@ an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orches
 AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
 refused. The shipped overlay holds the three development problems
 ([docs/development_problems.md](docs/development_problems.md)), the pool variant of
-AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)) and the three
-confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)), defined in
+AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), the three
+confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)) and the pool
+extension problems ([docs/pool_extension.md](docs/pool_extension.md)), defined in
 `src/remvalgate/overlay/dev_problems.py`. The known fixes are in
 `src/remvalgate/overlay/fixes.py`.
 
@@ -292,9 +293,10 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   are kept for the seal touches. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  9 current pool problems, one of them the overlay variant of AssignNonExistentNode
-  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the development problems designated
-  in
+  12 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode
+  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the three TargetPortMisconfig
+  problems of the pool extension ([docs/pool_extension.md](docs/pool_extension.md)). It also holds
+  the development problems designated in
   [docs/development_problems.md](docs/development_problems.md), and the three confirmation problems
-  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The pool extension and the
-  singleton problems are not in it yet.
+  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The rest of the pool extension
+  and the singleton problems are not in it yet.
