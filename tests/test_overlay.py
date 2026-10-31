@@ -175,8 +175,21 @@ def test_each_pool_target_port_problem_has_its_own_service_and_the_shared_fix(nu
     (fix,) = FIXES[problem_id]
     assert fix[:3] == ["patch", "service", service]
     assert fix[-1] == FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
-    source = (Path(overlay.__file__).with_name("dev_problems.py")).read_text()
-    assert f'faulty_service="{service}"' in source
+    # the service passed in the body of the factory registered for this id, read from the source
+    tree = ast.parse(Path(overlay.__file__).with_name("dev_problems.py").read_text())
+    (function,) = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == overlay.PROBLEMS[problem_id].problem
+    ]
+    passed = [
+        k.value.value
+        for n in ast.walk(function)
+        if isinstance(n, ast.Call)
+        for k in n.keywords
+        if k.arg == "faulty_service" and isinstance(k.value, ast.Constant)
+    ]
+    assert passed == [service]
     assert problem_id in load_registry(DEFAULT_REGISTRY_PATH).slices
 
 
