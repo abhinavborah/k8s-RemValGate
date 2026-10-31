@@ -37,6 +37,14 @@ FIXES = {
         ],
         ["rollout", "status", "deployment/user-service", "--timeout=300s"],
     ],
+    "pool-scale_pod_zero_social_net-mitigation-2": [
+        ["scale", "deployment", "text-service", "--replicas=1"],
+        ["rollout", "status", "deployment/text-service", "--timeout=300s"],
+    ],
+    "pool-scale_pod_zero_social_net-mitigation-3": [
+        ["scale", "deployment", "post-storage-service", "--replicas=1"],
+        ["rollout", "status", "deployment/post-storage-service", "--timeout=300s"],
+    ],
     "conf-k8s_target_port-misconfig-mitigation-1": [
         [
             "patch", "service", "social-graph-service", "--type=json",

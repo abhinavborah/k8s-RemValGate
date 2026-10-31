@@ -86,6 +86,8 @@ def test_every_overlay_id_builds_its_intended_problem():
         "pool-assign_to_non_existent_node_social_net-mitigation-1": (
             "AssignNonExistentNodeAvailableMitigation"
         ),
+        "pool-scale_pod_zero_social_net-mitigation-2": "ScalePodTextMitigation",
+        "pool-scale_pod_zero_social_net-mitigation-3": "ScalePodPostStorageMitigation",
         "conf-k8s_target_port-misconfig-mitigation-1": "target_port_social_graph",
         "conf-scale_pod_zero_social_net-mitigation-1": "ScalePodSocialGraphMitigation",
         "conf-assign_to_non_existent_node_social_net-mitigation-1": (
@@ -161,6 +163,34 @@ def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_i
 def test_the_target_port_fix_patches_to_the_shared_port():
     patch = FIXES["dev-k8s_target_port-misconfig-mitigation-1"][0][-1]
     assert patch == '[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 9090}]'
+
+
+@pytest.mark.parametrize(
+    ("number", "cls", "service"),
+    [(2, "ScalePodTextMitigation", "text-service"),
+     (3, "ScalePodPostStorageMitigation", "post-storage-service")],
+)  # fmt: skip
+def test_each_pool_scale_pod_problem_has_its_own_service_and_scales_it_back(number, cls, service):
+    problem_id = f"pool-scale_pod_zero_social_net-mitigation-{number}"
+    assert FIXES[problem_id] == [
+        ["scale", "deployment", service, "--replicas=1"],
+        ["rollout", "status", f"deployment/{service}", "--timeout=300s"],
+    ]
+    # the class sets faulty_service after the base constructor, as the base hard-codes user-service
+    source = Path(overlay.__file__).with_name("dev_problems.py").read_text()
+    (node,) = [n for n in ast.parse(source).body if isinstance(n, ast.ClassDef) and n.name == cls]
+    assert [b.id for b in node.bases] == ["ScalePodSocialNetMitigation"]
+    assert f'self.faulty_service = "{service}"' in ast.get_source_segment(source, node)
+    assert load_registry(DEFAULT_REGISTRY_PATH).slices[problem_id] == Slice.POOL
+
+
+def test_no_two_scale_pod_problems_share_a_service():
+    # upstream -1 targets user-service; the rest are the overlay classes (docs/pool_extension.md)
+    services = ["user-service"]
+    for problem_id, fix in FIXES.items():
+        if "scale_pod_zero" in problem_id:
+            services.append(fix[0][2])
+    assert len(services) == len(set(services)) == 5
 
 
 # the confirmation slice: static checks only, since building a confirmation problem in a test

@@ -1,7 +1,8 @@
 """Problems authored in this repository: the development problems designated in
 docs/development_problems.md (E3-S8, authored in E3-S9), the pool variant of
 AssignNonExistentNode described in docs/problem_inventory.md, and the confirmation problems in
-docs/confirmation_problems.md (E3-S10).
+docs/confirmation_problems.md (E3-S10), and the pool extension problems in docs/pool_extension.md
+(E3-S2).
 
 Imports aiopslab at module level, so only the overlay factories import this module.
 """
@@ -27,6 +28,18 @@ class ScalePodMediaMitigation(ScalePodSocialNetMitigation):
     def __init__(self):
         super().__init__()
         self.faulty_service = "media-service"
+
+
+class ScalePodTextMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "text-service"
+
+
+class ScalePodPostStorageMitigation(ScalePodSocialNetMitigation):
+    def __init__(self):
+        super().__init__()
+        self.faulty_service = "post-storage-service"
 
 
 class AssignNonExistentNodeAvailableMitigation(AssignNonExistentNodeSocialNetMitigation):
