@@ -89,9 +89,14 @@ none of which changed, so gate G1 stays open.
 
 ## Validation
 
-Done in #117, with the commands below. `scripts/validate_overlay_problems.py` needs a live cluster
-with Social Network deployed. Run it with explicit ids, since with none it revalidates every overlay problem outside the
-confirmation slice, which appends further creation touches. TargetPortMisconfig (#110):
+Done in #117 with one call holding all seven ids:
+
+    uv run python scripts/validate_overlay_problems.py pool-k8s_target_port-misconfig-mitigation-4 pool-k8s_target_port-misconfig-mitigation-5 pool-k8s_target_port-misconfig-mitigation-6 pool-scale_pod_zero_social_net-mitigation-2 pool-scale_pod_zero_social_net-mitigation-3 pool-assign_to_non_existent_node_social_net-mitigation-2 pool-assign_to_non_existent_node_social_net-mitigation-3
+
+`scripts/validate_overlay_problems.py` needs a live cluster with Social Network deployed. Run it with
+explicit ids, since with none it revalidates every overlay problem outside the confirmation slice,
+which appends further creation touches. Each fault type can also be validated on its own.
+TargetPortMisconfig (#110):
 
     uv run python scripts/validate_overlay_problems.py pool-k8s_target_port-misconfig-mitigation-4 pool-k8s_target_port-misconfig-mitigation-5 pool-k8s_target_port-misconfig-mitigation-6
 
@@ -106,8 +111,9 @@ AssignNonExistentNode (#112):
 Each problem must fail the eval with the fault injected, pass it after the known fix, and recover
 cleanly.
 
-Run on 2026-10-31 (UTC) in one call with all seven ids, on the two node kind cluster at AIOpsLab
-`576c3f080c7ae2459a972afd4a2f8d5f01828430`: all 7 problems passed. Each failed the eval with the
+Run on 2026-10-31 (UTC) with the single call above, at commit
+`a54b8a1921cc6addd46f024fdf7fe7f7b8ee0106` of this repository with no tracked changes, on the two node kind
+cluster at AIOpsLab `576c3f080c7ae2459a972afd4a2f8d5f01828430`: all 7 problems passed. Each failed the eval with the
 fault injected, passed it after the known fix, and was recovered. Afterwards all 27 Social Network
 pods were Running and neither timeline deployment kept a `nodeSelector`. The 7 creation touches, three
 for #110, two for #111 and two for #112, are in `runs/touch_log.jsonl`. The confirmation slice was
