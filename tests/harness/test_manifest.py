@@ -956,6 +956,33 @@ def test_logged_namespace_maps_the_database_pool_problems_to_hotel_reservation()
     assert hotel == {i for i in pool if i.startswith(("revoke_auth_", "user_unregistered_"))}
     assert len(hotel) == 4
     assert {logged_namespace(i) for i in pool} - {HOTEL_RESERVATION} == {SOCIAL_NETWORK}
+    confirmation = [i for i, s in registry.slices.items() if s is Slice.CONFIRMATION]
+    assert {logged_namespace(i) for i in confirmation} == {SOCIAL_NETWORK}
+
+
+HOTEL = "revoke_auth_mongodb-mitigation-1"
+
+
+@pytest.mark.parametrize(
+    ("namespace", "refused"), [(SOCIAL_NETWORK, True), (HOTEL_RESERVATION, False)]
+)
+def test_a_hotel_reservation_pool_problem_runs_only_in_its_namespace(tmp_path, namespace, refused):
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    registry = load_registry(_write_registry(tmp_path, {**_registry_data(), "pool": [POOL, HOTEL]}))
+
+    def start():
+        return start_run(
+            "run-0001", HOTEL, registry, log, repo, PIN, NOW, checksum=_sum, namespace=namespace
+        )
+
+    if refused:
+        with pytest.raises(RunRefused, match="runs in 'test-hotel-reservation'"):
+            start()
+        assert _runs(log) == []
+    else:
+        assert start().namespace == HOTEL_RESERVATION
+        assert [e["problem_id"] for e in _runs(log)] == [HOTEL]
 
 
 @pytest.mark.parametrize("namespace", [None, HOTEL_RESERVATION])
@@ -976,3 +1003,15 @@ def test_manifest_naming_another_namespace_refused(tmp_path):
     cluster = {"kind": "kind", "nodes": 1, "namespace": HOTEL_RESERVATION}
     with pytest.raises(RunRefused, match="cluster namespace"):
         write_manifest(_for(start, cluster=cluster), start, repo / "m", _registry(tmp_path), log)
+
+
+def test_logged_manifest_without_a_cluster_namespace_refused(tmp_path):
+    start, log, repo = _start(tmp_path, POOL)
+    with pytest.raises(RunRefused, match="cluster namespace"):
+        write_manifest(
+            _for(start, cluster={"kind": "kind", "nodes": 1}),
+            start,
+            repo / "m",
+            _registry(tmp_path),
+            log,
+        )

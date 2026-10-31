@@ -11,7 +11,15 @@ The constructor creates the namespace and the ConfigMaps holding the fault scrip
 applies the manifests and waits until every pod is ready.
 """
 
+import subprocess
+
 from aiopslab.service.apps.hotelres import HotelReservation
 
+# AIOpsLab applies the manifests in the current context
+current = subprocess.run(
+    ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
+).stdout.strip()
+if current != "kind-kind":
+    raise SystemExit(f"current kubectl context is {current!r}, expected 'kind-kind'")
 HotelReservation().deploy()
 print("deploy returned")

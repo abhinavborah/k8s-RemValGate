@@ -16,8 +16,8 @@ matches.
 A logged run also names the namespace it runs in, and start_run refuses it before the touch
 unless that is the problem's own: the 4 RevokeAuth and UserUnregistered pool problems run on Hotel
 Reservation, the rest of the pool on Social Network (docs/problem_inventory.md). write_manifest
-then refuses a manifest whose cluster names another namespace. So a run script that hard-codes
-Social Network cannot spend a touch on a Hotel Reservation problem.
+then refuses a manifest whose cluster names another namespace. This catches a run script that names
+the wrong namespace, not one that names the right one and then acts in another.
 
 log_creation appends a creation touch for a problem validated with a known fix, in any slice.
 """
@@ -548,8 +548,9 @@ def write_manifest(
         manifest.timestamp,
     ) != recorded:
         raise RunRefused("the manifest disagrees with what start_run recorded")
-    if start.slice in LOGGED and manifest.cluster.get("namespace") != start.namespace:
-        raise RunRefused(f"the manifest's cluster namespace is not {start.namespace!r}")
+    expected = logged_namespace(manifest.problem_id)
+    if start.slice in LOGGED and manifest.cluster.get("namespace") != expected:
+        raise RunRefused(f"the manifest's cluster namespace is not {expected!r}")
     require_touch(manifest.run_id, manifest.problem_id, registry, log_path)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

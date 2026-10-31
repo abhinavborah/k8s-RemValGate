@@ -55,7 +55,7 @@ from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan, sample
+from remvalgate.planner.loop import plan, sample, task_text
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -68,16 +68,11 @@ PROBLEMS = (
     "dev-scale_pod_zero_social_net-mitigation-1",
     "dev-assign_to_non_existent_node_social_net-mitigation-1",
 )
-# the task text a planner gets: the symptom, not the fault, as an incident ticket would
 # the problem's own workload runs 10 requests per second for 10 s, which left no traces
 WORKLOAD = {"rate": 100, "duration": 30}
 # the Jaeger client flushes spans every 10 s (jaeger-config.yml in the application)
 TRACE_FLUSH_SECONDS = 12
 PROMETHEUS_PORT = 32000
-TASK = (
-    f"Users report errors from the social network application in namespace {NS}. "
-    "Find the faulty service and give one command that fixes it."
-)
 
 
 def start_workload(prob) -> None:
@@ -156,6 +151,8 @@ async def run_problem(
     orch, problem_id: str, clean: dict, chat, results_dir: Path, k: int, seed: int
 ) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
+    # the snapshot, reset, observation and fixes below are for Social Network only
+    check(prob.namespace == NS, f"{problem_id} runs in {prob.namespace}, not {NS}")
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
@@ -180,7 +177,7 @@ async def run_problem(
         first = await orch.ask_env(exec_shell(f"kubectl -n {NS} get deployments,pods"))
         result = await asyncio.to_thread(
             plan,
-            TASK,
+            task_text(prob.app.name, prob.namespace),
             first,
             problem_id,
             NS,

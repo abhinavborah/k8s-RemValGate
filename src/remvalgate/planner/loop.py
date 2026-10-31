@@ -141,6 +141,18 @@ def _system_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str
     )
 
 
+def task_text(app_name: str, namespace: str) -> str:
+    """The task a planner gets: the symptom, not the fault, as an incident ticket would give it.
+
+    Pass the problem's own application name and namespace (prob.app.name, prob.namespace), since
+    the 4 database pool problems run on Hotel Reservation and the rest on Social Network.
+    """
+    return (
+        f"Users report errors from the {app_name.lower()} application in namespace {namespace}. "
+        "Find the faulty service and give one command that fixes it."
+    )
+
+
 def _task_prompt(task: str, observation: str, past: str) -> str:
     return f"{task}\n\nCluster state:\n{observation}\n\nPast fixes that may be similar:\n{past}"
 

@@ -10,8 +10,10 @@ The query is the planner's first observation: the text of
 `kubectl -n <namespace> get deployments,pods` in the problem's own namespace, taken through
 AIOpsLab's interface after the injection and the problem's workload, as in
 `scripts/run_planner_dev.py`. It is the string the planner retrieves with, so the intrinsic metrics
-score the retrieval the system meets. It shows the whole namespace and names no service, so it does
-not give the fault away; a `get_logs` call on one service would.
+score the retrieval the system meets. It covers the whole namespace and states no fault type,
+target or command. It does show the faulted workload wherever the fault leaves pod or Deployment
+state, and its application tells the database problems apart (see Run); a `get_logs` call on one
+service would name the target outright.
 
 12 pool problems run on Social Network (`test-social-network`). The 4 RevokeAuth and
 UserUnregistered problems run on Hotel Reservation (`test-hotel-reservation`,
@@ -30,11 +32,22 @@ come back by the time it is taken, so the retrieval metrics should report them a
     uv run python scripts/record_pool_queries.py
 
 Each of the 16 pool problems is injected once in a pool run: `start_run` appends a touch to
-`runs/touch_log.jsonl` and refuses the run unless the confirmation slice is sealed (gate G1), the
-tree is clean and the run names the problem's own namespace (`logged_namespace` in
-`src/remvalgate/harness/manifest.py`), so no pool run can spend a touch in the wrong application. After the observation the fault is reset with AIOpsLab's recover step, and the
-Services and Deployments of both applications must equal their state before the run. No model runs
-and nothing is tuned.
+`runs/touch_log.jsonl` and refuses the run unless the confirmation slice is sealed (gate G1) and the
+tree is clean. After the observation the fault is reset with AIOpsLab's recover step, all pods of
+the problem's namespace must be Ready, and the Services and Deployments of both applications must
+equal their state before the run. No model runs and nothing is tuned.
+
+For the 4 database problems these checks do not read MongoDB: the injection is taken as done when
+the service's pods were replaced, which AIOpsLab's injector does after its script whatever the
+script's result, and the reset is checked on Kubernetes objects and pod readiness only. The query
+records show the `geo` or `rate` pod failing after each of these injections, which the fault
+explains, but the restored user and role state was not checked.
+
+Since the run, `start_run` also refuses a pool or confirmation run that does not name the problem's
+own namespace (`logged_namespace` in `src/remvalgate/harness/manifest.py`), and the script passes
+it. This catches a script that names the wrong namespace, not one that names the right one and then
+acts in another. That change refactored the script, so the form in the repository has not run on
+the cluster; running it on a pool problem again takes a new touch.
 
 The manifests, the JSON listings and `pool_queries-<stamp>.jsonl` (one line per problem: problem
 id, run id, query, symptom query, seconds from the injection to the observation) go to
@@ -52,11 +65,11 @@ injection. After every reset the Services and Deployments matched their state be
 Social Network for the first run, and in both applications for the second. No model ran.
 
 It took two runs. The first, at commit `a0d84d8` (an earlier form of the script commit, later
-folded into it, so the hash is only in that run's manifests), recorded the three upstream TargetPortMisconfig
+folded into it and kept by the tag `pool-queries-run1`), recorded the three upstream TargetPortMisconfig
 problems and stopped at `revoke_auth_mongodb-mitigation-1`: Hotel Reservation was not deployed, so
 the injection found no pods to change and the workload could not find the frontend. Building the
-problem had created the namespace `test-hotel-reservation` with the 4 ConfigMaps of fault scripts,
-which were deleted before the application was deployed. That attempt has a touch and no query. The application was then deployed, the script made to
+problem had created the namespace `test-hotel-reservation` with 4 ConfigMaps (2 MongoDB init
+scripts, 2 fault scripts), which were deleted before the application was deployed. That attempt has a touch and no query. The application was then deployed, the script made to
 follow each problem's namespace, and the second run, at commit `7d55817`, recorded the other 13.
 The touch log holds 17 query touches: 16 with a query and the failed attempt.
 

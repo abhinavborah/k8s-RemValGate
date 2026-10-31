@@ -259,8 +259,8 @@ injected.
 R3.7): it injects the fault, runs the workload, takes the planner's first observation the same way
 and resets. Each problem is a pool run with a touch, so it needs gate G1 and a clean checkout. The
 outputs go to `runs/queries/`, which git ignores, and to the shared drive
-([docs/pool_queries.md](docs/pool_queries.md)). Run it with Social Network deployed and Ready; CI
-does not run it.
+([docs/pool_queries.md](docs/pool_queries.md)). Run it with Social Network and Hotel Reservation
+deployed and Ready; CI does not run it.
 
 ### Telemetry for `get_metrics` and `get_traces`
 
