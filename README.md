@@ -211,15 +211,23 @@ summary under `runs/manifests/`, which git ignores, and logs no touch. The resul
 [docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
 it, and it takes about 12 minutes.
 
-`scripts/run_planner_dev.py` runs the planner (story E5-S1) on the development problems. For each
-problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
+`scripts/run_planner_dev.py` runs the planner (stories E5-S1 and E5-S5) on the development
+problems. For each problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
 read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`: at most 8 turns,
 one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
 limited to `kubectl get` and `describe`, `get_logs`, `get_metrics` and `get_traces`. The last two
 save files and return a path, so the model also gets a bounded summary of what they saved
 (`src/remvalgate/planner/telemetry.py`). The planner returns a diagnosis (a fault type from a
 closed list and a service name) and one command, which the allow-list checks and the script never
-runs. The script then checks that the cluster did not change, deletes the workload job and resets.
+runs. It then samples K candidate commands from that diagnosis (`--candidates`, default 8, the
+submitted proposal's value): one model call each, with seeds `--seed` to `--seed` plus K minus 1, on
+the diagnosis conversation with the accepted answer's command left out. Earlier turns, a refused
+final answer among them, and the retrieved past fixes are still seen by every draw. Each
+candidate is admitted by the allow-list or rejected with a reason, and none is run. Each candidate
+also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
+completions endpoint lists no `logprobs` parameter, so expect none there. The manifest
+records K and the sampling settings. The script then checks that the cluster did not change,
+deletes the workload job and resets.
 The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
 sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other fields tried.
 `--model-version` is required and goes into the manifest with the thinking setting. Run it with

@@ -1,12 +1,16 @@
-"""The planner loop: retrieve once, diagnose with read-only tools, return one candidate command.
+"""The planner loop: retrieve once, diagnose with read-only tools, then sample K candidate commands.
 
 The model emits one JSON object per turn, either a tool call or a final answer. A tool call
 runs through run_tool, which the caller binds to the agent-cloud interface. exec_shell is read
 only during diagnosis (get and describe, admitted by the allow-list), so no candidate reaches the
 cluster before the gate sees it. The final command is checked by the allow-list and returned,
-never run. Sampling K candidates is #72, so one command is returned here.
+never run.
+
+sample then draws K commands from one diagnosis, one model call each with its own seed, so the
+diagnosis is paid for once. Each candidate is checked by the allow-list and never run.
 """
 
+import dataclasses
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -21,7 +25,7 @@ from remvalgate.harness.allowlist import (
     tokenize,
 )
 from remvalgate.harness.toolcall import Schemas
-from remvalgate.planner.chat import Chat
+from remvalgate.planner.chat import Chat, Message
 from remvalgate.retrieval import Retriever
 
 # the fault types of the pool, with descriptions adapted from the AIOpsLab paper, Table 2. The
@@ -92,6 +96,26 @@ class Plan:
     # the retrieved entries as (entry_id, rank), so a run can be audited
     retrieved: tuple[tuple[str, int], ...]
     system_prompt: str
+    # the conversation before the final answer, which sample continues; empty at the turn cap
+    context: tuple[Message, ...] = ()
+
+
+@dataclass(frozen=True)
+class Candidate:
+    seed: int
+    reply: str
+    # None when the reply holds no command
+    command: str | None
+    # the allow-list verdict on the command, None when there is no command
+    verdict: Verdict | None
+    # why the candidate is rejected, None when the allow-list admits it
+    rejection: str | None
+    completion_tokens: int
+    seconds: float
+    finish_reason: str = ""
+    # the sum of the reply's token log-probabilities, None when the server returns none or a
+    # token's value is unknown
+    logprob: float | None = None
 
 
 RunTool = Callable[[str, Mapping[str, object]], str]
@@ -235,7 +259,14 @@ def plan(
                     )
                     verdict = check(command, policy, namespace)
                     return Plan(
-                        diagnosis, command, verdict, Stop.FINAL, tuple(steps), retrieved, system
+                        diagnosis,
+                        command,
+                        verdict,
+                        Stop.FINAL,
+                        tuple(steps),
+                        retrieved,
+                        system,
+                        tuple(messages[:-1]),
                     )
                 observation = f"Refused: {result}"
             else:
@@ -264,3 +295,68 @@ def plan(
 
 def _cost(completion) -> tuple[int, float, str]:
     return completion.completion_tokens, completion.seconds, completion.finish_reason
+
+
+def _sample_prompt(namespace: str) -> str:
+    return (
+        "Now give one candidate fix for this diagnosis. Reply with exactly one JSON object and "
+        'nothing else: {"command": C} where C is one kubectl command that fixes the fault and '
+        f"starts with kubectl -n {namespace}. C is not run here."
+    )
+
+
+def _candidate_command(completion) -> tuple[str | None, str | None]:
+    try:
+        obj = _json_object(completion.text)
+    except ValueError as error:
+        if completion.finish_reason == "length":
+            return None, "the reply was cut at the token cap"
+        return None, str(error)
+    # a model may answer in the final format out of habit
+    obj = obj["final"] if isinstance(obj.get("final"), dict) else obj
+    command = obj.get("command")
+    if not isinstance(command, str) or not command.strip():
+        return None, "the reply has no non-empty command"
+    return command.strip(), None
+
+
+def sample(
+    result: Plan, namespace: str, *, chat: Chat, policy: Policy, k: int, seed: int
+) -> tuple[Candidate, ...]:
+    """Sample k candidate commands from the plan's diagnosis, with seeds seed to seed + k - 1.
+    Raises ValueError for a plan with no diagnosis or a k below 1.
+
+    Every draw sees the same messages: the diagnosis conversation, the diagnosis as the model's
+    answer with its command left out, and a request for one command. Only the accepted answer's
+    command is left out: earlier turns, a refused final answer among them, and the retrieved
+    past fixes in the task prompt are seen by every draw. A candidate is never run.
+    """
+    if result.diagnosis is None or not result.context:
+        raise ValueError("the plan has no diagnosis to sample from")
+    if k < 1:
+        raise ValueError("k must be at least 1")
+    diagnosis = dataclasses.asdict(result.diagnosis)
+    messages = [
+        *result.context,
+        {"role": "assistant", "content": json.dumps({"final": diagnosis})},
+        {"role": "user", "content": _sample_prompt(namespace)},
+    ]
+    candidates = []
+    for draw in range(seed, seed + k):
+        completion = chat.complete(messages, seed=draw, logprobs=True)
+        command, rejection = _candidate_command(completion)
+        verdict = None if command is None else check(command, policy, namespace)
+        if verdict is not None and not verdict.admitted:
+            rejection = f"allow-list: {verdict.reason}"
+        candidates.append(
+            Candidate(
+                draw,
+                completion.text,
+                command,
+                verdict,
+                rejection,
+                *_cost(completion),
+                completion.logprob,
+            )
+        )
+    return tuple(candidates)

@@ -307,6 +307,7 @@ Limits:
   over the run), which is above the 2.6 minutes the plan leaves per rollout
   for the model. Sampling K = 8 candidates is #72: eight separate runs at the mean would take
   about 8.5 minutes, so #72 has to share the diagnosis across candidates or accept the cost.
+  #72 now shares one diagnosis and makes one model call per candidate (2026-10-31, not measured).
 - In this two-tool phase `get_metrics` and `get_traces` were not in the live set (no Prometheus, and
   no workload traffic, so an empty trace file). The four-tool phase below removes that deviation.
 - Thinking-on turns were capped at 4,096 new tokens. The model card recommends 32,768 for most
@@ -392,7 +393,8 @@ compare against: that is #38. Each planner run now takes 140 s of model time on 
 over the 2.6 minutes (156 s) the plan leaves per rollout, and the workload adds about 45 s of wall
 time per rollout on top (the job is 35 s, plus the 12 s flush wait). Eight separate runs for K = 8
 at the mean would take about 19 minutes, so #72 has to share the diagnosis across candidates or
-the group has to accept the cost.
+the group has to accept the cost. #72 now shares one diagnosis and makes one model call per
+candidate (2026-10-31); the cost of the K calls is not measured yet.
 
 Files: the 18 manifests and transcripts of the nine runs and the log of the batch, uploaded on
 2026-10-30 to `k8s-RemValGate/manifests/` (sizes matching the local files: 18686 bytes for the
