@@ -2,7 +2,8 @@ import random
 
 import pytest
 
-from remvalgate.harness.folds import assign_folds, fault_type
+from remvalgate.harness.folds import assign_folds, fault_type, pool_folds, pool_ids
+from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, load_registry
 from remvalgate.retrieval import PastFix, Source
 from remvalgate.retrieval.corpus import build_corpus, check_corpus
 
@@ -110,6 +111,20 @@ def test_the_corpus_does_not_depend_on_the_order_of_the_input():
     notes = runbook()
     random.Random(4).shuffle(notes)
     assert build(0, incidents=shuffled, runbook=notes) == build(0)
+
+
+@pytest.mark.parametrize("fold", FOLDS)
+def test_the_committed_pool_gives_an_isolated_corpus_in_every_fold(fold):
+    # only the pool ids are read, as in tests/harness/test_folds.py; the entries are synthetic
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    assignment = pool_folds(registry)
+    incidents = [incident(p) for p in pool_ids(registry)]
+    corpus = build_corpus(fold, assignment=assignment, incidents=incidents, runbook=runbook())
+    training = [e for e in corpus if e.source is Source.INCIDENT]
+    assert len(training) == 12
+    assert not {e.entry_id for e in training} & {p for p, f in assignment.items() if f == fold}
+    assert {e.fault_type for e in training} == set(STEMS)
+    assert check_corpus(corpus, fold, assignment, incidents) == []
 
 
 def test_two_folds_give_two_different_corpora():
