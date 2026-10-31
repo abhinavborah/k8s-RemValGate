@@ -5,7 +5,7 @@ Kept apart from that script, which imports aiopslab, so a test checks the keys i
 
 import json
 import shlex
-from collections.abc import Iterable, Set
+from collections.abc import Iterable, Mapping, Set
 
 # the targetPort the target-port problem breaks and its known fix restores
 TARGET_PORT = 9090
@@ -62,14 +62,27 @@ def action(call: str) -> str:
     return f"```\n{call}\n```"
 
 
-def exec_shell(command: str) -> str:
+def exec_shell(command: str, timeout: int | None = None) -> str:
     # AIOpsLab's parser strips every double quote at both ends of the command, so a command that
     # ends in one would lose its last character when parsed
     if command.endswith('"'):
         raise ValueError(
             f"a command ending in a double quote does not survive the parser: {command}"
         )
-    return action('exec_shell("' + command.replace('"', '\\"') + '")')
+    extra = "" if timeout is None else f", timeout={int(timeout)}"
+    return action('exec_shell("' + command.replace('"', '\\"') + '"' + extra + ")")
+
+
+def tool_call(tool: str, arguments: Mapping[str, object]) -> str:
+    """The action text for a tool call a planner made.
+
+    Arguments go by keyword, so the order of the keys in the model's JSON never decides which
+    parameter gets which value (get_logs takes namespace first, then service).
+    """
+    if tool == "exec_shell":
+        return exec_shell(arguments["command"], arguments.get("timeout"))
+    args = ", ".join(f"{name}={json.dumps(value)}" for name, value in arguments.items())
+    return action(f"{tool}({args})")
 
 
 def known_fix(problem_id: str, namespace: str) -> list[str]:
