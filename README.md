@@ -50,6 +50,10 @@ uv run ruff check .              # lint
 uv run ruff format --check .     # formatting
 ```
 
+The retrieval models (embedder and reranker, which pull in torch) are in the optional `retrieval`
+group, so CI and the unit tests never install or download them. Install them with
+`uv sync --group retrieval`, or `pip install sentence-transformers==6.2.0` (the locked version) on Colab or Kaggle.
+
 After changing dependencies, run `uv lock` and regenerate the pip export:
 
 ```
