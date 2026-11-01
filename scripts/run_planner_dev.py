@@ -1,5 +1,6 @@
-"""Hand run for stories E5-S1 and E5-S5: the planner on development problems, through AIOpsLab's
-interface, then K candidate commands sampled from its diagnosis.
+"""Hand run for stories E5-S1, E5-S5 and E5-S2: the planner on development problems, through
+AIOpsLab's interface, then K candidate commands sampled from its diagnosis, and K more once if
+every one of the first K is rejected.
 
 Needs aiopslab/config.yml, the kind cluster with Social Network Ready (README), and an
 OpenAI-compatible server with the planner model loaded (default LM Studio on port 1234), so it is
@@ -55,7 +56,7 @@ from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan, sample, task_text
+from remvalgate.planner.loop import plan, resample_once, task_text
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -187,10 +188,10 @@ async def run_problem(
             policy=load_policy(DEFAULT_POLICY_PATH),
             schemas=load_schemas(DEFAULT_SCHEMAS_PATH),
         )
-        candidates = ()
+        draws = None
         if result.diagnosis is not None:
-            candidates = await asyncio.to_thread(
-                sample,
+            draws = await asyncio.to_thread(
+                resample_once,
                 result,
                 NS,
                 chat=chat,
@@ -206,7 +207,10 @@ async def run_problem(
         reset(prob)
     return dataclasses.asdict(result) | {
         "first_observation": first,
-        "candidates": [dataclasses.asdict(c) for c in candidates],
+        # every candidate drawn, the second draw's after the first's when there was one
+        "candidates": [dataclasses.asdict(c) for d in draws.draws for c in d] if draws else [],
+        "draws": len(draws.draws) if draws else 0,
+        "escalated": draws.escalated if draws else None,
     }
 
 
@@ -263,8 +267,9 @@ def main() -> int:
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": "kind-kind", "namespace": NS, "nodes": 2},
                 timestamp=run.timestamp,
-                # the seeds of the draws made, empty when the plan had no diagnosis, so k is the
-                # K asked for and not always the number drawn; the diagnosis turns use seed
+                # the seeds of the draws made, empty when the plan had no diagnosis and 2K after a
+                # resample, so k is the K asked for and not always the number drawn; the
+                # diagnosis turns use seed
                 sampling={
                     **{
                         n: getattr(chat, n)
@@ -300,6 +305,7 @@ def main() -> int:
                 f"  candidates={len(drawn)} admitted={admitted}"
                 f" tokens={sum(c['completion_tokens'] for c in drawn)}"
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
+                f" draws={transcript['draws']} escalated={transcript['escalated']}"
             )
             print(f"  manifest {path}")
     finally:

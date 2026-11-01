@@ -231,7 +231,7 @@ summary under `runs/manifests/`, which git ignores, and logs no touch. The resul
 [docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
 it, and it takes about 12 minutes.
 
-`scripts/run_planner_dev.py` runs the planner (stories E5-S1 and E5-S5) on the development
+`scripts/run_planner_dev.py` runs the planner (stories E5-S1, E5-S5 and E5-S2) on the development
 problems. For each problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
 read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`: at most 8 turns,
 one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
@@ -245,7 +245,11 @@ the diagnosis conversation with the accepted answer's command left out. Earlier 
 final answer among them, and the retrieved past fixes are still seen by every draw. Each
 candidate is admitted by the allow-list or rejected with a reason, and none is run. Each candidate
 also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
-completions endpoint lists no `logprobs` parameter, so expect none there. The manifest
+completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
+rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
+K more exactly once, with seeds `--seed` plus K to
+`--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; the transcript
+records every candidate, the number of draws and whether the case escalated. The manifest
 records K and the sampling settings. The script then checks that the cluster did not change,
 deletes the workload job and resets.
 The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
