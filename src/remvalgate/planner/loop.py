@@ -8,6 +8,9 @@ never run.
 
 sample then draws K commands from one diagnosis, one model call each with its own seed, so the
 diagnosis is paid for once. Each candidate is checked by the allow-list and never run.
+resample_once draws a second set of K, with new seeds, only when every candidate of the first is
+rejected (by the allow-list, or because the reply held no command or was cut), and escalates when
+the second set fails too.
 """
 
 import dataclasses
@@ -116,6 +119,22 @@ class Candidate:
     # the sum of the reply's token log-probabilities, None when the server returns none or a
     # token's value is unknown
     logprob: float | None = None
+
+
+@dataclass(frozen=True)
+class Draws:
+    # one draw, or two when every candidate of the first was rejected
+    draws: tuple[tuple[Candidate, ...], ...]
+
+    @property
+    def candidates(self) -> tuple[Candidate, ...]:
+        """The draw the gate scores: the last one."""
+        return self.draws[-1]
+
+    @property
+    def escalated(self) -> bool:
+        """True when the last draw has no admitted candidate, so the case goes to a human."""
+        return all(c.rejection is not None for c in self.draws[-1])
 
 
 RunTool = Callable[[str, Mapping[str, object]], str]
@@ -372,3 +391,16 @@ def sample(
             )
         )
     return tuple(candidates)
+
+
+def resample_once(
+    result: Plan, namespace: str, *, chat: Chat, policy: Policy, k: int, seed: int
+) -> Draws:
+    """Sample k candidates; if every one is rejected, sample k more exactly once, with seeds
+    seed + k to seed + 2k - 1 so no seed repeats. Escalated when the last draw also fails.
+    Raises ValueError as sample does.
+    """
+    first = sample(result, namespace, chat=chat, policy=policy, k=k, seed=seed)
+    if any(c.rejection is None for c in first):
+        return Draws((first,))
+    return Draws((first, sample(result, namespace, chat=chat, policy=policy, k=k, seed=seed + k)))

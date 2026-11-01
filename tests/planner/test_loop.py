@@ -7,7 +7,7 @@ from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay.fixes import tool_call
 from remvalgate.planner.chat import Completion
-from remvalgate.planner.loop import FAULT_TYPES, Stop, plan, sample, task_text
+from remvalgate.planner.loop import FAULT_TYPES, Stop, plan, resample_once, sample, task_text
 from remvalgate.retrieval import RetrieverRefused
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -352,3 +352,34 @@ def test_the_task_names_the_problems_own_application_and_namespace():
     hotel = task_text("Hotel Reservation", "test-hotel-reservation")
     assert "hotel reservation application in namespace test-hotel-reservation" in hotel
     assert "social" not in hotel
+
+
+BAD = command("kubectl delete namespace kube-system")
+
+
+def resample(replies, k=2, seed=5):
+    result = run([tool("exec_shell", command=f"kubectl -n {NS} get pods"), final()])[0]
+    chat = FakeChat(replies)
+    return resample_once(result, NS, chat=chat, policy=POLICY, k=k, seed=seed), chat
+
+
+def test_one_admitted_candidate_means_no_second_draw():
+    draws, chat = resample([BAD, command(FIX)])
+    assert len(draws.draws) == 1 and chat.seeds == [5, 6]
+    assert draws.candidates == draws.draws[0] and not draws.escalated
+
+
+# AC: every candidate of the first draw rejected, so a second draw is made exactly once
+def test_a_fully_rejected_first_draw_is_resampled_once_with_new_seeds():
+    draws, chat = resample([BAD, "no json", BAD, command(FIX)])
+    assert len(draws.draws) == 2 and chat.seeds == [5, 6, 7, 8]
+    assert draws.candidates == draws.draws[1] and not draws.escalated
+    # both draws see the same messages: only the seed differs
+    assert all(seen == chat.seen[0] for seen in chat.seen)
+
+
+# AC: if the second draw also fails the case is escalated, with no third draw
+def test_a_second_fully_rejected_draw_escalates_without_a_third():
+    draws, chat = resample([BAD] * 4 + [command(FIX)] * 2)
+    assert len(draws.draws) == 2 and chat.seeds == [5, 6, 7, 8]
+    assert draws.escalated and all(c.rejection for d in draws.draws for c in d)
