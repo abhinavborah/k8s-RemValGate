@@ -61,6 +61,8 @@ def test_a_repeated_command_is_judged_once_and_each_repeat_keeps_its_seed():
     scores = judge(plan_with_diagnosis(), [candidate(0), candidate(1)], NS, chat=chat)
     assert len(chat.seen) == 1
     assert [(s.seed, s.score) for s in scores] == [(0, 0.7), (1, 0.7)]
+    # the cost of the one call made, not one per repeat
+    assert [(s.completion_tokens, s.seconds) for s in scores] == [(5, 0.1), (0, 0.0)]
 
 
 @pytest.mark.parametrize(

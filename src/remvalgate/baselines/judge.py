@@ -96,7 +96,8 @@ def judge(
 
     Raises ValueError for a plan with no diagnosis. The call uses the chat client's own seed, so
     every candidate is judged under the same settings. A command repeated across candidates is
-    judged once, and each repeat keeps its own seed with the first call's reply and cost.
+    judged once: each repeat keeps its own seed and the first call's reply, with 0 tokens and 0.0
+    seconds, so summing over the scores gives the cost of the calls made.
     """
     if result.diagnosis is None or not result.context:
         raise ValueError("the plan has no diagnosis to judge against")
@@ -104,7 +105,8 @@ def judge(
     for c in candidates:
         if c.rejection is not None or c.command is None:
             continue
-        if c.command not in seen:
+        repeat = c.command in seen
+        if not repeat:
             messages = [
                 {"role": "system", "content": _system_prompt(namespace)},
                 {"role": "user", "content": _user_prompt(result, c.command)},
@@ -119,8 +121,8 @@ def judge(
                 score,
                 completion.text,
                 rejection,
-                completion.completion_tokens,
-                completion.seconds,
+                0 if repeat else completion.completion_tokens,
+                0.0 if repeat else completion.seconds,
                 completion.finish_reason,
             )
         )
