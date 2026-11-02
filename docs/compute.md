@@ -390,8 +390,9 @@ keeps only spans that started after the injection (2026-10-31). The nine runs us
 summary and were not repeated, so their trace summaries are unreliable. These runs do not show
 that the telemetry helped. There is no run with the tools removed to
 compare against: that is #38. Each planner run now takes 140 s of model time on average, which is
-over the 2.6 minutes (156 s) the plan leaves per rollout, and the workload adds about 45 s of wall
-time per rollout on top (the job is 35 s, plus the 12 s flush wait). Eight separate runs for K = 8
+under the 2.6 minutes (156 s) the plan leaves per rollout, but the workload adds about 45 s of wall
+time per rollout on top (the job is 35 s, plus the 12 s flush wait), so the mean with the workload
+and the slowest run (261 s) are each over it. Eight separate runs for K = 8
 at the mean would take about 19 minutes, so #72 has to share the diagnosis across candidates or
 the group has to accept the cost. #72 now shares one diagnosis and makes one model call per
 candidate (2026-10-31); the cost of the K calls is not measured yet.
