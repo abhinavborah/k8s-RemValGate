@@ -5,7 +5,8 @@ every one of the first K is rejected.
 Needs aiopslab/config.yml, the kind cluster with Social Network Ready (README), and an
 OpenAI-compatible server with the planner model loaded (default LM Studio on port 1234), so it is
 run by hand and never by CI. Development problems only: the run is not an evaluation-set touch and
-appends nothing to runs/touch_log.jsonl.
+appends nothing to runs/touch_log.jsonl. Retrieval is configuration (iii) over the synthetic stub
+corpus (story E4-S6), so it needs the retrieval dependency group (uv sync --group retrieval).
 
 Per problem: inject, run the planner (tool calls go through the Orchestrator's parser and action
 handlers, so quoting is the one a real agent meets), check the cluster is unchanged by the
@@ -67,7 +68,7 @@ from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
 from remvalgate.planner.loop import draw_record, plan, resample_once, task_text
 from remvalgate.planner.telemetry import preview
-from remvalgate.retrieval.stub import DevStubRetriever
+from remvalgate.retrieval.fixed import development_retriever
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "manifests"
@@ -167,6 +168,7 @@ async def run_problem(
     results_dir: Path,
     k: int,
     seed: int,
+    retriever,
     escalate_when_unsure: bool = False,
     judge_chat=None,
 ) -> dict:
@@ -203,7 +205,7 @@ async def run_problem(
             NS,
             chat=chat,
             run_tool=run_tool,
-            retriever=DevStubRetriever(load_registry(DEFAULT_REGISTRY_PATH)),
+            retriever=retriever,
             policy=load_policy(DEFAULT_POLICY_PATH),
             schemas=load_schemas(DEFAULT_SCHEMAS_PATH),
             escalate_when_unsure=escalate_when_unsure,
@@ -262,6 +264,8 @@ def main() -> int:
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
+    # configuration (iii), loaded once: the models take a while to load
+    retriever = development_retriever(registry)
     # thinking can use most of a turn's tokens before any content appears, so it gets more room
     chat = OpenAIChat(
         model=MODEL,
@@ -296,6 +300,7 @@ def main() -> int:
                     OUT_DIR / run_id,
                     args.candidates,
                     args.seed,
+                    retriever,
                     args.escalate_when_unsure,
                     judge_chat,
                 )
