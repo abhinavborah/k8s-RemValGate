@@ -56,6 +56,13 @@ def test_each_admitted_candidate_is_scored_with_the_gates_inputs_and_no_label():
     assert other in chat.seen[1][1]["content"]
 
 
+def test_a_repeated_command_is_judged_once_and_each_repeat_keeps_its_seed():
+    chat = FakeChat([score(0.7)])
+    scores = judge(plan_with_diagnosis(), [candidate(0), candidate(1)], NS, chat=chat)
+    assert len(chat.seen) == 1
+    assert [(s.seed, s.score) for s in scores] == [(0, 0.7), (1, 0.7)]
+
+
 @pytest.mark.parametrize(
     "reply, reason",
     [

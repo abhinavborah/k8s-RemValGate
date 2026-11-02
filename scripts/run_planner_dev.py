@@ -19,10 +19,11 @@ wrk2 workload, waits for it to finish and for the tracer's flush, and deletes th
 The Jaeger sampler keeps 1 percent of requests, so a short workload leaves no traces.
 
 Story E6-S5 adds two flags. --escalate-when-unsure runs baseline 7: the planner is told when to
-escalate, and a plan that escalates has no diagnosis and samples none. --judge runs baseline 6:
-the served model scores each admitted candidate at temperature 0, and the transcript records the
-judge's model and whether it shares the planner's family. --base-url points the client at a
-server that is not on localhost, for example LM Studio on the Windows host seen from WSL.
+escalate, and its action is its own command or its escalation, so no candidates are sampled.
+--judge runs baseline 6: the served model scores each admitted candidate at temperature 0, and the
+transcript records the judge's model and whether it shares the planner's family. --base-url
+points the client at a server that is not on localhost, for example LM Studio on the Windows host
+seen from WSL.
 
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
         [--no-thinking] [--problem ID ...] [--candidates K] [--base-url URL] \
@@ -207,8 +208,10 @@ async def run_problem(
             escalate_when_unsure=escalate_when_unsure,
         )
         candidates = scores = ()
-        # an escalated or turn-capped plan has no diagnosis, so nothing is sampled or judged
-        if result.diagnosis is not None:
+        # an escalated or turn-capped plan has no diagnosis, so nothing is sampled or judged.
+        # Baseline 7's action is the plan's own command or its escalation, so it samples none:
+        # draws under its prompt could escalate, and sample would count that as malformed
+        if result.diagnosis is not None and not escalate_when_unsure:
             candidates = await asyncio.to_thread(
                 sample,
                 result,
@@ -314,6 +317,13 @@ def main() -> int:
                         for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
                     },
                     "seeds": [c["seed"] for c in transcript["candidates"]],
+                    # which baseline ran and how the judge scored, so the manifest alone says so
+                    "escalate_when_unsure": args.escalate_when_unsure,
+                    **(
+                        {"judge": dataclasses.asdict(judge_model) | dataclasses.asdict(judge_chat)}
+                        if judge_chat is not None
+                        else {}
+                    ),
                 },
             )
             path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)

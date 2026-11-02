@@ -1,9 +1,12 @@
 """Baseline 6 (E6-S5, BRD R6.5): a prompted model scores each candidate in place of the gate.
 
-The judge sees what the gate is given: the planner's task prompt (task, cluster state and the
-retrieved past fixes), its diagnosis and one candidate command. It never sees an oracle label or
-an execution result. It replies with a verbalized probability that the command fixes the fault,
-not a log-probability score, since LM Studio likely returns no logprobs (see planner/chat.py).
+The judge's input is a choice made for this baseline, since the gate's input is defined only as an
+(incident, candidate) pair (R8.1): the planner's task prompt (task, cluster state and the
+retrieved past fixes), its diagnosis and one candidate command, without the planner's
+investigation turns. If the gate is given more or less, that difference is recorded where the gate
+is compared with this baseline. The judge never sees an oracle label or an execution result. It
+replies with a verbalized probability that the command fixes the fault, not a log-probability
+score, since LM Studio likely returns no logprobs (see planner/chat.py).
 
 A reply that holds no number in [0, 1] gets the score None and a rejection. How a None score is
 treated in the metrics, which raise on nan, is left to the main run (#55), as is the threshold
@@ -92,19 +95,22 @@ def judge(
     """Score each admitted candidate with one model call, in the order given.
 
     Raises ValueError for a plan with no diagnosis. The call uses the chat client's own seed, so
-    every candidate is judged under the same settings.
+    every candidate is judged under the same settings. A command repeated across candidates is
+    judged once, and each repeat keeps its own seed with the first call's reply and cost.
     """
     if result.diagnosis is None or not result.context:
         raise ValueError("the plan has no diagnosis to judge against")
-    scores = []
+    scores, seen = [], {}
     for c in candidates:
         if c.rejection is not None or c.command is None:
             continue
-        messages = [
-            {"role": "system", "content": _system_prompt(namespace)},
-            {"role": "user", "content": _user_prompt(result, c.command)},
-        ]
-        completion = chat.complete(messages)
+        if c.command not in seen:
+            messages = [
+                {"role": "system", "content": _system_prompt(namespace)},
+                {"role": "user", "content": _user_prompt(result, c.command)},
+            ]
+            seen[c.command] = chat.complete(messages)
+        completion = seen[c.command]
         score, rejection = _parse(completion.text, completion.finish_reason)
         scores.append(
             Score(
