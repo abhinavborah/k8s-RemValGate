@@ -7,7 +7,15 @@ from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay.fixes import tool_call
 from remvalgate.planner.chat import Completion
-from remvalgate.planner.loop import FAULT_TYPES, Stop, plan, resample_once, sample, task_text
+from remvalgate.planner.loop import (
+    FAULT_TYPES,
+    Stop,
+    draw_record,
+    plan,
+    resample_once,
+    sample,
+    task_text,
+)
 from remvalgate.retrieval import RetrieverRefused
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -383,3 +391,16 @@ def test_a_second_fully_rejected_draw_escalates_without_a_third():
     draws, chat = resample([BAD] * 4 + [command(FIX)] * 2)
     assert len(draws.draws) == 2 and chat.seeds == [5, 6, 7, 8]
     assert draws.escalated and all(c.rejection for d in draws.draws for c in d)
+
+
+def test_the_record_lists_both_draws_in_order_with_their_count_and_escalation():
+    draws, _ = resample([BAD] * 4)
+    record = draw_record(draws)
+    assert [c["seed"] for c in record["candidates"]] == [5, 6, 7, 8]
+    assert record["draws"] == 2 and record["escalated"] is True
+    one, _ = resample([command(FIX)] * 2)
+    assert draw_record(one)["draws"] == 1 and draw_record(one)["escalated"] is False
+
+
+def test_a_plan_with_no_diagnosis_is_recorded_as_escalated_with_nothing_drawn():
+    assert draw_record(None) == {"candidates": [], "draws": 0, "escalated": True}

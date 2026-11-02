@@ -56,7 +56,7 @@ from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan, resample_once, task_text
+from remvalgate.planner.loop import draw_record, plan, resample_once, task_text
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -205,13 +205,7 @@ async def run_problem(
     finally:
         remove_workload()
         reset(prob)
-    return dataclasses.asdict(result) | {
-        "first_observation": first,
-        # every candidate drawn, the second draw's after the first's when there was one
-        "candidates": [dataclasses.asdict(c) for d in draws.draws for c in d] if draws else [],
-        "draws": len(draws.draws) if draws else 0,
-        "escalated": draws.escalated if draws else None,
-    }
+    return dataclasses.asdict(result) | {"first_observation": first} | draw_record(draws)
 
 
 def main() -> int:

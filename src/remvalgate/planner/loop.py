@@ -404,3 +404,17 @@ def resample_once(
     if any(c.rejection is None for c in first):
         return Draws((first,))
     return Draws((first, sample(result, namespace, chat=chat, policy=policy, k=k, seed=seed + k)))
+
+
+def draw_record(draws: Draws | None) -> dict:
+    """The draws as a run transcript records them: every candidate, the second draw's after the
+    first's, the number of draws, and whether the case escalated. None is a plan with no
+    diagnosis: nothing is drawn, and the case is escalated, since no candidate can act.
+    """
+    if draws is None:
+        return {"candidates": [], "draws": 0, "escalated": True}
+    return {
+        "candidates": [dataclasses.asdict(c) for d in draws.draws for c in d],
+        "draws": len(draws.draws),
+        "escalated": draws.escalated,
+    }

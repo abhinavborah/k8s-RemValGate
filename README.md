@@ -249,7 +249,8 @@ completions endpoint lists no `logprobs` parameter, so expect none there. If eve
 rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
 K more exactly once, with seeds `--seed` plus K to
 `--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; the transcript
-records every candidate, the number of draws and whether the case escalated. The manifest
+records every candidate, the number of draws and whether the case escalated. A plan with no
+diagnosis draws nothing and is recorded as escalated. The manifest
 records K and the sampling settings. The script then checks that the cluster did not change,
 deletes the workload job and resets.
 The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
