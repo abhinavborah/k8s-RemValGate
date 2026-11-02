@@ -67,6 +67,22 @@ On Colab or Kaggle, `pip install -r requirements-retrieval.txt` installs the gro
 versions, torch, transformers and tokenizers included, so a run there loads the models with the
 same libraries as the lock. It replaces the notebook's preinstalled torch with the locked one.
 
+Retrieval configuration (iii), dense with the cross-encoder reranker, is fixed before any
+evaluation run (gate G5, story E4-S6). `src/remvalgate/retrieval/fixed.json` records its settings
+(both models and revisions, the rerank depth, the entry text and the number of entries the
+planner retrieves) as entries, each with a UTC timestamp and a reason. If the merge comes later
+than the first entry's timestamp, set it to the merge time, so the touch-log order test checks
+from the real freeze. `configuration_iii` in `src/remvalgate/retrieval/fixed.py` refuses to build
+when the live settings differ from the last entry, and a unit test fails the same way, so a
+change needs a new entry with the group's reason in the same pull request. Run code builds (iii)
+only through `configuration_iii`, never `DenseRerank` directly; a test checks that no file under
+`scripts/` or `src/` names `DenseRerank` except `configs.py`, `fixed.py` and the model smoke check,
+so the other configurations stay free for baselines and metrics. Ablation results are reported
+and never used to change it. The planner and baseline 2 hand runs retrieve with (iii) over the
+synthetic development corpus, so they need the retrieval group, and the first run downloads both
+models. That corpus has no more entries than the rerank depth, so a development run checks the
+wiring, not the two-stage ranking.
+
 After changing dependencies, run `uv lock` and regenerate both pip exports:
 
 ```
@@ -251,7 +267,8 @@ it, and it takes about 12 minutes.
 
 `scripts/run_planner_dev.py` runs the planner (stories E5-S1, E5-S5 and E5-S2) on the development
 problems. For each problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
-read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`: at most 8 turns,
+read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`, which first retrieves
+3 past fixes with configuration (iii) (needs `uv sync --group retrieval`): at most 8 turns,
 one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
 limited to `kubectl get` and `describe`, `get_logs`, `get_metrics` and `get_traces`. The last two
 save files and return a path, so the model also gets a bounded summary of what they saved
@@ -317,7 +334,8 @@ uv run python -c "from aiopslab.service.telemetry.prometheus import Prometheus; 
 `scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
 problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
 through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
-after the settle window. The baselines are in `src/remvalgate/baselines/`. Nothing is appended to
+after the settle window. Baseline 1 retrieves nothing; baseline 2 retrieves with configuration
+(iii), so the script needs `uv sync --group retrieval`. The baselines are in `src/remvalgate/baselines/`. Nothing is appended to
 the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
 so CI does not run it; CI tests the baselines on synthetic cluster listings.
 

@@ -1,9 +1,11 @@
 """Hand run for story E6-S1: baselines 1 and 2 on each development problem.
 
 Needs aiopslab/config.yml, the kind cluster and Social Network deployed and Ready (README,
-Deploy and health check), so it is run by hand and never by CI. No model runs and the LLM judge
-must be off. Development problems only: nothing is appended to runs/touch_log.jsonl, and nothing
-here is a reported result, so no manifest is written.
+Deploy and health check), so it is run by hand and never by CI. No language model runs and the
+LLM judge must be off. Baseline 2 retrieves with configuration (iii) over the synthetic stub corpus
+(story E4-S6), so the script needs the retrieval dependency group (uv sync --group retrieval).
+Development problems only: nothing is appended to runs/touch_log.jsonl, and nothing here is a
+reported result, so no manifest is written.
 
 For each development problem and each baseline:
 
@@ -44,7 +46,7 @@ from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_regis
 from remvalgate.harness.outcome import Outcome, ProblemResult, applied_result, classify
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import TARGET_PORT, exec_shell
-from remvalgate.retrieval.stub import DevStubRetriever
+from remvalgate.retrieval.fixed import development_retriever
 
 NS = "test-social-network"
 CONTEXT = "kind-kind"
@@ -207,7 +209,7 @@ def main() -> int:
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     development = sorted(i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT)
     require(development, "the slice registry holds no development problem")
-    retriever = DevStubRetriever(registry=registry)
+    retriever = development_retriever(registry)
     policy = load_policy(DEFAULT_POLICY_PATH)
     baselines = {
         "fault-type rule": lambda obs, pid: fault_type_rule(obs, NS),

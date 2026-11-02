@@ -1,10 +1,10 @@
 """Development stub retriever (E4-S7).
 
 Ranks a small synthetic corpus by the share of query words that appear in an entry, so its scores
-lie in [0, 1]. That range is a property of this stub, not of the interface. It exists so
-the planner and baselines can be smoke-tested on development problems before the evaluation
-retrieval configurations exist, and it refuses every other problem. The swap to the evaluation
-configurations is checked in #35.
+lie in [0, 1]. That range is a property of this stub, not of the interface. It refuses every
+problem outside the development slice. The hand runs of the planner and baselines now retrieve
+with configuration (iii) over STUB_CORPUS (fixed.py, #35); the stub stays as a retriever that
+needs no model, for the unit tests.
 
 The corpus is synthetic: an entry built from a pool or confirmation problem would be an
 evaluation-set touch (BRD 7.2).
