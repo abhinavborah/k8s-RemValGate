@@ -339,6 +339,19 @@ after the settle window. Baseline 1 retrieves nothing; baseline 2 retrieves with
 the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
 so CI does not run it; CI tests the baselines on synthetic cluster listings.
 
+`scripts/run_planner_dev.py --baseline 3a|3b|3c` runs baselines 3a, 3b and 3c (story E6-S2,
+R6.2): the untuned planner, zero-shot with no gate, with retrieval configuration (i), (ii) or (iii)
+(`src/remvalgate/baselines/untuned.py`). Its action is the planner's own command: no candidates
+are sampled, and `--candidates`, `--judge` and `--escalate-when-unsure` are refused. After the
+diagnosis check the command goes through the allow-list and the Orchestrator's `exec_shell`
+handler and is classified after the settle window, with the same code as baselines 1 and 2; a
+turn-capped plan or a rejected command is classified as not applied. The reset is then compared
+with the clean state. With configuration (i) the task prompt has no past-fixes section. On the
+development problems all three use the synthetic stub corpus, whose 5 entries are no more than the
+rerank depth, so 3b and 3c differ only in the reranker's order there and a run checks the wiring,
+not the ranking. 3b and 3c need `uv sync --group retrieval`. Their pool results come from the
+baseline-only run (#53).
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and

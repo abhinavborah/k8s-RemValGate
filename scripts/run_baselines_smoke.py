@@ -148,6 +148,36 @@ def reset(prob, clean: dict) -> None:
     require(not left, f"the reset left the cluster changed: {left}")
 
 
+async def act(orch, prob, problem_id, command, policy, settle, pre, results_dir):
+    """Admit one command, apply it if admitted, wait the settle window and classify the outcome.
+
+    pre is the pod status taken after the fault shows and before the action. Returns the
+    allow-list verdict (None when there is no command) and the outcome. Also used by the untuned
+    planner baselines in run_planner_dev.py.
+    """
+    verdict = admit(command, policy, NS) if command else None
+    if verdict is not None and verdict.admitted:
+        await apply(orch, prob, problem_id, command, results_dir)
+        harm = detect_harm(
+            pre,
+            lambda: kubectl_pods(NS, CONTEXT),
+            fault_remains(prob, problem_id),
+            NS,
+            settle_seconds=settle,
+        )
+        # the baselines take no snapshot and restore nothing
+        result = applied_result(harm, True, restore_attempted=False)
+    else:
+        # nothing was applied: the development problems have a known fix, so a working
+        # candidate exists
+        result = ProblemResult(
+            applied=False, recovered=False, harmful=False, any_working_candidate=True
+        )
+    outcome = classify(result)
+    require(isinstance(outcome, Outcome), f"{command!r}: no outcome")
+    return verdict, outcome
+
+
 def run_one(orch, problem_id, name, baseline, clean, policy, settle) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
     # a fault already visible would be taken for the injection
@@ -158,27 +188,9 @@ def run_one(orch, problem_id, name, baseline, clean, policy, settle) -> dict:
         observations = wait_for_observation(prob.faulty_service)
         pre = parse_pods(kubectl_pods(NS, CONTEXT), NS)
         action: BaselineAction = baseline(observations, problem_id)
-        verdict = admit(action.command, policy, NS) if action.command else None
-        applied = verdict is not None and verdict.admitted
-        if applied:
-            asyncio.run(apply(orch, prob, problem_id, action.command, OUT_DIR / problem_id))
-            harm = detect_harm(
-                pre,
-                lambda: kubectl_pods(NS, CONTEXT),
-                fault_remains(prob, problem_id),
-                NS,
-                settle_seconds=settle,
-            )
-            # the baselines take no snapshot and restore nothing
-            result = applied_result(harm, True, restore_attempted=False)
-        else:
-            # nothing was applied: the development problems have a known fix, so a working
-            # candidate exists
-            result = ProblemResult(
-                applied=False, recovered=False, harmful=False, any_working_candidate=True
-            )
-        outcome = classify(result)
-        require(isinstance(outcome, Outcome), f"{name}: no outcome")
+        verdict, outcome = asyncio.run(
+            act(orch, prob, problem_id, action.command, policy, settle, pre, OUT_DIR / problem_id)
+        )
         return {
             "problem": problem_id,
             "baseline": name,
