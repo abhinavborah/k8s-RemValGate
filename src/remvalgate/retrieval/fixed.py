@@ -1,17 +1,22 @@
 """Retrieval configuration (iii), fixed before any evaluation run (E4-S6, gate G5).
 
-fixed.json records the settings of (iii) as a list of dated entries, each with a reason. The last
-entry must equal the live settings: configuration_iii refuses to build otherwise, and a unit test
-fails, so a change to a setting needs a new entry with the group's reason. Ablation results are
-reported and never used to change it (BRD 7.1).
+fixed.json records the settings of (iii) as a list of entries, each with a UTC timestamp and a
+reason. The last entry must equal the live settings: configuration_iii refuses to build otherwise,
+and a unit test fails, so a change to a setting needs a new entry with the group's reason. Ablation
+results are reported and never used to change it (BRD 7.1). Run code builds (iii) only through
+configuration_iii, never DenseRerank directly, whose depth and models are arguments the record
+does not see; a test checks that scripts/ imports configs only for the model smoke check.
 
 The development problems are served under a key of their own with the synthetic stub corpus, so a
-development run touches no evaluation problem and every other problem is refused.
+development run touches no evaluation problem and every other problem is refused. The stub corpus
+has no more entries than the fixed depth, so there the reranker scores every entry and the dense
+stage changes nothing: a development run checks the wiring, not the two-stage ranking.
 """
 
 import inspect
 import json
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 
 from remvalgate.harness.manifest import Registry, Slice
@@ -31,6 +36,8 @@ from remvalgate.retrieval.stub import STUB_CORPUS
 
 FIXED_PATH = Path(__file__).with_name("fixed.json")
 DEV_KEY = -1
+# the touch log's format, so timestamps compare as strings
+TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 
 
 def settings() -> dict:
@@ -51,14 +58,28 @@ def settings() -> dict:
 
 
 def check_fixed(path: str | Path = FIXED_PATH) -> None:
-    """Raise ValueError unless every entry has a date and a reason and the last entry's settings
-    equal the live settings."""
-    entries = json.loads(Path(path).read_text())["entries"]
-    if not entries:
+    """Raise ValueError unless every entry is an object with a UTC timestamp, a reason and
+    settings, the timestamps rise, and the last entry's settings equal the live settings."""
+    record = json.loads(Path(path).read_text(encoding="utf-8"))
+    entries = record.get("entries") if isinstance(record, dict) else None
+    if not isinstance(entries, list) or not entries:
         raise ValueError(f"{path}: no entry")
+    previous = ""
     for n, entry in enumerate(entries, start=1):
-        if not str(entry.get("date", "")).strip() or not str(entry.get("reason", "")).strip():
-            raise ValueError(f"{path}: entry {n} has no date or no reason")
+        if not isinstance(entry, dict) or not isinstance(entry.get("settings"), dict):
+            raise ValueError(f"{path}: entry {n} is not an object with settings")
+        if not str(entry.get("reason", "")).strip():
+            raise ValueError(f"{path}: entry {n} has no reason")
+        stamp = entry.get("timestamp")
+        try:
+            datetime.strptime(str(stamp), TIMESTAMP)
+        except ValueError:
+            raise ValueError(
+                f"{path}: entry {n} timestamp {stamp!r} is not like {TIMESTAMP}"
+            ) from None
+        if stamp <= previous:
+            raise ValueError(f"{path}: entry {n} is not later than the entry before it")
+        previous = stamp
     recorded, live = entries[-1]["settings"], settings()
     changed = sorted(k for k in recorded.keys() | live.keys() if recorded.get(k) != live.get(k))
     if changed:

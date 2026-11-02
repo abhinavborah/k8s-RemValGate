@@ -15,11 +15,13 @@ from remvalgate.retrieval.fixed import (
 )
 from remvalgate.retrieval.stub import STUB_CORPUS
 
-TOUCH_LOG = Path(__file__).resolve().parents[2] / "runs" / "touch_log.jsonl"
+ROOT = Path(__file__).resolve().parents[2]
+TOUCH_LOG = ROOT / "runs" / "touch_log.jsonl"
 # touches that run no system: problem creation, the seal and the R3.7 pool queries
 NOT_EVALUATION = ("create-", "seal-", "query-")
 DEV, POOL = "p-synth-dev", "p-synth-pool"
 REGISTRY = Registry(slices={DEV: Slice.DEVELOPMENT, POOL: Slice.POOL}, placeholder=None)
+T1, T2 = "2026-11-02T19:01:00Z", "2026-11-04T09:00:00Z"
 # deterministic fakes: every entry is equally close, and the reranker prefers longer texts
 MODELS = (lambda texts: [[1.0, 0.0] for _ in texts], lambda q, texts: [len(t) for t in texts])
 
@@ -35,19 +37,21 @@ def test_live_settings_match_the_fixed_record():
 
 
 def test_first_fix_precedes_every_evaluation_touch():
-    fixed = json.loads(FIXED_PATH.read_text())["entries"][0]["date"]
-    touches = [json.loads(line) for line in TOUCH_LOG.read_text().splitlines() if line]
+    fixed = json.loads(FIXED_PATH.read_text(encoding="utf-8"))["entries"][0]["timestamp"]
+    lines = TOUCH_LOG.read_text(encoding="utf-8").splitlines()
+    touches = [json.loads(line) for line in lines if line]
+    # both use the same UTC format, so the strings compare in time order
     early = [
         t["run_id"]
         for t in touches
-        if not t["run_id"].startswith(NOT_EVALUATION) and t["timestamp"][:10] < fixed
+        if not t["run_id"].startswith(NOT_EVALUATION) and t["timestamp"] <= fixed
     ]
     assert early == []
 
 
 def test_changed_setting_is_refused_without_a_new_entry(tmp_path):
     changed = settings() | {"depth": 10}
-    path = _record(tmp_path, [{"date": "2026-11-03", "reason": "fixed", "settings": changed}])
+    path = _record(tmp_path, [{"timestamp": T1, "reason": "fixed", "settings": changed}])
     with pytest.raises(ValueError, match=r"\['depth'\] differ"):
         check_fixed(path)
 
@@ -57,23 +61,53 @@ def test_new_entry_with_a_reason_is_accepted(tmp_path):
     path = _record(
         tmp_path,
         [
-            {"date": "2026-11-03", "reason": "fixed", "settings": old},
-            {"date": "2026-11-04", "reason": "the group agreed", "settings": settings()},
+            {"timestamp": T1, "reason": "fixed", "settings": old},
+            {"timestamp": T2, "reason": "the group agreed", "settings": settings()},
         ],
     )
     check_fixed(path)
 
 
-@pytest.mark.parametrize("missing", ["date", "reason"])
-def test_entry_without_date_or_reason_is_refused(tmp_path, missing):
-    entry = {"date": "2026-11-03", "reason": "fixed", "settings": settings()} | {missing: " "}
-    with pytest.raises(ValueError, match="no date or no reason"):
+@pytest.mark.parametrize(
+    "change, match",
+    [
+        ({"reason": " "}, "no reason"),
+        ({"timestamp": "2026-11-03"}, "is not like"),
+        ({"timestamp": None}, "is not like"),
+        ({"settings": None}, "not an object with settings"),
+    ],
+)
+def test_bad_entry_is_refused(tmp_path, change, match):
+    entry = {"timestamp": T1, "reason": "fixed", "settings": settings()} | change
+    with pytest.raises(ValueError, match=match):
         check_fixed(_record(tmp_path, [entry]))
 
 
-def test_empty_record_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="no entry"):
-        check_fixed(_record(tmp_path, []))
+def test_entries_out_of_time_order_are_refused(tmp_path):
+    entries = [
+        {"timestamp": T2, "reason": "fixed", "settings": settings()},
+        {"timestamp": T1, "reason": "again", "settings": settings()},
+    ]
+    with pytest.raises(ValueError, match="entry 2 is not later"):
+        check_fixed(_record(tmp_path, entries))
+
+
+@pytest.mark.parametrize("content", ["[]", "{}", '{"entries": []}', '{"entries": [1]}'])
+def test_damaged_record_is_refused(tmp_path, content):
+    path = tmp_path / "fixed.json"
+    path.write_text(content)
+    with pytest.raises(ValueError, match="no entry|not an object"):
+        check_fixed(path)
+
+
+def test_scripts_build_iii_only_through_the_fixed_record():
+    # smoke_retrieval.py loads the models and runs all four configurations on the stub corpus
+    direct = {
+        p.name
+        for p in (ROOT / "scripts").glob("*.py")
+        if "remvalgate.retrieval.configs" in p.read_text(encoding="utf-8")
+    }
+    assert direct == {"smoke_retrieval.py"}
 
 
 def test_configuration_iii_is_dense_rerank_at_the_fixed_depth():
