@@ -5,7 +5,8 @@ reason. The last entry must equal the live settings: configuration_iii refuses t
 and a unit test fails, so a change to a setting needs a new entry with the group's reason. Ablation
 results are reported and never used to change it (BRD 7.1). Run code builds (iii) only through
 configuration_iii, never DenseRerank directly, whose depth and models are arguments the record
-does not see; a test checks that scripts/ imports configs only for the model smoke check.
+does not see; a test checks that no file under scripts/ or src/ names DenseRerank except configs.py,
+this module and the model smoke check. The other configurations stay free for baselines and metrics.
 
 The development problems are served under a key of their own with the synthetic stub corpus, so a
 development run touches no evaluation problem and every other problem is refused. The stub corpus

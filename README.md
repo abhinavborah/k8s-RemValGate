@@ -75,12 +75,13 @@ than the first entry's timestamp, set it to the merge time, so the touch-log ord
 from the real freeze. `configuration_iii` in `src/remvalgate/retrieval/fixed.py` refuses to build
 when the live settings differ from the last entry, and a unit test fails the same way, so a
 change needs a new entry with the group's reason in the same pull request. Run code builds (iii)
-only through `configuration_iii`, never `DenseRerank` directly; a test checks that only the model
-smoke check imports the configurations in `scripts/`. Ablation results are reported and never
-used to change it. The planner and baseline 2 hand runs retrieve with (iii) over the synthetic
-development corpus, so they need the retrieval group, and the first run downloads both models.
-That corpus has no more entries than the rerank depth, so a development run checks the wiring,
-not the two-stage ranking.
+only through `configuration_iii`, never `DenseRerank` directly; a test checks that no file under
+`scripts/` or `src/` names `DenseRerank` except `configs.py`, `fixed.py` and the model smoke check,
+so the other configurations stay free for baselines and metrics. Ablation results are reported
+and never used to change it. The planner and baseline 2 hand runs retrieve with (iii) over the
+synthetic development corpus, so they need the retrieval group, and the first run downloads both
+models. That corpus has no more entries than the rerank depth, so a development run checks the
+wiring, not the two-stage ranking.
 
 After changing dependencies, run `uv lock` and regenerate both pip exports:
 

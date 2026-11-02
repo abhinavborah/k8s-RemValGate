@@ -1,3 +1,4 @@
+import ast
 import json
 from pathlib import Path
 
@@ -100,14 +101,22 @@ def test_damaged_record_is_refused(tmp_path, content):
         check_fixed(path)
 
 
-def test_scripts_build_iii_only_through_the_fixed_record():
+def _names(path: Path) -> set:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    # Name, Attribute and import alias nodes, so an import, a call and a passed reference all count
+    fields = ("id", "attr", "name")
+    return {getattr(node, field, None) for node in ast.walk(tree) for field in fields}
+
+
+def test_run_code_builds_iii_only_through_the_fixed_record():
     # smoke_retrieval.py loads the models and runs all four configurations on the stub corpus
-    direct = {
-        p.name
-        for p in (ROOT / "scripts").glob("*.py")
-        if "remvalgate.retrieval.configs" in p.read_text(encoding="utf-8")
+    files = [*ROOT.glob("scripts/**/*.py"), *ROOT.glob("src/**/*.py")]
+    direct = {p.relative_to(ROOT).as_posix() for p in files if "DenseRerank" in _names(p)}
+    assert direct == {
+        "scripts/smoke_retrieval.py",
+        "src/remvalgate/retrieval/configs.py",
+        "src/remvalgate/retrieval/fixed.py",
     }
-    assert direct == {"smoke_retrieval.py"}
 
 
 def test_configuration_iii_is_dense_rerank_at_the_fixed_depth():
