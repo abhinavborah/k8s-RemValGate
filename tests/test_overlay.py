@@ -1,5 +1,7 @@
 import ast
+import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +13,13 @@ from hypothesis import strategies as st
 
 from remvalgate import overlay
 from remvalgate.aiopslab_pin import pinned_commit
-from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
+from remvalgate.harness.manifest import (
+    DEFAULT_REGISTRY_PATH,
+    RunRefused,
+    Slice,
+    check_seal,
+    load_registry,
+)
 from remvalgate.overlay import confirmation
 from remvalgate.overlay.checks import has_available_replica, poll_until
 from remvalgate.overlay.fixes import FIXES, exec_shell, known_fix, select
@@ -361,6 +369,30 @@ def _recorded_checksums():
 def test_recorded_checksums_match_the_definitions():
     pin = pinned_commit(REPO)
     assert _recorded_checksums() == {i: confirmation.checksum(i, pin) for i in CONF_IDS}
+
+
+# the committed seal, read and never written: a change that closes gate G1 fails here, not at the
+# next pool run
+
+SEAL = REPO / "runs" / "confirmation_seal.json"
+TOUCH_LOG = REPO / "runs" / "touch_log.jsonl"
+
+
+def test_committed_seal_holds_for_the_definitions_and_the_pin():
+    pin = pinned_commit(REPO)
+    check_seal(load_registry(DEFAULT_REGISTRY_PATH), TOUCH_LOG, pin)
+    assert json.loads(SEAL.read_text(encoding="utf-8"))["aiopslab"] == pin
+
+
+def test_a_changed_sealed_checksum_closes_the_gate(tmp_path):
+    seal = json.loads(SEAL.read_text(encoding="utf-8"))
+    seal["checksums"][CONF_IDS[1]] = "0" * 64
+    (tmp_path / SEAL.name).write_text(json.dumps(seal), encoding="utf-8")
+    shutil.copy(TOUCH_LOG, tmp_path / TOUCH_LOG.name)
+    with pytest.raises(RunRefused, match=rf"changed since the seal \(gate G1\): {CONF_IDS[1]}$"):
+        check_seal(
+            load_registry(DEFAULT_REGISTRY_PATH), tmp_path / TOUCH_LOG.name, pinned_commit(REPO)
+        )
 
 
 @pytest.mark.parametrize(
