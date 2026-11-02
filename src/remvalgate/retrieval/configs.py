@@ -15,7 +15,8 @@ the same entry text (entry_text) for the same query, so only the method differs.
 
 A fold corpus has fewer than 20 entries. The reranker sees only the first stage's top `depth`
 (default 5), never the whole corpus: if it scored every entry, (iii) and (iv) would rank alike and
-the first stage would not matter. So (iii) and (iv) return at most `depth` hits.
+the first stage would not matter. The entries below `depth` follow in first-stage order, so all
+of (ii) to (iv) rank the whole corpus.
 
 The embedder and the reranker are passed in as functions, so the tests use deterministic fakes and
 download no model. load_models returns the evaluation models at pinned revisions; it needs the
@@ -145,10 +146,25 @@ class DenseRerank(Dense):
         return _rank_ids(self._dense(query, fold))
 
     def _scores(self, query: str, fold: int) -> dict[str, float]:
-        ids = self._first_stage(query, fold)[: self._depth]
+        """The first stage's top `depth` with reranker scores, then the rest in first-stage order.
+
+        The rest keep their place below the reranked entries, so every configuration ranks the
+        whole corpus and a rank-based metric such as MRR sees the same depth in (ii) to (iv). A
+        tail score only orders the tail: it is one below the lowest reranker score per position.
+        """
+        order = self._first_stage(query, fold)
+        head, tail = order[: self._depth], order[self._depth :]
         corpus = self._corpora[fold]
-        scores = self._score(query, [entry_text(corpus[i]) for i in ids])
-        return dict(zip(ids, (float(s) for s in scores), strict=True))
+        scores = dict(
+            zip(
+                head,
+                (float(s) for s in self._score(query, [entry_text(corpus[i]) for i in head])),
+                strict=True,
+            )
+        )
+        lowest = min(scores.values())
+        scores.update({i: lowest - n for n, i in enumerate(tail, start=1)})
+        return scores
 
 
 class HybridRerank(DenseRerank):

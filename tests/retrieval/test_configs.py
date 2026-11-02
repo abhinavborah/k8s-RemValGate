@@ -132,8 +132,17 @@ def test_dense_returns_the_whole_corpus_at_large_k_and_ranks_the_matching_type_f
 
 
 @pytest.mark.parametrize("name", ["dense_rerank", "hybrid_rerank"])
-def test_rerank_returns_at_most_depth_hits_from_the_first_stage(name):
-    assert len(configs(depth=4)[name].retrieve(QUERY, PROBLEM, 100)) == 4
+def test_rerank_ranks_the_whole_corpus(name):
+    hits = configs(depth=4)[name].retrieve(QUERY, PROBLEM, 100)
+    assert len(hits) == len(CORPORA[ASSIGNMENT[PROBLEM]])
+
+
+def test_rerank_reorders_the_top_depth_and_keeps_the_rest_in_first_stage_order():
+    c = configs(depth=4)
+    dense = [h.entry.entry_id for h in c["dense"].retrieve(QUERY, PROBLEM, 100)]
+    reranked = [h.entry.entry_id for h in c["dense_rerank"].retrieve(QUERY, PROBLEM, 100)]
+    # fake_score reverses the order it is given
+    assert reranked == [*reversed(dense[:4]), *dense[4:]]
 
 
 def test_rerank_reorders_the_dense_top_depth():
@@ -213,3 +222,15 @@ def test_bm25_leaves_out_entries_that_score_zero():
     matched = hybrid._sparse("port refused", fold)
     assert matched and all(s > 0 for s in matched.values())
     assert len(matched) < len(CORPORA[fold])
+
+
+def test_fusion_sums_reciprocal_ranks_with_the_constant():
+    # dense ranks A, B, C, E, D; BM25 ranks D, B, E, A and leaves C unmatched. With k = 60:
+    # B 0.03226, A 0.03202, D 0.03178, E 0.03150, C 0.01587. Using 1 / rank, fusing BM25 alone,
+    # max in place of sum, or the reversed order each gives another order.
+    hybrid = configs()["hybrid_rerank"]
+    dense = {"A": 0.9, "B": 0.8, "C": 0.7, "E": 0.6, "D": 0.5}
+    sparse = {"D": 4.0, "B": 3.0, "E": 2.0, "A": 1.0}
+    hybrid._dense = lambda query, fold: dense
+    hybrid._sparse = lambda query, fold: sparse
+    assert hybrid._first_stage(QUERY, 0) == ["B", "A", "D", "E", "C"]

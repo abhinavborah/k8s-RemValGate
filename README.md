@@ -25,6 +25,7 @@ scripts/          hand-run cluster scripts, not run by CI
 pyproject.toml    project metadata, dependencies, pytest and ruff settings
 uv.lock           the dependency lockfile
 requirements.txt  plain pip export of the lockfile, for Colab
+requirements-retrieval.txt  pip export of the optional retrieval group
 ```
 
 ## Setup
@@ -52,12 +53,25 @@ uv run ruff format --check .     # formatting
 
 The retrieval models (embedder and reranker, which pull in torch) are in the optional `retrieval`
 group, so CI and the unit tests never install or download them. Install them with
-`uv sync --group retrieval`, or `pip install sentence-transformers==6.2.0` (the locked version) on Colab or Kaggle.
+`uv sync --group retrieval`. On Linux the locked torch is the CUDA build, which brings about
+twenty nvidia packages and downloads several GB. On a CPU-only Linux machine, install the CPU
+build first and leave the CUDA lines out of the export:
 
-After changing dependencies, run `uv lock` and regenerate the pip export:
+```
+pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+grep -v -E '^(nvidia|cuda|triton)' requirements-retrieval.txt > retrieval-cpu.txt
+pip install -r retrieval-cpu.txt
+```
+
+On Colab or Kaggle, `pip install -r requirements-retrieval.txt` installs the group at the locked
+versions, torch, transformers and tokenizers included, so a run there loads the models with the
+same libraries as the lock. It replaces the notebook's preinstalled torch with the locked one.
+
+After changing dependencies, run `uv lock` and regenerate both pip exports:
 
 ```
 uv export --format requirements-txt --no-hashes --no-emit-project --no-header -o requirements.txt
+uv export --only-group retrieval --format requirements-txt --no-hashes --no-emit-project --no-header -o requirements-retrieval.txt
 ```
 
 The export includes the dev group, so the tests run on Colab too. It leaves out the project itself,
