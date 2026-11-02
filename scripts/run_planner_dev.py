@@ -253,14 +253,37 @@ async def run_problem(
             # after the settle window, as baselines 1 and 2 are
             pre = parse_pods(kubectl_pods(NS, "kind-kind"), NS)
             policy = load_policy(DEFAULT_POLICY_PATH)
-            verdict, outcome = await act(
-                orch, prob, problem_id, result.command, policy, SETTLE_SECONDS, pre, results_dir
+            # the command is free-form: one kubectl rejects or the parser cannot carry is
+            # classified, not raised
+            verdict, outcome, sent, note = await act(
+                orch,
+                prob,
+                problem_id,
+                result.command,
+                policy,
+                SETTLE_SECONDS,
+                pre,
+                results_dir,
+                strict=False,
             )
             applied = {
                 "baseline": baseline,
                 "allow_list": None if verdict is None else (verdict.reason or "admitted"),
                 "outcome": str(outcome),
+                # an admitted command the parser cannot carry is not sent: a harness limit
+                "sent": sent,
+                "action_note": note,
             }
+            # written before the compared reset, which stops the run if the action changed
+            # something the recover step does not undo, so that case keeps its record
+            results_dir.mkdir(parents=True, exist_ok=True)
+            (results_dir / "action.json").write_text(
+                json.dumps(
+                    {"problem_id": problem_id, "command": result.command, **applied},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
     finally:
         remove_workload()
         # an applied action can change more than the fault, so the reset is compared too
@@ -435,7 +458,7 @@ def main() -> int:
             if args.baseline:
                 print(
                     f"  baseline {args.baseline}: allow_list={transcript['allow_list']}"
-                    f" outcome={transcript['outcome']}"
+                    f" outcome={transcript['outcome']} note={transcript['action_note']!r:.200}"
                 )
             if judge_chat is not None:
                 judged = transcript["judge_scores"]
