@@ -399,6 +399,7 @@ def test_the_record_lists_both_draws_in_order_with_their_count_and_escalation():
     draws, _ = resample([BAD] * 4)
     record = draw_record(DIAGNOSED, draws)
     assert [c["seed"] for c in record["candidates"]] == [5, 6, 7, 8]
+    assert [c["draw"] for c in record["candidates"]] == [1, 1, 2, 2]
     assert record["draws"] == 2 and record["escalated"] is True
     one, _ = resample([command(FIX)] * 2)
     assert draw_record(DIAGNOSED, one)["draws"] == 1

@@ -478,15 +478,20 @@ def resample_once(
 
 
 def draw_record(result: Plan, draws: Draws | None) -> dict:
-    """The draws as a run transcript records them: every candidate, the second draw's after the
-    first's, the number of draws, and whether the case escalated. None means nothing was drawn:
+    """The draws as a run transcript records them: every candidate with its draw number (1 or 2;
+    the gate scores the last draw), the second draw's after the first's, the number of draws, and
+    whether the case escalated. None means nothing was drawn:
     the case is escalated when the plan has no diagnosis, since no candidate can act, and not
     when a diagnosis was left unsampled on purpose (baseline 7 acts on the plan's own command).
     """
     if draws is None:
         return {"candidates": [], "draws": 0, "escalated": result.diagnosis is None}
     return {
-        "candidates": [dataclasses.asdict(c) for d in draws.draws for c in d],
+        "candidates": [
+            dataclasses.asdict(c) | {"draw": n}
+            for n, d in enumerate(draws.draws, start=1)
+            for c in d
+        ],
         "draws": len(draws.draws),
         "escalated": draws.escalated,
     }

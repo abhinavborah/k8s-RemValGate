@@ -248,9 +248,11 @@ also records the sum of its token log-probabilities when the server returns them
 completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
 rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
 K more exactly once, with seeds `--seed` plus K to
-`--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; the transcript
-records every candidate, the number of draws and whether the case escalated. A plan with no
-diagnosis draws nothing and is recorded as escalated. The manifest
+`--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; the gate scores the
+last draw only. The transcript records every candidate with its draw number (1 or 2), the number
+of draws and whether the case escalated. A plan with no
+diagnosis draws nothing and is recorded as escalated; a baseline 7 run draws nothing either, and
+is recorded as escalated only when its plan escalated. The manifest
 records K and the sampling settings. The script then checks that the cluster did not change,
 deletes the workload job and resets.
 The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
