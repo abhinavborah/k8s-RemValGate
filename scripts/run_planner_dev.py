@@ -1,5 +1,6 @@
-"""Hand run for stories E5-S1 and E5-S5: the planner on development problems, through AIOpsLab's
-interface, then K candidate commands sampled from its diagnosis.
+"""Hand run for stories E5-S1, E5-S5 and E5-S2: the planner on development problems, through
+AIOpsLab's interface, then K candidate commands sampled from its diagnosis, and K more once if
+every one of the first K is rejected.
 
 Needs aiopslab/config.yml, the kind cluster with Social Network Ready (README), and an
 OpenAI-compatible server with the planner model loaded (default LM Studio on port 1234), so it is
@@ -64,7 +65,7 @@ from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan, sample, task_text
+from remvalgate.planner.loop import draw_record, plan, resample_once, task_text
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.stub import DevStubRetriever
 
@@ -207,13 +208,14 @@ async def run_problem(
             schemas=load_schemas(DEFAULT_SCHEMAS_PATH),
             escalate_when_unsure=escalate_when_unsure,
         )
-        candidates = scores = ()
+        draws = None
+        scores = ()
         # an escalated or turn-capped plan has no diagnosis, so nothing is sampled or judged.
         # Baseline 7's action is the plan's own command or its escalation, so it samples none:
         # draws under its prompt could escalate, and sample would count that as malformed
         if result.diagnosis is not None and not escalate_when_unsure:
-            candidates = await asyncio.to_thread(
-                sample,
+            draws = await asyncio.to_thread(
+                resample_once,
                 result,
                 NS,
                 chat=chat,
@@ -222,18 +224,22 @@ async def run_problem(
                 seed=seed,
             )
             if judge_chat is not None:
-                scores = await asyncio.to_thread(judge, result, candidates, NS, chat=judge_chat)
+                # the gate scores the last draw, so the judge does too
+                scores = await asyncio.to_thread(
+                    judge, result, draws.candidates, NS, chat=judge_chat
+                )
         orch.session.end()
         left = changed(injected, snapshot())
         check(not left, f"the diagnosis changed the cluster: {left}")
     finally:
         remove_workload()
         reset(prob)
-    return dataclasses.asdict(result) | {
-        "first_observation": first,
-        "candidates": [dataclasses.asdict(c) for c in candidates],
-        "judge_scores": [dataclasses.asdict(s) for s in scores],
-    }
+    return (
+        dataclasses.asdict(result)
+        | {"first_observation": first}
+        | draw_record(result, draws)
+        | {"judge_scores": [dataclasses.asdict(s) for s in scores]}
+    )
 
 
 def main() -> int:
@@ -309,8 +315,9 @@ def main() -> int:
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": "kind-kind", "namespace": NS, "nodes": 2},
                 timestamp=run.timestamp,
-                # the seeds of the draws made, empty when the plan had no diagnosis, so k is the
-                # K asked for and not always the number drawn; the diagnosis turns use seed
+                # the seeds of the draws made, empty when the plan had no diagnosis and 2K after a
+                # resample, so k is the K asked for and not always the number drawn; the
+                # diagnosis turns use seed
                 sampling={
                     **{
                         n: getattr(chat, n)
@@ -362,6 +369,7 @@ def main() -> int:
                 f"  candidates={len(drawn)} admitted={admitted}"
                 f" tokens={sum(c['completion_tokens'] for c in drawn)}"
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
+                f" draws={transcript['draws']} escalated={transcript['escalated']}"
             )
             if transcript["escalation"] is not None:
                 print(f"  escalated: {transcript['escalation']}")
