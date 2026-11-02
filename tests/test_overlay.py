@@ -15,6 +15,7 @@ from remvalgate import overlay
 from remvalgate.aiopslab_pin import pinned_commit
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
+    SEAL_NAME,
     RunRefused,
     Slice,
     check_seal,
@@ -374,7 +375,7 @@ def test_recorded_checksums_match_the_definitions():
 # the committed seal, read and never written: a change that closes gate G1 fails here, not at the
 # next pool run
 
-SEAL = REPO / "runs" / "confirmation_seal.json"
+SEAL = REPO / "runs" / SEAL_NAME
 TOUCH_LOG = REPO / "runs" / "touch_log.jsonl"
 
 
@@ -386,12 +387,18 @@ def test_committed_seal_holds_for_the_definitions_and_the_pin():
 
 def test_a_changed_sealed_checksum_closes_the_gate(tmp_path):
     seal = json.loads(SEAL.read_text(encoding="utf-8"))
+    original = dict(seal["checksums"])
     seal["checksums"][CONF_IDS[1]] = "0" * 64
-    (tmp_path / SEAL.name).write_text(json.dumps(seal), encoding="utf-8")
+    (tmp_path / SEAL_NAME).write_text(json.dumps(seal), encoding="utf-8")
     shutil.copy(TOUCH_LOG, tmp_path / TOUCH_LOG.name)
+    # the committed checksums stand in for the definitions, so this test covers the refusal only;
+    # the test above covers the real definitions and the pin
     with pytest.raises(RunRefused, match=rf"changed since the seal \(gate G1\): {CONF_IDS[1]}$"):
         check_seal(
-            load_registry(DEFAULT_REGISTRY_PATH), tmp_path / TOUCH_LOG.name, pinned_commit(REPO)
+            load_registry(DEFAULT_REGISTRY_PATH),
+            tmp_path / TOUCH_LOG.name,
+            seal["aiopslab"],
+            lambda i, _: original[i],
         )
 
 
