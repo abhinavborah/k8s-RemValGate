@@ -19,8 +19,16 @@ the script starts. get_traces needs requests: after the injection the script run
 wrk2 workload, waits for it to finish and for the tracer's flush, and deletes the job afterwards.
 The Jaeger sampler keeps 1 percent of requests, so a short workload leaves no traces.
 
+Story E6-S5 adds two flags. --escalate-when-unsure runs baseline 7: the planner is told when to
+escalate, and its action is its own command or its escalation, so no candidates are sampled.
+--judge runs baseline 6: the served model scores each admitted candidate at temperature 0, and the
+transcript records the judge's model and whether it shares the planner's family. --base-url
+points the client at a server that is not on localhost, for example LM Studio on the Windows host
+seen from WSL.
+
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
-        [--no-thinking] [--problem ID ...] [--candidates K]
+        [--no-thinking] [--problem ID ...] [--candidates K] [--base-url URL] \
+        [--escalate-when-unsure] [--judge]
 """
 
 import argparse
@@ -43,6 +51,7 @@ from aiopslab.session import Session
 from run_dev_end_to_end import NS, TOUCH_LOG, check, kubectl, reset, snapshot
 
 from remvalgate.aiopslab_pin import pinned_commit
+from remvalgate.baselines.judge import JudgeModel, judge
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.cluster_state import changed
 from remvalgate.harness.manifest import (
@@ -64,6 +73,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "manifests"
 SCRATCH = ROOT / "runs" / "planner_scratch"
 MODEL = "qwen/qwen3.5-4b"
+# the judge is the served planner model, one member's choice, so the families are the same
+FAMILY = "qwen3.5"
 PROBLEMS = (
     "dev-k8s_target_port-misconfig-mitigation-1",
     "dev-scale_pod_zero_social_net-mitigation-1",
@@ -149,7 +160,15 @@ def prometheus_port_forward() -> subprocess.Popen:
 
 
 async def run_problem(
-    orch, problem_id: str, clean: dict, chat, results_dir: Path, k: int, seed: int
+    orch,
+    problem_id: str,
+    clean: dict,
+    chat,
+    results_dir: Path,
+    k: int,
+    seed: int,
+    escalate_when_unsure: bool = False,
+    judge_chat=None,
 ) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
     # the snapshot, reset, observation and fixes below are for Social Network only
@@ -187,9 +206,14 @@ async def run_problem(
             retriever=DevStubRetriever(load_registry(DEFAULT_REGISTRY_PATH)),
             policy=load_policy(DEFAULT_POLICY_PATH),
             schemas=load_schemas(DEFAULT_SCHEMAS_PATH),
+            escalate_when_unsure=escalate_when_unsure,
         )
         draws = None
-        if result.diagnosis is not None:
+        scores = ()
+        # an escalated or turn-capped plan has no diagnosis, so nothing is sampled or judged.
+        # Baseline 7's action is the plan's own command or its escalation, so it samples none:
+        # draws under its prompt could escalate, and sample would count that as malformed
+        if result.diagnosis is not None and not escalate_when_unsure:
             draws = await asyncio.to_thread(
                 resample_once,
                 result,
@@ -199,13 +223,23 @@ async def run_problem(
                 k=k,
                 seed=seed,
             )
+            if judge_chat is not None:
+                # the gate scores the last draw, so the judge does too
+                scores = await asyncio.to_thread(
+                    judge, result, draws.candidates, NS, chat=judge_chat
+                )
         orch.session.end()
         left = changed(injected, snapshot())
         check(not left, f"the diagnosis changed the cluster: {left}")
     finally:
         remove_workload()
         reset(prob)
-    return dataclasses.asdict(result) | {"first_observation": first} | draw_record(draws)
+    return (
+        dataclasses.asdict(result)
+        | {"first_observation": first}
+        | draw_record(result, draws)
+        | {"judge_scores": [dataclasses.asdict(s) for s in scores]}
+    )
 
 
 def main() -> int:
@@ -216,19 +250,29 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     # K = 8 is the submitted proposal's value, not group-confirmed; the timing pilot may change it
     parser.add_argument("--candidates", type=int, default=8, help="K, candidates per problem")
+    parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
+    parser.add_argument("--escalate-when-unsure", action="store_true", help="baseline 7")
+    parser.add_argument("--judge", action="store_true", help="baseline 6")
     args = parser.parse_args()
     if args.candidates < 1:
         parser.error("--candidates must be at least 1")
+    # the judge would score candidates of the escalate-prompted planner, which is neither baseline
+    if args.judge and args.escalate_when_unsure:
+        parser.error("--judge and --escalate-when-unsure are separate baselines; run them apart")
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     # thinking can use most of a turn's tokens before any content appears, so it gets more room
     chat = OpenAIChat(
         model=MODEL,
+        base_url=args.base_url,
         thinking=args.thinking,
         seed=args.seed,
         max_tokens=4096 if args.thinking else 1024,
     )
+    # the judge scores at temperature 0, so a candidate's score does not depend on a draw
+    judge_chat = dataclasses.replace(chat, temperature=0.0) if args.judge else None
+    judge_model = JudgeModel(MODEL, args.model_version, FAMILY, FAMILY)
     SCRATCH.mkdir(parents=True, exist_ok=True)
     os.chdir(SCRATCH)
     kubectl("-n", NS, "wait", "--for=condition=Ready", "pods", "--all", "--timeout=60s")
@@ -238,12 +282,22 @@ def main() -> int:
         for problem_id in args.problem or PROBLEMS:
             now = datetime.now(UTC)
             mode = "think" if args.thinking else "nothink"
+            mode += "-escalate" if args.escalate_when_unsure else ""
+            mode += "-judge" if args.judge else ""
             run_id = f"planner-{problem_id}-{mode}-{now.strftime('%Y%m%dt%H%M%Sz')}".lower()
             run = start_run(run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now)
             orch = new_orchestrator(results_dir=OUT_DIR / run_id)
             transcript = asyncio.run(
                 run_problem(
-                    orch, problem_id, clean, chat, OUT_DIR / run_id, args.candidates, args.seed
+                    orch,
+                    problem_id,
+                    clean,
+                    chat,
+                    OUT_DIR / run_id,
+                    args.candidates,
+                    args.seed,
+                    args.escalate_when_unsure,
+                    judge_chat,
                 )
             )
             manifest = Manifest(
@@ -270,6 +324,13 @@ def main() -> int:
                         for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
                     },
                     "seeds": [c["seed"] for c in transcript["candidates"]],
+                    # which baseline ran and how the judge scored, so the manifest alone says so
+                    "escalate_when_unsure": args.escalate_when_unsure,
+                    **(
+                        {"judge": dataclasses.asdict(judge_model) | dataclasses.asdict(judge_chat)}
+                        if judge_chat is not None
+                        else {}
+                    ),
                 },
             )
             path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
@@ -280,7 +341,16 @@ def main() -> int:
                 **dataclasses.asdict(chat),
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
                 "retrieval_k": defaults["k"].default,
+                "escalate_when_unsure": args.escalate_when_unsure,
             }
+            if judge_chat is not None:
+                # the shared family is a confound of every judge score in this run
+                transcript["judge"] = {
+                    **dataclasses.asdict(judge_model),
+                    "shared_family": judge_model.shared_family,
+                    "date": now.strftime("%Y-%m-%d"),
+                    "chat": dataclasses.asdict(judge_chat),
+                }
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
             )
@@ -301,6 +371,16 @@ def main() -> int:
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
                 f" draws={transcript['draws']} escalated={transcript['escalated']}"
             )
+            if transcript["escalation"] is not None:
+                print(f"  escalated: {transcript['escalation']}")
+            if judge_chat is not None:
+                judged = transcript["judge_scores"]
+                print(
+                    f"  judge scores={[s['score'] for s in judged]}"
+                    f" shared_family={judge_model.shared_family}"
+                    f" tokens={sum(s['completion_tokens'] for s in judged)}"
+                    f" seconds={sum(s['seconds'] for s in judged):.1f}"
+                )
             print(f"  manifest {path}")
     finally:
         forward.terminate()

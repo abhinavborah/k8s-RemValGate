@@ -365,10 +365,12 @@ def test_the_task_names_the_problems_own_application_and_namespace():
 BAD = command("kubectl delete namespace kube-system")
 
 
+DIAGNOSED = run([tool("exec_shell", command=f"kubectl -n {NS} get pods"), final()])[0]
+
+
 def resample(replies, k=2, seed=5):
-    result = run([tool("exec_shell", command=f"kubectl -n {NS} get pods"), final()])[0]
     chat = FakeChat(replies)
-    return resample_once(result, NS, chat=chat, policy=POLICY, k=k, seed=seed), chat
+    return resample_once(DIAGNOSED, NS, chat=chat, policy=POLICY, k=k, seed=seed), chat
 
 
 def test_one_admitted_candidate_means_no_second_draw():
@@ -395,12 +397,68 @@ def test_a_second_fully_rejected_draw_escalates_without_a_third():
 
 def test_the_record_lists_both_draws_in_order_with_their_count_and_escalation():
     draws, _ = resample([BAD] * 4)
-    record = draw_record(draws)
+    record = draw_record(DIAGNOSED, draws)
     assert [c["seed"] for c in record["candidates"]] == [5, 6, 7, 8]
     assert record["draws"] == 2 and record["escalated"] is True
     one, _ = resample([command(FIX)] * 2)
-    assert draw_record(one)["draws"] == 1 and draw_record(one)["escalated"] is False
+    assert draw_record(DIAGNOSED, one)["draws"] == 1
+    assert draw_record(DIAGNOSED, one)["escalated"] is False
 
 
 def test_a_plan_with_no_diagnosis_is_recorded_as_escalated_with_nothing_drawn():
-    assert draw_record(None) == {"candidates": [], "draws": 0, "escalated": True}
+    capped = run([tool("get_logs", namespace=NS, service="s")], max_turns=1)[0]
+    assert draw_record(capped, None) == {"candidates": [], "draws": 0, "escalated": True}
+    # a diagnosis left unsampled on purpose, as baseline 7 does, is not an escalation
+    assert draw_record(DIAGNOSED, None)["escalated"] is False
+
+
+def escalate(reason="the evidence does not single out one service"):
+    return json.dumps({"escalate": {"reason": reason}})
+
+
+def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7():
+    # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt
+    import hashlib
+
+    result, _, _ = run([final()])
+    digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
+    assert digest == "f29dd9d78018b6f948f3999453567ef01d317bdf0729f14d9df6702d5438d288"
+    assert "escalate" not in result.system_prompt
+
+
+def test_the_planner_told_to_escalate_when_unsure_can_escalate_with_a_reason():
+    result, tools, _ = run(
+        [tool("exec_shell", command=f"kubectl -n {NS} get pods"), escalate()],
+        escalate_when_unsure=True,
+    )
+    assert "You MUST escalate" in result.system_prompt
+    assert result.stop is Stop.ESCALATE
+    assert result.escalation == "the evidence does not single out one service"
+    assert result.diagnosis is None and result.command is None and result.verdict is None
+    assert len(tools.calls) == 1 and result.steps[-1].observation == "escalate"
+
+
+def test_an_escalation_without_a_reason_is_refused_and_the_loop_goes_on():
+    result, _, chat = run([escalate(reason=" "), final()], escalate_when_unsure=True)
+    assert result.stop is Stop.FINAL
+    assert "escalate needs" in chat.seen[1][-1]["content"]
+
+
+def test_an_escalation_without_the_flag_is_refused_like_any_unknown_reply():
+    result, _, chat = run([escalate(), final()])
+    assert result.stop is Stop.FINAL and result.escalation is None
+    assert chat.seen[1][-1]["content"].startswith("Refused: unknown tool")
+
+
+def test_the_last_turn_nudge_names_escalation_only_when_it_is_allowed():
+    replies = [tool("get_logs", namespace=NS, service="s")] * 2
+    _, _, told = run(replies, max_turns=2, escalate_when_unsure=True)
+    _, _, plain = run(replies, max_turns=2)
+    assert "final answer or escalate now" in told.seen[1][-1]["content"]
+    assert "escalate" not in plain.seen[1][-1]["content"]
+
+
+def test_an_escalated_plan_cannot_be_sampled_from():
+    result = run([escalate()], escalate_when_unsure=True)[0]
+    with pytest.raises(ValueError, match="no diagnosis"):
+        sample(result, NS, chat=FakeChat([]), policy=POLICY, k=1, seed=0)
