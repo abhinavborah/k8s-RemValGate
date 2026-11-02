@@ -50,6 +50,20 @@ def entry_text(entry: PastFix) -> str:
     return f"{entry.fault_type} {entry.target_service} {entry.summary}"
 
 
+class _LuceneBM25(BM25Okapi):
+    """Okapi BM25 with Lucene's idf, log(1 + (N - n + 0.5) / (n + 0.5)).
+
+    rank-bm25's own idf is 0 for a word in exactly half the entries, and it floors negative values
+    at a constant, so a word in 4 of 10 entries outweighs one in 5 of 10. Lucene's idf is always
+    positive and falls as more entries share the word, so an entry scores above 0 exactly when it
+    shares a word with the query.
+    """
+
+    def _calc_idf(self, nd: dict[str, int]) -> None:
+        n = self.corpus_size
+        self.idf = {w: math.log(1 + (n - df + 0.5) / (df + 0.5)) for w, df in nd.items()}
+
+
 def _tokens(text: str) -> list[str]:
     return _WORD.findall(text.lower())
 
@@ -184,7 +198,7 @@ class HybridRerank(DenseRerank):
         super().__init__(assignment, corpora, encode=encode, score=score, depth=depth)
         self._rrf_k = rrf_k
         self._bm25 = {
-            fold: (list(by_id), BM25Okapi([_tokens(entry_text(e)) for e in by_id.values()]))
+            fold: (list(by_id), _LuceneBM25([_tokens(entry_text(e)) for e in by_id.values()]))
             for fold, by_id in self._corpora.items()
         }
 

@@ -9,6 +9,7 @@ from remvalgate.retrieval.configs import (
     DenseRerank,
     HybridRerank,
     NoRetrieval,
+    _LuceneBM25,
     entry_text,
 )
 from remvalgate.retrieval.corpus import build_corpus
@@ -234,3 +235,27 @@ def test_fusion_sums_reciprocal_ranks_with_the_constant():
     hybrid._dense = lambda query, fold: dense
     hybrid._sparse = lambda query, fold: sparse
     assert hybrid._first_stage(QUERY, 0) == ["B", "A", "D", "E", "C"]
+
+
+def test_bm25_keeps_a_word_that_is_in_exactly_half_the_entries():
+    # rank-bm25's own idf is 0 for such a word, so every match would score 0 and be dropped
+    entries = [
+        PastFix(
+            entry_id=f"runbook-{n}",
+            source=Source.RUNBOOK,
+            fault_type="ScalePod",
+            target_service="demo",
+            summary=("shared " if n < 5 else "") + f"word{n}",
+            fix_command=f"fix {n}",
+        )
+        for n in range(10)
+    ]
+    hybrid = HybridRerank({"dev-1": -1}, {-1: entries}, encode=fake_encode, score=fake_score)
+    assert sorted(hybrid._sparse("shared", -1)) == [f"runbook-{n}" for n in range(5)]
+
+
+def test_bm25_idf_falls_as_more_entries_share_the_word():
+    entries = [[f"w{k}" for k in range(10) if n < k] for n in range(10)]
+    idf = _LuceneBM25(entries).idf
+    # w4 is in 4 of the 10 entries, w5 in 5, w6 in 6
+    assert idf["w4"] > idf["w5"] > idf["w6"] > 0
