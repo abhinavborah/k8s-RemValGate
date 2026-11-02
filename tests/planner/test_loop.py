@@ -352,3 +352,55 @@ def test_the_task_names_the_problems_own_application_and_namespace():
     hotel = task_text("Hotel Reservation", "test-hotel-reservation")
     assert "hotel reservation application in namespace test-hotel-reservation" in hotel
     assert "social" not in hotel
+
+
+def escalate(reason="the evidence does not single out one service"):
+    return json.dumps({"escalate": {"reason": reason}})
+
+
+def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7():
+    # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt
+    import hashlib
+
+    result, _, _ = run([final()])
+    digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
+    assert digest == "f29dd9d78018b6f948f3999453567ef01d317bdf0729f14d9df6702d5438d288"
+    assert "escalate" not in result.system_prompt
+
+
+def test_the_planner_told_to_escalate_when_unsure_can_escalate_with_a_reason():
+    result, tools, _ = run(
+        [tool("exec_shell", command=f"kubectl -n {NS} get pods"), escalate()],
+        escalate_when_unsure=True,
+    )
+    assert "You MUST escalate" in result.system_prompt
+    assert result.stop is Stop.ESCALATE
+    assert result.escalation == "the evidence does not single out one service"
+    assert result.diagnosis is None and result.command is None and result.verdict is None
+    assert len(tools.calls) == 1 and result.steps[-1].observation == "escalate"
+
+
+def test_an_escalation_without_a_reason_is_refused_and_the_loop_goes_on():
+    result, _, chat = run([escalate(reason=" "), final()], escalate_when_unsure=True)
+    assert result.stop is Stop.FINAL
+    assert "escalate needs" in chat.seen[1][-1]["content"]
+
+
+def test_an_escalation_without_the_flag_is_refused_like_any_unknown_reply():
+    result, _, chat = run([escalate(), final()])
+    assert result.stop is Stop.FINAL and result.escalation is None
+    assert chat.seen[1][-1]["content"].startswith("Refused: unknown tool")
+
+
+def test_the_last_turn_nudge_names_escalation_only_when_it_is_allowed():
+    replies = [tool("get_logs", namespace=NS, service="s")] * 2
+    _, _, told = run(replies, max_turns=2, escalate_when_unsure=True)
+    _, _, plain = run(replies, max_turns=2)
+    assert "final answer or escalate now" in told.seen[1][-1]["content"]
+    assert "escalate" not in plain.seen[1][-1]["content"]
+
+
+def test_an_escalated_plan_cannot_be_sampled_from():
+    result = run([escalate()], escalate_when_unsure=True)[0]
+    with pytest.raises(ValueError, match="no diagnosis"):
+        sample(result, NS, chat=FakeChat([]), policy=POLICY, k=1, seed=0)
