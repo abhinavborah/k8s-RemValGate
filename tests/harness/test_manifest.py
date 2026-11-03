@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from remvalgate import overlay
 from remvalgate.harness.manifest import (
+    ASTRONOMY_SHOP,
     DEFAULT_REGISTRY_PATH,
     HOTEL_RESERVATION,
     SOCIAL_NETWORK,
@@ -191,7 +192,12 @@ def test_default_registry_counts():
     # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     counts = Counter(registry.slices.values())
-    assert counts == {Slice.POOL: 16, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
+    assert counts == {
+        Slice.POOL: 16,
+        Slice.CONFIRMATION: 3,
+        Slice.DEVELOPMENT: 3,
+        Slice.SINGLETON: 5,
+    }
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     assert sum(i.removeprefix("pool-").startswith("k8s_target_port") for i in pool) == 6
     assert sum(i.removeprefix("pool-").startswith("scale_pod_zero") for i in pool) == 3
@@ -427,10 +433,20 @@ def test_logged_start_appends_dated_entry(tmp_path):
     assert start.slice is Slice.POOL
 
 
-@pytest.mark.parametrize("problem_id", [DEV, SINGLE])
-def test_unlogged_start_writes_no_entry(tmp_path, problem_id):
-    _, log, _ = _start(tmp_path, problem_id)
+def test_unlogged_start_writes_no_entry(tmp_path):
+    _, log, _ = _start(tmp_path, DEV)
     assert _runs(log) == []
+
+
+def test_singleton_start_is_logged(tmp_path):
+    start, log, _ = _start(tmp_path, SINGLE)
+    assert start.slice is Slice.SINGLETON
+    assert [(e["problem_id"], e["slice"]) for e in _runs(log)] == [(SINGLE, "singleton")]
+
+
+def test_singleton_run_without_a_pin_refused(tmp_path):
+    with pytest.raises(RunRefused, match="pinned"):
+        _start(tmp_path, SINGLE, aiopslab_commit=None)
 
 
 def test_touch_line_format(tmp_path):
@@ -958,6 +974,19 @@ def test_logged_namespace_maps_the_database_pool_problems_to_hotel_reservation()
     assert {logged_namespace(i) for i in pool} - {HOTEL_RESERVATION} == {SOCIAL_NETWORK}
     confirmation = [i for i, s in registry.slices.items() if s is Slice.CONFIRMATION]
     assert {logged_namespace(i) for i in confirmation} == {SOCIAL_NETWORK}
+
+
+def test_logged_namespace_maps_each_singleton_to_its_inventory_namespace():
+    # docs/problem_inventory.md, rows 8, 9 and 12 to 14
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    singletons = {i for i, s in registry.slices.items() if s is Slice.SINGLETON}
+    assert {i: logged_namespace(i) for i in singletons} == {
+        "auth_miss_mongodb-mitigation-1": SOCIAL_NETWORK,
+        "misconfig_app_hotel_res-mitigation-1": HOTEL_RESERVATION,
+        "astronomy_shop_kafka_queue_problems-mitigation-1": ASTRONOMY_SHOP,
+        "redeploy_without_PV-mitigation-1": HOTEL_RESERVATION,
+        "wrong_bin_usage-mitigation-1": HOTEL_RESERVATION,
+    }
 
 
 HOTEL = "revoke_auth_mongodb-mitigation-1"
