@@ -22,9 +22,17 @@ MongoDB calls written as one kubectl exec of mongo --eval, not the scripts thems
 not run on a cluster. They name deploy/<mongodb deployment> as the exec target, because pod names
 are random, so the allow-list refuses them as written: replayed by the retrieval-only baseline
 they are rejected, and a planner that follows one must name the pod itself. The password
-createUser needs is the placeholder <password>, so no credential is
-committed. The upstream scripts delete the client service's pods so that it reconnects; the
-records restart its deployment instead, which the allow-list admits.
+createUser needs is the placeholder <password>, so no credential is committed. The upstream
+scripts delete the client service's pods so that it reconnects; the records restart its
+deployment instead, which the allow-list admits.
+
+Two more ways in which they are not the upstream fix. The scripts authenticate (mongo -u admin
+-p admin, and -u root to recreate the user), and grantRolesToUser needs the grantRole action on
+the database, so the calls as recorded, with no user, would be refused where authorization is
+enforced; the allow-list's exec shape leaves no room for -u and -p. And the recreated user's
+password is the placeholder, not the one the client connects with, so the client would not
+authenticate after the restart. The summaries say what fixed the incident upstream, not what
+these commands would do.
 
 Sources:
 - https://kubernetes.io/docs/concepts/services-networking/service/ (port and targetPort)

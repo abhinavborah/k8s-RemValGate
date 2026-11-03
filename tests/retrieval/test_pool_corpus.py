@@ -39,7 +39,8 @@ def test_records_follow_the_rule():
         assert e.source is Source.INCIDENT
         assert e.fault_type == fault_type(e.entry_id)
         assert e.target_service in e.fix_command
-        assert e.summary.startswith(TEMPLATES[e.fault_type].split("{")[0])
+        client = e.target_service.removeprefix("mongodb-")
+        assert e.summary == TEMPLATES[e.fault_type].format(service=e.target_service, client=client)
         assert e.fix_command.startswith(f"kubectl -n {logged_namespace(e.entry_id)} ")
         assert "rollout status" not in e.fix_command
         # exec_shell refuses a command that ends in a double quote

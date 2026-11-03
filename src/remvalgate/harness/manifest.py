@@ -414,7 +414,7 @@ def log_authoring(
     problem_id: str, registry: Registry, log_path: str | Path, now: datetime | None = None
 ) -> dict:
     """Append an authoring touch: the problem's definition and known fix were read to write its
-    retrieval corpus record (E4-S8), which is not a run.
+    retrieval corpus record (E4-S8), which is not a run. A confirmation problem is refused.
 
     The run id is corpus-<problem id>-<UTC time>, so the entry is told apart from a run entry by
     its prefix.
@@ -423,6 +423,9 @@ def log_authoring(
     if now.tzinfo is None:
         raise ValueError("log_authoring now: expected an aware datetime, converted to UTC")
     slice_ = _slice_of(problem_id, registry)
+    # reading a confirmation problem to write a record is the leak the seal guards against
+    if slice_ is Slice.CONFIRMATION:
+        raise RunRefused(f"{problem_id!r} is a confirmation problem: no corpus record is written")
     now = now.astimezone(UTC)
     run_id = f"corpus-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
     _check_run_id(run_id, "log_authoring")

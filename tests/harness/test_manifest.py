@@ -617,6 +617,13 @@ def test_log_authoring_appends_a_corpus_touch(tmp_path):
         log_authoring(POOL, _registry(tmp_path), log, NOW)
 
 
+def test_log_authoring_refuses_a_confirmation_problem(tmp_path):
+    log = tmp_path / "touch_log.jsonl"
+    with pytest.raises(RunRefused, match="confirmation problem"):
+        log_authoring(CONF, _registry(tmp_path), log, NOW)
+    assert not log.exists()
+
+
 def test_manifest_refused_without_touch(tmp_path):
     manifest = _manifest()
     log = tmp_path / "touch_log.jsonl"
