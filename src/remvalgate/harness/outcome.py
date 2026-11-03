@@ -81,6 +81,26 @@ def applied_result(
     )
 
 
+def single_action_result(
+    harm: HarmResult | None, any_working_candidate: bool | None
+) -> ProblemResult:
+    """Build the result of a baseline's single action, which takes no snapshot and restores
+    nothing.
+
+    harm is None when nothing was sent: an escalation, a rejected command, or one that cannot be
+    sent unchanged. A sent command is applied even when kubectl rejected it, so its harm result
+    decides: the fault remains, and it is APPLIED_INEFFECTIVE, or APPLIED_HARMFUL if harm is seen.
+    """
+    if harm is None:
+        return ProblemResult(
+            applied=False,
+            recovered=False,
+            harmful=False,
+            any_working_candidate=any_working_candidate,
+        )
+    return applied_result(harm, any_working_candidate, restore_attempted=False)
+
+
 def classify(result: ProblemResult) -> Outcome:
     """Classify a result. The first rule that applies wins.
 

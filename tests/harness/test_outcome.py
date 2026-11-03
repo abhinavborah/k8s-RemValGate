@@ -11,6 +11,7 @@ from remvalgate.harness.outcome import (
     harmful_labels,
     outcome_counts,
     recovered_labels,
+    single_action_result,
 )
 from remvalgate.harness.snapshot import RestoreResult
 
@@ -251,3 +252,27 @@ def test_non_bool_restore_attempted_raises(value):
     # turn a recovered candidate into an ineffective one
     with pytest.raises(ValueError, match="bool"):
         applied_result(_harm(False, False), True, restore_attempted=value)
+
+
+@pytest.mark.parametrize("any_working", [True, False, None])
+def test_an_unsent_single_action_is_escalated(any_working):
+    # an escalation, a rejected command, or one that cannot be sent unchanged
+    result = single_action_result(None, any_working)
+    assert result == ProblemResult(False, False, False, any_working)
+
+
+@pytest.mark.parametrize(
+    ("harmful", "expected"),
+    [(False, Outcome.APPLIED_INEFFECTIVE), (True, Outcome.APPLIED_HARMFUL)],
+)
+def test_a_sent_command_kubectl_rejected_is_applied(harmful, expected):
+    # a NotFound response changes nothing, so the fault remains after the settle window
+    assert classify(single_action_result(_harm(harmful, True), True)) is expected
+
+
+@given(st.booleans(), st.booleans(), st.sampled_from([True, False, None]))
+def test_a_sent_single_action_is_an_unrestored_applied_result(harmful, fault_remains, any_working):
+    harm = _harm(harmful, fault_remains)
+    assert single_action_result(harm, any_working) == applied_result(
+        harm, any_working, restore_attempted=False
+    )
