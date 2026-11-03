@@ -43,9 +43,9 @@ from remvalgate.harness.allowlist import check as admit
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.harm import SETTLE_SECONDS, detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
-from remvalgate.harness.outcome import Outcome, ProblemResult, applied_result, classify
+from remvalgate.harness.outcome import Outcome, classify, single_action_result
 from remvalgate.overlay import new_orchestrator
-from remvalgate.overlay.fixes import TARGET_PORT, exec_shell
+from remvalgate.overlay.fixes import TARGET_PORT, CannotSend, carried_action
 from remvalgate.retrieval.fixed import development_retriever
 
 NS = "test-social-network"
@@ -133,12 +133,7 @@ async def apply(
     planner's) is not strict: a command that cannot be sent unchanged raises CannotSend before
     anything runs, and an error response from kubectl is returned, since the command was applied.
     """
-    try:
-        action = exec_shell(command)
-    except ValueError as error:
-        if strict:
-            raise
-        raise CannotSend(str(error)) from None
+    action = carried_action(command, orch.parser.parse, strict=strict)
     orch.register_agent(ScriptedAgent([action]), name=AGENT)
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
@@ -146,20 +141,11 @@ async def apply(
     orch.session.start()
     reply = await orch.ask_agent("Please take the next action")
     require(reply == action, f"the agent replied {reply!r}")
-    # a parse that changes the command would run something else than the baseline chose
-    if orch.parser.parse(reply)["args"] != [command]:
-        orch.session.end()
-        require(not strict, f"the parser changed {command!r}")
-        raise CannotSend(f"the parser changes the command: {command}")
     response = await orch.ask_env(reply)
     orch.session.end()
     if strict:
         require(not response.startswith(("[ERROR]", "Error", "Failed")), response)
     return response
-
-
-class CannotSend(Exception):
-    """A free-form command that cannot reach exec_shell unchanged, so it is not applied."""
 
 
 def reset(prob, clean: dict) -> None:
@@ -189,9 +175,8 @@ async def act(orch, prob, problem_id, command, policy, settle, pre, results_dir,
             sent = True
         except CannotSend as error:
             note = str(error)
+    harm = None
     if sent:
-        # an error response still counts as applied: the fault remains, so the outcome is
-        # ineffective, or harmful if harm is seen
         harm = detect_harm(
             pre,
             lambda: kubectl_pods(NS, CONTEXT),
@@ -199,15 +184,8 @@ async def act(orch, prob, problem_id, command, policy, settle, pre, results_dir,
             NS,
             settle_seconds=settle,
         )
-        # the baselines take no snapshot and restore nothing
-        result = applied_result(harm, True, restore_attempted=False)
-    else:
-        # nothing was applied: the development problems have a known fix, so a working
-        # candidate exists
-        result = ProblemResult(
-            applied=False, recovered=False, harmful=False, any_working_candidate=True
-        )
-    outcome = classify(result)
+    # the development problems have a known fix, so a working candidate exists
+    outcome = classify(single_action_result(harm, True))
     require(isinstance(outcome, Outcome), f"{command!r}: no outcome")
     return verdict, outcome, sent, note
 
