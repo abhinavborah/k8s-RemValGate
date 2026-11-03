@@ -12,9 +12,11 @@ from remvalgate.harness.allowlist import (
     Rejected,
     Verdict,
     check,
+    check_chain,
     load_policy,
     parse_args,
     reason_counts,
+    split_chain,
     split_targets,
     split_verb,
     tokenize,
@@ -517,3 +519,18 @@ def test_reason_counts_mixed():
     assert counts.by_reason[Reason.OUT_OF_SANDBOX] == 1
     assert counts.by_reason[Reason.EMPTY] == 0
     assert sum(counts.by_reason.values()) == 5
+
+
+def test_split_chain_ignores_a_separator_inside_quotes():
+    assert split_chain("a 'x && y' && b") == ["a 'x && y'", "b"]
+    assert split_chain("a") == ["a"]
+
+
+def test_check_chain_needs_every_part_admitted():
+    good = f"kubectl -n {NS} scale deployment a --replicas=1"
+    assert check_chain(f"{good} && {good}", POLICY, NS).admitted
+    chain = f"{good} && kubectl -n {NS} delete deployment a"
+    verdict = check_chain(chain, POLICY, NS)
+    assert not verdict.admitted
+    assert verdict.command == chain
+    assert verdict.reason == check(f"kubectl -n {NS} delete deployment a", POLICY, NS).reason
