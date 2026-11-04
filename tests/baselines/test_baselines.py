@@ -8,10 +8,10 @@ from remvalgate.baselines.observe import Kind, Observation, observe, symptom_que
 from remvalgate.baselines.retrieval_only import replace_service, retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, check_chain, load_policy
-from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Registry, Slice, load_registry
+from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.overlay.fixes import exec_shell
 from remvalgate.retrieval import PastFix, RetrieverRefused, Source
-from remvalgate.retrieval.pool_corpus import pool_incidents
+from remvalgate.retrieval.pool_corpus import incident
 from remvalgate.retrieval.stub import DevStubRetriever
 
 NS = "test-social-network"
@@ -350,9 +350,9 @@ def test_retrieval_only_replaces_a_recorded_namespace(recorded):
 
 def test_a_pool_record_from_the_other_app_acts_in_the_problems_namespace():
     # a social-network ScalePod record retrieved for a hotel-reservation problem
-    # built from a pool problem, so it is an evaluation-set touch, logged as a fixture- entry
-    incidents = pool_incidents(load_registry(DEFAULT_REGISTRY_PATH))
-    (entry,) = [e for e in incidents if e.entry_id == "pool-scale_pod_zero_social_net-mitigation-2"]
+    # built from this one pool problem only, so it is an evaluation-set touch, logged as a
+    # fixture- entry for that problem
+    entry = incident("pool-scale_pod_zero_social_net-mitigation-2")
     assert f"-n {NS} " in entry.fix_command
     obs = observe(listing(deployment("geo", replicas=0)))
     action = retrieval_only(DevStubRetriever(REGISTRY, corpus=[entry]), obs, DEV, HOTEL)
