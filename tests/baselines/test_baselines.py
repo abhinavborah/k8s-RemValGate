@@ -350,6 +350,7 @@ def test_retrieval_only_replaces_a_recorded_namespace(recorded):
 
 def test_a_pool_record_from_the_other_app_acts_in_the_problems_namespace():
     # a social-network ScalePod record retrieved for a hotel-reservation problem
+    # built from a pool problem, so it is an evaluation-set touch, logged as a fixture- entry
     incidents = pool_incidents(load_registry(DEFAULT_REGISTRY_PATH))
     (entry,) = [e for e in incidents if e.entry_id == "pool-scale_pod_zero_social_net-mitigation-2"]
     assert f"-n {NS} " in entry.fix_command
