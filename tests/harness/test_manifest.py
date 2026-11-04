@@ -25,6 +25,7 @@ from remvalgate.harness.manifest import (
     load_registry,
     log_authoring,
     log_creation,
+    log_fixture,
     logged_namespace,
     read_manifest,
     read_touches,
@@ -621,6 +622,27 @@ def test_log_authoring_refuses_a_confirmation_problem(tmp_path):
     log = tmp_path / "touch_log.jsonl"
     with pytest.raises(RunRefused, match="confirmation problem"):
         log_authoring(CONF, _registry(tmp_path), log, NOW)
+    assert not log.exists()
+
+
+def test_start_run_refuses_a_fixture_run_id(tmp_path):
+    with pytest.raises(RunRefused, match="fixture touches"):
+        _start(tmp_path, DEV, run_id="fixture-run-0001")
+
+
+def test_log_fixture_appends_a_fixture_touch(tmp_path):
+    log = tmp_path / "touch_log.jsonl"
+    entry = log_fixture(POOL, _registry(tmp_path), log, NOW)
+    assert entry["run_id"] == f"fixture-{POOL}-20261027t101500z"
+    assert read_touches(log) == [entry]
+    with pytest.raises(RunRefused):
+        log_fixture(POOL, _registry(tmp_path), log, NOW)
+
+
+def test_log_fixture_refuses_a_confirmation_problem(tmp_path):
+    log = tmp_path / "touch_log.jsonl"
+    with pytest.raises(RunRefused, match="confirmation problem"):
+        log_fixture(CONF, _registry(tmp_path), log, NOW)
     assert not log.exists()
 
 

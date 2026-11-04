@@ -381,7 +381,11 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
   under the run's AIOpsLab commit must match the record
   ([docs/confirmation_problems.md](docs/confirmation_problems.md)). Run ids starting with `seal-`
-  are kept for the seal touches. Development runs are not logged and may run with neither a
+  are kept for the seal touches. Run ids starting with `corpus-` are kept for authoring touches
+  (`log_authoring`: a problem's definition and known fix were read to write its retrieval corpus
+  record), and those starting with `fixture-` for fixture touches (`log_fixture`: a test fixture
+  was built from the problem, which counts as an evaluation-set touch); `start_run` refuses both,
+  and neither is written for a confirmation problem. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
   16 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode

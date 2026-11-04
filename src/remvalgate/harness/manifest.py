@@ -20,6 +20,7 @@ then refuses a manifest whose cluster names another namespace. This catches a ru
 the wrong namespace, not one that names the right one and then acts in another.
 
 log_creation appends a creation touch for a problem validated with a known fix, in any slice.
+log_fixture appends a fixture touch for a test fixture built from a problem (BRD 7.2).
 log_authoring appends an authoring touch for a problem whose definition and known fix were read
 to write its retrieval corpus record.
 """
@@ -329,6 +330,8 @@ def start_run(
         raise RunRefused("run ids starting with seal- are kept for seal touches")
     if run_id.startswith("corpus-"):
         raise RunRefused("run ids starting with corpus- are kept for authoring touches")
+    if run_id.startswith("fixture-"):
+        raise RunRefused("run ids starting with fixture- are kept for fixture touches")
     slice_ = _slice_of(problem_id, registry)
     # the slice is opened once, at the end (R9.6); no run path opens it yet
     if slice_ is Slice.CONFIRMATION:
@@ -419,16 +422,38 @@ def log_authoring(
     The run id is corpus-<problem id>-<UTC time>, so the entry is told apart from a run entry by
     its prefix.
     """
+    return _log_read_touch("corpus", "log_authoring", problem_id, registry, log_path, now)
+
+
+def log_fixture(
+    problem_id: str, registry: Registry, log_path: str | Path, now: datetime | None = None
+) -> dict:
+    """Append a fixture touch: a test fixture is built from the problem, which BRD 7.2 counts as
+    an evaluation-set touch, and which is not a run. A confirmation problem is refused.
+
+    The run id is fixture-<problem id>-<UTC time>.
+    """
+    return _log_read_touch("fixture", "log_fixture", problem_id, registry, log_path, now)
+
+
+def _log_read_touch(
+    prefix: str,
+    where: str,
+    problem_id: str,
+    registry: Registry,
+    log_path: str | Path,
+    now: datetime | None,
+) -> dict:
     now = now or datetime.now(UTC)
     if now.tzinfo is None:
-        raise ValueError("log_authoring now: expected an aware datetime, converted to UTC")
+        raise ValueError(f"{where} now: expected an aware datetime, converted to UTC")
     slice_ = _slice_of(problem_id, registry)
-    # reading a confirmation problem to write a record is the leak the seal guards against
+    # reading a confirmation problem outside its one opening is the leak the seal guards against
     if slice_ is Slice.CONFIRMATION:
-        raise RunRefused(f"{problem_id!r} is a confirmation problem: no corpus record is written")
+        raise RunRefused(f"{problem_id!r} is a confirmation problem: it is not read for {prefix}")
     now = now.astimezone(UTC)
-    run_id = f"corpus-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
-    _check_run_id(run_id, "log_authoring")
+    run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    _check_run_id(run_id, where)
     entry = {
         "problem_id": problem_id,
         "run_id": run_id,

@@ -48,3 +48,4 @@
 {"problem_id": "pool-scale_pod_zero_social_net-mitigation-3", "run_id": "corpus-pool-scale_pod_zero_social_net-mitigation-3-20261103t064214z", "slice": "pool", "timestamp": "2026-11-03T06:42:14Z"}
 {"problem_id": "pool-assign_to_non_existent_node_social_net-mitigation-2", "run_id": "corpus-pool-assign_to_non_existent_node_social_net-mitigation-2-20261103t064214z", "slice": "pool", "timestamp": "2026-11-03T06:42:14Z"}
 {"problem_id": "pool-assign_to_non_existent_node_social_net-mitigation-3", "run_id": "corpus-pool-assign_to_non_existent_node_social_net-mitigation-3-20261103t064214z", "slice": "pool", "timestamp": "2026-11-03T06:42:14Z"}
+{"problem_id": "pool-scale_pod_zero_social_net-mitigation-2", "run_id": "fixture-pool-scale_pod_zero_social_net-mitigation-2-20261104t140236z", "slice": "pool", "timestamp": "2026-11-04T14:02:36Z"}
