@@ -39,7 +39,7 @@ from remvalgate.baselines.observe import observe
 from remvalgate.baselines.retrieval_only import retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
-from remvalgate.harness.allowlist import check_chain as admit
+from remvalgate.harness.allowlist import check as admit
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.harm import SETTLE_SECONDS, detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry

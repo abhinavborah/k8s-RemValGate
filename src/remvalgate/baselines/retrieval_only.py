@@ -10,7 +10,7 @@ import shlex
 
 from remvalgate.baselines import BaselineAction, escalate
 from remvalgate.baselines.observe import Observation, symptom_query
-from remvalgate.harness.allowlist import split_chain, validate_namespace
+from remvalgate.harness.allowlist import validate_namespace
 from remvalgate.retrieval import Retriever
 
 
@@ -46,10 +46,7 @@ def retrieval_only(
         return escalate("the retriever returned no hit")
     hit = hits[0]
     service = first.service
-    # a fix of several commands is joined with " && "; each part is rewritten on its own, and
-    # the harness checks each part against the allow-list (check_chain)
-    command = " && ".join(
-        _in_namespace(replace_service(part, hit.entry.target_service, service), namespace)
-        for part in split_chain(hit.entry.fix_command)
+    command = replace_service(hit.entry.fix_command, hit.entry.target_service, service)
+    return BaselineAction(
+        _in_namespace(command, namespace), f"top hit {hit.entry.entry_id} on {service}"
     )
-    return BaselineAction(command, f"top hit {hit.entry.entry_id} on {service}")

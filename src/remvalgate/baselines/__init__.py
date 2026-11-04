@@ -9,8 +9,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class BaselineAction:
-    # one kubectl command for exec_shell, or several joined with " && " (admitted with
-    # allowlist.check_chain); None means escalate instead of acting
+    # one kubectl command for exec_shell; None means escalate instead of acting
     command: str | None
     reason: str
 

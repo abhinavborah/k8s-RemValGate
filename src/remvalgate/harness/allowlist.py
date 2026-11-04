@@ -355,37 +355,6 @@ def check(command: str, policy: Policy, namespace: str) -> Verdict:
     return Verdict(command=command, admitted=True, reason=None)
 
 
-_CHAIN = " && "
-
-
-def split_chain(command: str) -> list[str]:
-    """Split a recorded fix at each " && " outside quotes, the form a fix of several commands
-    takes in the retrieval corpus. A command with no such separator is one part."""
-    parts, start, quote = [], 0, None
-    for i, ch in enumerate(command):
-        if quote:
-            if ch == quote:
-                quote = None
-        elif ch in "'\"":
-            quote = ch
-        elif command.startswith(_CHAIN, i) and i >= start:
-            parts.append(command[start:i])
-            start = i + len(_CHAIN)
-    return [*parts, command[start:]]
-
-
-def check_chain(command: str, policy: Policy, namespace: str) -> Verdict:
-    """Admit a chain of commands only if check admits every part; otherwise return the first
-    part's rejection, for the whole command."""
-    # ponytail: only the baseline smoke run admits with this; the planner and snapshot paths
-    # still check one command, so a pool baseline runner must admit with check_chain too
-    for part in split_chain(command):
-        verdict = check(part, policy, namespace)
-        if not verdict.admitted:
-            return Verdict(command=command, admitted=False, reason=verdict.reason)
-    return Verdict(command=command, admitted=True, reason=None)
-
-
 @dataclass(frozen=True)
 class ReasonCounts:
     total: int

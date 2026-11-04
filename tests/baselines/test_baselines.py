@@ -7,10 +7,10 @@ from remvalgate.baselines import BaselineAction
 from remvalgate.baselines.observe import Kind, Observation, observe, symptom_query
 from remvalgate.baselines.retrieval_only import replace_service, retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, check_chain, load_policy
+from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, load_policy
 from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.overlay.fixes import exec_shell
-from remvalgate.retrieval import PastFix, RetrieverRefused, Source
+from remvalgate.retrieval import RetrieverRefused
 from remvalgate.retrieval.stub import DevStubRetriever
 
 NS = "test-social-network"
@@ -280,25 +280,6 @@ def test_retrieval_only_applies_the_top_hit_to_the_observed_service():
         "kubectl", "-n", NS, "scale", "deployment", "media-service", "--replicas=1"
     ]  # fmt: skip
     assert admitted(action)
-
-
-def test_retrieval_only_rewrites_each_part_of_a_chained_fix():
-    entry = PastFix(
-        entry_id="stub-chain",
-        source=Source.INCIDENT,
-        fault_type="ScalePod",
-        target_service="demo-x",
-        summary="deployment scaled to zero replicas",
-        fix_command="kubectl scale deployment demo-x --replicas=1 "
-        "&& kubectl rollout restart deployment/demo-x",
-    )
-    obs = observe(listing(deployment("media-service", replicas=0)))
-    action = retrieval_only(DevStubRetriever(registry=REGISTRY, corpus=[entry]), obs, DEV, NS)
-    assert action.command == (
-        f"kubectl -n {NS} scale deployment media-service --replicas=1 "
-        f"&& kubectl -n {NS} rollout restart deployment/media-service"
-    )
-    assert check_chain(action.command, POLICY, NS).admitted
 
 
 def test_retrieval_only_replaces_the_recorded_service_name_as_a_whole_word():

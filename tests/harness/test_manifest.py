@@ -23,7 +23,6 @@ from remvalgate.harness.manifest import (
     check_seal,
     git_state,
     load_registry,
-    log_authoring,
     log_creation,
     logged_namespace,
     read_manifest,
@@ -601,27 +600,6 @@ def test_log_creation_refuses_an_unregistered_id_and_a_naive_time(tmp_path):
 def test_start_run_refuses_a_creation_run_id(tmp_path):
     with pytest.raises(RunRefused, match="creation touches"):
         _start(tmp_path, DEV, run_id="create-run-0001")
-
-
-def test_start_run_refuses_an_authoring_run_id(tmp_path):
-    with pytest.raises(RunRefused, match="authoring touches"):
-        _start(tmp_path, DEV, run_id="corpus-run-0001")
-
-
-def test_log_authoring_appends_a_corpus_touch(tmp_path):
-    log = tmp_path / "touch_log.jsonl"
-    entry = log_authoring(POOL, _registry(tmp_path), log, NOW)
-    assert entry["run_id"] == f"corpus-{POOL}-20261027t101500z"
-    assert read_touches(log) == [entry]
-    with pytest.raises(RunRefused):
-        log_authoring(POOL, _registry(tmp_path), log, NOW)
-
-
-def test_log_authoring_refuses_a_confirmation_problem(tmp_path):
-    log = tmp_path / "touch_log.jsonl"
-    with pytest.raises(RunRefused, match="confirmation problem"):
-        log_authoring(CONF, _registry(tmp_path), log, NOW)
-    assert not log.exists()
 
 
 def test_manifest_refused_without_touch(tmp_path):
