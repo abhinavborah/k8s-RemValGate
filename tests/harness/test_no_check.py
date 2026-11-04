@@ -362,7 +362,7 @@ def _second_pool(env, **changes):
         ),
         (lambda env: [_second_pool(env, cluster={"nodes": 2})], "no namespace"),
         (lambda env: [_second_pool(env, cluster={"namespace": "default"})], "not a sandbox"),
-        (lambda env: [_second_pool(env, sampling={"temperature": 0.7})], "sampled no"),
+        (lambda env: [_second_pool(env, sampling={"temperature": 0.7})], "no seeds list"),
     ],
 )
 def test_bad_inputs_are_refused_before_any_touch(env, make, match):
@@ -402,3 +402,59 @@ def test_a_pool_run_without_the_seal_is_refused(env):
     with pytest.raises(RunRefused, match="not sealed"):
         _run(env, [_source(env, POOL_A, Slice.POOL, [BINARY])])
     assert _nocheck_touches(env) == []
+
+
+def test_a_run_that_sampled_nothing_is_listed_and_not_touched(env, monkeypatch):
+    a = _source(env, POOL_A, Slice.POOL, [BINARY])
+    # as run_planner_dev records a plan with no diagnosis: no seeds, no candidates
+    empty = {"candidates": [], "draws": 0, "escalated": True}
+    b = _source(env, POOL_B, Slice.POOL, transcript=empty)
+    b.with_suffix(".transcript.json").unlink()
+    read = no_check.read_transcript
+
+    def only_a(path):
+        assert POOL_B not in path.name
+        return read(path)
+
+    monkeypatch.setattr(no_check, "read_transcript", only_a)
+    summary, _ = _run(env, [a, b])
+    assert [t["problem_id"] for t in _nocheck_touches(env)] == [POOL_A]
+    assert summary["no_candidates_run_ids"] == [f"planner-{POOL_B}-20261102t100000z"]
+    assert summary["source_run_ids"] == [f"planner-{POOL_A}-20261102t100000z"]
+    assert (summary["problems"], summary["without_check"]["candidates"]) == (1, 1)
+
+
+def test_only_runs_that_sampled_nothing_give_an_empty_summary(env):
+    empty = {"candidates": [], "draws": 0, "escalated": True}
+    summary, out = _run(env, [_source(env, POOL_A, Slice.POOL, transcript=empty)], start=_never)
+    assert (summary["problems"], summary["without_check"]["removed"]) == (
+        0,
+        {"count": 0, "share": None},
+    )
+    assert out.exists()
+
+
+def _drop(record, field):
+    if field in ("candidates", "draws"):
+        del record[field]
+    elif field == "reason":
+        del record["candidates"][0]["verdict"]["reason"]
+    else:
+        del record["candidates"][0][field]
+
+
+@pytest.mark.parametrize(
+    "field", ["candidates", "draws", "seed", "draw", "command", "verdict", "rejection", "reason"]
+)
+def test_a_transcript_missing_a_field_is_refused_by_name(env, field):
+    record = _transcript([BINARY], namespace=SN)
+    seeds = [c["seed"] for c in record["candidates"]]
+    _drop(record, field)
+    path = _source(env, POOL_A, Slice.POOL, transcript={"candidates": [{"seed": 0}], "draws": 1})
+    path.with_suffix(".transcript.json").write_text(json.dumps(record))
+    manifest = json.loads(path.read_text())
+    manifest["sampling"]["seeds"] = seeds
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match=f"no {field} field|without admitted and reason"):
+        _run(env, [path])
+    assert [t["problem_id"] for t in _nocheck_touches(env)] == [POOL_A]

@@ -51,6 +51,8 @@ def main() -> int:
     except (ValueError, RunRefused) as error:
         raise SystemExit(f"refused: {error}") from error
     print(f"{summary['problems']} problems: {', '.join(summary['source_run_ids'])}")
+    if summary["no_candidates_run_ids"]:
+        print(f"sampled nothing: {', '.join(summary['no_candidates_run_ids'])}")
     print(
         f"resampled={summary['resampled']}"
         f" resampled_without_check={summary['resampled_without_check']}"

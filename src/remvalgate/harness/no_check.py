@@ -17,7 +17,9 @@ refuses the report instead of mixing two policies.
 ablate_runs reads the runs: one per problem, all of one slice and one model and sampling setup,
 all checked before any touch. A pool problem's run gets a nocheck- touch through start_run before
 its transcript is read. A run refused after its touch keeps that touch, since the transcript was
-read; the problems before it keep their results, and no summary is written.
+read; the problems before it keep their results, and no summary is written. A run whose manifest
+records no seeds, as when its plan had no diagnosis, is listed in the summary and not touched,
+since there is no candidate to read.
 """
 
 import dataclasses
@@ -47,6 +49,9 @@ from remvalgate.harness.manifest import (
 
 # the manifest fields every pooled run must share, besides the sampling settings
 _SHARED = ("model_name", "model_version", "k", "r")
+# the transcript fields the analysis reads
+_CANDIDATE_KEYS = ("seed", "draw", "command", "verdict", "rejection")
+_VERDICT_KEYS = ("admitted", "reason")
 
 
 class VerdictMismatch(ValueError):
@@ -175,20 +180,26 @@ def _setup(manifest: Manifest) -> dict:
     }
 
 
-def sources(paths: Sequence[Path], registry: Registry) -> list[tuple[Manifest, Path]]:
+def sources(paths: Sequence[Path], registry: Registry) -> list[tuple[Manifest, Path | None]]:
     """Each run's manifest and transcript path. Reads no transcript, so it logs no touch.
 
-    Raises ValueError for a run with no transcript, no sampled candidate or no valid namespace,
-    for two runs of one problem, and for runs of mixed slices or of a different model or setup.
+    A run whose manifest records no seeds sampled nothing, as when its plan had no diagnosis: its
+    transcript path is None, since the manifest alone says so and nothing needs to be read.
+
+    Raises ValueError for a run with no seeds field, no transcript or no valid namespace, for two
+    runs of one problem, and for runs of mixed slices or of a different model or setup.
     """
     found = []
     for path in paths:
         manifest = read_manifest(path)
         transcript = path.with_suffix(".transcript.json")
-        if not transcript.exists():
+        seeds = manifest.sampling.get("seeds")
+        if not isinstance(seeds, list):
+            raise ValueError(f"{path}: the manifest records no seeds list")
+        if not seeds:
+            transcript = None
+        elif not transcript.exists():
             raise ValueError(f"{path}: no transcript at {transcript}")
-        if not manifest.sampling.get("seeds"):
-            raise ValueError(f"{path}: the run sampled no candidates")
         if "namespace" not in manifest.cluster:
             raise ValueError(f"{path}: the manifest names no namespace")
         validate_namespace(manifest.cluster["namespace"])
@@ -211,6 +222,26 @@ def read_transcript(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def check_transcript(transcript: object, path: Path) -> None:
+    """Raise ValueError naming the first field the analysis reads that the transcript lacks."""
+    if not isinstance(transcript, dict):
+        raise ValueError(f"{path}: the transcript is not a JSON object")
+    for key in ("candidates", "draws"):
+        if key not in transcript:
+            raise ValueError(f"{path}: the transcript has no {key} field")
+    if not isinstance(transcript["candidates"], list):
+        raise ValueError(f"{path}: candidates is not a list")
+    for n, c in enumerate(transcript["candidates"]):
+        missing = [k for k in _CANDIDATE_KEYS if not isinstance(c, dict) or k not in c]
+        if missing:
+            raise ValueError(f"{path}: candidate {n} has no {', '.join(missing)} field")
+        verdict = c["verdict"]
+        if verdict is not None and (
+            not isinstance(verdict, dict) or any(k not in verdict for k in _VERDICT_KEYS)
+        ):
+            raise ValueError(f"{path}: candidate {n} has a verdict without admitted and reason")
+
+
 def ablate_runs(
     paths: Sequence[Path],
     *,
@@ -227,12 +258,19 @@ def ablate_runs(
     """Analyse the runs and write a manifest and a .nocheck.json result per problem, then a
     pooled summary, all under out_dir. Returns the summary and its path.
 
+    A run that sampled nothing is listed in the summary's no_candidates_run_ids and is not
+    touched. problems counts the runs analysed.
+
     Raises ValueError as sources, ablate_problem or the transcript checks do, and RunRefused when
     start_run or write_manifest refuses. start is start_run, replaceable in tests.
     """
     found = sources(paths, registry)
-    results, runs = [], []
+    results, runs, empty = [], [], []
     for source, transcript_path in found:
+        if transcript_path is None:
+            # the manifest says nothing was sampled, so no transcript is read and no touch logged
+            empty.append(source.run_id)
+            continue
         stamp = now()
         run_id = f"nocheck-{source.problem_id}-{stamp.strftime('%Y%m%dt%H%M%Sz')}".lower()
         namespace = source.cluster["namespace"]
@@ -248,6 +286,7 @@ def ablate_runs(
             namespace=namespace,
         )
         transcript = read_transcript(transcript_path)
+        check_transcript(transcript, transcript_path)
         candidates = transcript["candidates"]
         if [c["seed"] for c in candidates] != source.sampling["seeds"]:
             raise ValueError(f"{transcript_path}: the seeds differ from the manifest's")
@@ -295,14 +334,17 @@ def ablate_runs(
         # the runs pooled, so the summary traces to their manifests and touches
         "run_ids": [run_id for run_id, _ in runs],
         "source_run_ids": [s.run_id for _, s in runs],
+        # runs whose plan sampled nothing, as with no diagnosis, so none is dropped silently
+        "no_candidates_run_ids": empty,
         **_setup(first),
-        "model_dates": sorted({s.model_date for _, s in runs}),
+        "model_dates": sorted({s.model_date for s, _ in found}),
         "resampled": sum(r.resampled for r in results),
         "resampled_without_check": sum(r.resampled_without_check for r in results),
         "policy_sha256": policy_sha256,
         "without_check": tally_record(pooled(results, both=False)),
         "both_draws": tally_record(pooled(results, both=True)),
     }
+    out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"nocheck-summary-{now().strftime('%Y%m%dt%H%M%Sz')}.json"
     # mode x: a summary is never overwritten
     with out.open("x", encoding="utf-8", newline="\n") as file:

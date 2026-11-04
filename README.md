@@ -363,10 +363,12 @@ draws are reported too, and replies with no command are counted apart, since the
 them. The inputs are checked before any touch. For a pool problem, reading its transcript is a
 touch: each gets a `nocheck-` run through `start_run` before it is read, so it needs gate G1 and a
 clean checkout. A recorded verdict that the policy file no longer gives, or a transcript that
-disagrees with its manifest, refuses the report after that touch, which is kept, and no summary is
-written. A manifest per problem, its `.nocheck.json` result and a pooled summary that names the
-runs, the model and the sampling setup go to `runs/manifests/`. The pool's sampled candidates come
-from the oracle labelling run (#27).
+disagrees with its manifest or lacks a field the analysis reads, refuses the report after that
+touch, which is kept, and no summary is written. A run whose manifest records no seeds, as when its
+plan had no diagnosis, is listed in the summary's `no_candidates_run_ids` and is not touched. A
+manifest per problem, its `.nocheck.json` result and a pooled summary that names the runs, the
+model and the sampling setup go to `runs/manifests/`. The pool's sampled candidates come from the
+oracle labelling run (#27).
 
 ## Large files
 
