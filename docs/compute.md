@@ -152,8 +152,8 @@ every reset matched the clean snapshot.
 
 The reset that was timed is the harness reset of #13, which returns the cluster to a clean state
 (`recover_fault` and the health wait). The reset between candidates in R3.5, checked against the
-saved post-injection state, was not timed here: #27 owns it, and whether it is a snapshot restore
-or a recovery and a new injection is decided there.
+saved post-injection state, was not timed here. #27 owns it: a recovery and a new injection
+([oracle_labels.md](oracle_labels.md)).
 
 This run replaces an earlier run of 2026-10-29 (commit `257e746`, mean 147.3 s, sd 16.3 s), whose
 reset ran `kubectl wait --for=condition=Ready pods --all` and nothing else. After the Assign
@@ -211,8 +211,8 @@ Limits of the pilot:
   second harm decision, so a mixed set costs more than this mean.
 - The mean depends on the mix of the three problems, and five rollouts give a wide spread.
 - The cost of the oracle labelling in R3.5 is not known. R3.5 needs a harness reset between
-  candidates, checked against the saved post-injection state, and how that reset is done (a
-  snapshot restore, or a recovery and a new injection) has not been timed. As arithmetic only,
+  candidates, checked against the saved post-injection state, and that reset (a recovery and a
+  new injection, [oracle_labels.md](oracle_labels.md)) has not been timed. As arithmetic only,
   128 labelling rollouts at one full rollout each are 128 x 144.8 s, about 5.1 hours; the actual
   cost per candidate may be lower or higher.
 - After the cluster was stopped and started again, the `media-frontend` pod was Ready 15

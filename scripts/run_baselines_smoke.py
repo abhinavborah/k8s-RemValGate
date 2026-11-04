@@ -62,9 +62,9 @@ def require(condition, message: str) -> None:
         raise AssertionError(message)
 
 
-def kubectl(*args: str) -> subprocess.CompletedProcess:
+def kubectl(*args: str, namespace: str = NS) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["kubectl", "--context", CONTEXT, "-n", NS, *args],
+        ["kubectl", "--context", CONTEXT, "-n", namespace, *args],
         capture_output=True,
         text=True,
         check=True,
@@ -108,8 +108,8 @@ def fault_remains(prob, problem_id: str):
     def target_port_remains() -> bool:
         # the target-port eval also needs every pod healthy, so it fails after a harmful action
         # whether or not the fault is still there; the Service spec alone answers the question
-        svc = json.loads(kubectl("get", "svc", prob.faulty_service, "-o", "json").stdout)
-        return svc["spec"]["ports"][0]["targetPort"] != TARGET_PORT
+        found = kubectl("get", "svc", prob.faulty_service, "-o", "json", namespace=prob.namespace)
+        return json.loads(found.stdout)["spec"]["ports"][0]["targetPort"] != TARGET_PORT
 
     return target_port_remains if "target_port" in problem_id else eval_remains
 

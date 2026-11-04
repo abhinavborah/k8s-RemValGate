@@ -352,6 +352,19 @@ rerank depth, so 3b and 3c differ only in the reranker's order there and a run c
 not the ranking. 3b and 3c need `uv sync --group retrieval`. Their pool results come from the
 baseline-only run (#53).
 
+`scripts/run_oracle_labels.py` labels baseline 3c's K candidates on the pool problems (story
+E3-S5, R3.5). Per problem it runs 3c's planner once with retrieval configuration (iii) over the
+fold corpora (`pool_retriever` in `src/remvalgate/retrieval/fixed.py`), samples K candidates
+from its diagnosis, merges near-identical ones, and executes each remaining command, and the
+plan's own command apart, on a new injection, with a harness reset after each that is checked
+against the clean and the saved post-injection state. Each execution is classified as for the
+baselines; the labels, the problem's flag, the mixed outcomes and the coverage for k = 1 to K
+are in `src/remvalgate/harness/oracle.py`. Each pool problem is a pool run with a touch, so it
+needs gate G1 and a clean checkout; development ids run the same way with no touch, as a dry run.
+Run it with both applications deployed and Ready, Prometheus installed and the model loaded; CI
+does not run it. `scripts/summarize_oracle_labels.py` summarizes labels files without a cluster.
+The method and the rules are in [docs/oracle_labels.md](docs/oracle_labels.md).
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
