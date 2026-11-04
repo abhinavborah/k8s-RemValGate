@@ -4,16 +4,19 @@ from pathlib import Path
 
 import pytest
 
+from remvalgate.harness.folds import fault_type, pool_folds, pool_ids
 from remvalgate.harness.manifest import Registry, Slice
-from remvalgate.retrieval import RetrieverRefused
+from remvalgate.retrieval import PastFix, RetrieverRefused, Source
 from remvalgate.retrieval.configs import DenseRerank
 from remvalgate.retrieval.fixed import (
     FIXED_PATH,
     check_fixed,
     configuration_iii,
     development_retriever,
+    pool_retriever,
     settings,
 )
+from remvalgate.retrieval.pool_corpus import RUNBOOK
 from remvalgate.retrieval.stub import STUB_CORPUS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -137,3 +140,39 @@ def test_development_retriever_serves_development_problems_only():
 def test_development_retriever_needs_a_development_problem():
     with pytest.raises(ValueError, match="no development problem"):
         development_retriever(Registry(slices={POOL: Slice.POOL}, placeholder=None), models=MODELS)
+
+
+def _incident(problem_id: str) -> PastFix:
+    return PastFix(
+        entry_id=problem_id,
+        source=Source.INCIDENT,
+        fault_type=fault_type(problem_id),
+        target_service=f"demo-{problem_id}",
+        summary=f"incident {problem_id} of a synthetic fault",
+        fix_command=f"kubectl -n demo patch deployment demo-{problem_id} --type=json",
+    )
+
+
+def test_pool_retriever_serves_each_pool_problem_from_the_fold_that_holds_it_out(monkeypatch):
+    # synthetic ids that carry fault type stems, so no pool problem is read (BRD 7.2); two per
+    # fold, so a retriever that held out only the problem itself would fail
+    pool = [f"synth-{stem}-{i}" for stem in ("revoke_auth", "scale_pod_zero") for i in range(4)]
+    conf = "p-synth-confirmation"
+    slices = {DEV: Slice.DEVELOPMENT, conf: Slice.CONFIRMATION} | dict.fromkeys(pool, Slice.POOL)
+    registry = Registry(slices=slices, placeholder=None)
+    monkeypatch.setattr(
+        "remvalgate.retrieval.fixed.pool_incidents",
+        lambda registry: [_incident(p) for p in pool_ids(registry)],
+    )
+    retriever = pool_retriever(registry, models=MODELS)
+    assignment = pool_folds(registry)
+    assert sorted(assignment.values()) == [0, 0, 1, 1, 2, 2, 3, 3]
+    runbook = {e.entry_id for e in RUNBOOK}
+    for problem_id, fold in assignment.items():
+        # a depth above the corpus size returns the whole corpus
+        hits = retriever.retrieve("pods pending", problem_id, 100)
+        training = {i for i, f in assignment.items() if f != fold}
+        assert {h.entry.entry_id for h in hits} == training | runbook
+    for problem_id in (DEV, conf):
+        with pytest.raises(RetrieverRefused):
+            retriever.retrieve("pods pending", problem_id, 3)
