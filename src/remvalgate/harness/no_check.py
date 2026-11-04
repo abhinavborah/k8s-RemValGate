@@ -4,19 +4,49 @@ The allow-list is applied again to every sampled candidate a run recorded, so it
 measured without running an out-of-policy command: nothing here runs a command or reaches a
 cluster. The planner's own command is not a sampled candidate and is left out.
 
-Two views are reported. The first draw is the headline: without the check no candidate is
-rejected, so the second draw, made only because every candidate of the first was rejected, would
-not be drawn. Both draws together count every candidate sampled. A candidate whose reply held no
+Two views are reported. The headline is the candidates a run without the check would have drawn:
+the first draw, plus the second when every candidate of the first had no command. resample_once
+draws again when every first-draw candidate is rejected; without the check a candidate with a
+command is never rejected, so the second draw is made then only for a first draw with no command
+at all. Both draws together count every candidate sampled. A candidate whose reply held no
 command is counted apart, since the check never saw it. Shares are of all candidates in the view.
 
 Each recorded verdict is compared with the recomputed one, so a policy changed since the run
 refuses the report instead of mixing two policies.
+
+ablate_runs reads the runs: one per problem, all of one slice and one model and sampling setup,
+all checked before any touch. A pool problem's run gets a nocheck- touch through start_run before
+its transcript is read. A run refused after its touch keeps that touch, since the transcript was
+read; the problems before it keep their results, and no summary is written.
 """
 
-from collections.abc import Iterable, Mapping, Sequence
+import dataclasses
+import json
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
-from remvalgate.harness.allowlist import Policy, Reason, ReasonCounts, Verdict, check, reason_counts
+from remvalgate.harness.allowlist import (
+    Policy,
+    Reason,
+    ReasonCounts,
+    Verdict,
+    check,
+    reason_counts,
+    validate_namespace,
+)
+from remvalgate.harness.manifest import (
+    LOGGED,
+    Manifest,
+    Registry,
+    read_manifest,
+    start_run,
+    write_manifest,
+)
+
+# the manifest fields every pooled run must share, besides the sampling settings
+_SHARED = ("model_name", "model_version", "k", "r")
 
 
 class VerdictMismatch(ValueError):
@@ -44,10 +74,13 @@ class Tally:
 @dataclass(frozen=True)
 class ProblemResult:
     problem_id: str
-    first_draw: Tally
+    # the candidates a run without the check would have drawn
+    without_check: Tally
     both_draws: Tally
-    # True when every candidate of the first draw was rejected, so a second draw was made
+    # True when a second draw was made
     resampled: bool
+    # True when the second draw would be made without the check too: no first-draw command
+    resampled_without_check: bool
 
 
 def recheck(candidates: Sequence[Mapping], policy: Policy, namespace: str) -> list[Verdict | None]:
@@ -91,22 +124,26 @@ def ablate_problem(
     draws = [c["draw"] for c in candidates]
     if draws and (draws[0] != 1 or draws != sorted(draws) or not set(draws) <= {1, 2}):
         raise ValueError(f"{problem_id}: expected draw 1, then draw 2 if any, got {draws}")
+    first = [c for c in candidates if c["draw"] == 1]
     # resample_once draws again only when every candidate of the first draw is rejected
-    if 2 in draws and any(c["rejection"] is None for c in candidates if c["draw"] == 1):
+    if 2 in draws and any(c["rejection"] is None for c in first):
         raise ValueError(f"{problem_id}: a second draw after a first with an admitted candidate")
     verdicts = recheck(candidates, policy, namespace)
-    first = [v for v, d in zip(verdicts, draws, strict=True) if d == 1]
+    resampled = 2 in draws
+    again = resampled and all(c["command"] is None for c in first)
+    kept = [v for v, d in zip(verdicts, draws, strict=True) if d == 1 or again]
     return ProblemResult(
         problem_id=problem_id,
-        first_draw=tally(first),
+        without_check=tally(kept),
         both_draws=tally(verdicts),
-        resampled=2 in draws,
+        resampled=resampled,
+        resampled_without_check=again,
     )
 
 
 def pooled(results: Iterable[ProblemResult], both: bool) -> Tally:
-    """The sum over problems of the first draw, or of both draws."""
-    tallies = [r.both_draws if both else r.first_draw for r in results]
+    """The sum over problems of the headline view, or of both draws."""
+    tallies = [r.both_draws if both else r.without_check for r in results]
     by_reason = {reason: sum(t.checked.by_reason[reason] for t in tallies) for reason in Reason}
     return Tally(
         candidates=sum(t.candidates for t in tallies),
@@ -128,3 +165,146 @@ def tally_record(t: Tally) -> dict:
         "no_command": row(t.no_command),
         "by_reason": {reason.value: row(n) for reason, n in t.checked.by_reason.items()},
     }
+
+
+def _setup(manifest: Manifest) -> dict:
+    # the sampling settings apart from the draw seeds, which differ per run
+    return {
+        **{name: getattr(manifest, name) for name in _SHARED},
+        "sampling": {k: v for k, v in manifest.sampling.items() if k != "seeds"},
+    }
+
+
+def sources(paths: Sequence[Path], registry: Registry) -> list[tuple[Manifest, Path]]:
+    """Each run's manifest and transcript path. Reads no transcript, so it logs no touch.
+
+    Raises ValueError for a run with no transcript, no sampled candidate or no valid namespace,
+    for two runs of one problem, and for runs of mixed slices or of a different model or setup.
+    """
+    found = []
+    for path in paths:
+        manifest = read_manifest(path)
+        transcript = path.with_suffix(".transcript.json")
+        if not transcript.exists():
+            raise ValueError(f"{path}: no transcript at {transcript}")
+        if not manifest.sampling.get("seeds"):
+            raise ValueError(f"{path}: the run sampled no candidates")
+        if "namespace" not in manifest.cluster:
+            raise ValueError(f"{path}: the manifest names no namespace")
+        validate_namespace(manifest.cluster["namespace"])
+        found.append((manifest, transcript))
+    if not found:
+        raise ValueError("give at least one run")
+    problems = [m.problem_id for m, _ in found]
+    if len(set(problems)) != len(problems):
+        raise ValueError("give one run per problem, so a problem is not counted twice")
+    slices = {registry.slices.get(p) for p in problems}
+    if len(slices) != 1:
+        raise ValueError(f"give runs of one slice only, got {sorted(map(str, slices))}")
+    setups = [_setup(m) for m, _ in found]
+    if any(s != setups[0] for s in setups):
+        raise ValueError("give runs of one model and one sampling setup, so the pool is one system")
+    return found
+
+
+def read_transcript(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def ablate_runs(
+    paths: Sequence[Path],
+    *,
+    registry: Registry,
+    policy: Policy,
+    policy_sha256: str,
+    touch_log: Path,
+    repo: Path,
+    aiopslab_commit: str | None,
+    out_dir: Path,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    start: Callable = start_run,
+) -> tuple[dict, Path]:
+    """Analyse the runs and write a manifest and a .nocheck.json result per problem, then a
+    pooled summary, all under out_dir. Returns the summary and its path.
+
+    Raises ValueError as sources, ablate_problem or the transcript checks do, and RunRefused when
+    start_run or write_manifest refuses. start is start_run, replaceable in tests.
+    """
+    found = sources(paths, registry)
+    results, runs = [], []
+    for source, transcript_path in found:
+        stamp = now()
+        run_id = f"nocheck-{source.problem_id}-{stamp.strftime('%Y%m%dt%H%M%Sz')}".lower()
+        namespace = source.cluster["namespace"]
+        # the touch comes before the transcript is read
+        run = start(
+            run_id,
+            source.problem_id,
+            registry,
+            touch_log,
+            repo,
+            aiopslab_commit,
+            stamp,
+            namespace=namespace,
+        )
+        transcript = read_transcript(transcript_path)
+        candidates = transcript["candidates"]
+        if [c["seed"] for c in candidates] != source.sampling["seeds"]:
+            raise ValueError(f"{transcript_path}: the seeds differ from the manifest's")
+        result = ablate_problem(source.problem_id, candidates, policy, namespace)
+        if transcript["draws"] != 1 + result.resampled:
+            raise ValueError(
+                f"{transcript_path}: draws {transcript['draws']} disagrees with its candidates"
+            )
+        # the candidates' model, seed and K are the source run's; commit and time are this run's
+        manifest = dataclasses.replace(
+            source,
+            run_id=run_id,
+            slice=run.slice,
+            commit=run.commit,
+            dirty=run.dirty,
+            aiopslab_commit=run.aiopslab_commit,
+            timestamp=run.timestamp,
+            sampling={
+                **source.sampling,
+                "source_run_id": source.run_id,
+                "policy_sha256": policy_sha256,
+            },
+        )
+        path = write_manifest(manifest, run, out_dir, registry, touch_log)
+        record = {
+            "problem_id": result.problem_id,
+            "run_id": run_id,
+            "source_run_id": source.run_id,
+            "resampled": result.resampled,
+            "resampled_without_check": result.resampled_without_check,
+            "without_check": tally_record(result.without_check),
+            "both_draws": tally_record(result.both_draws),
+        }
+        path.with_suffix(".nocheck.json").write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        results.append(result)
+        runs.append((run_id, source))
+    first = found[0][0]
+    slice_ = registry.slices[first.problem_id]
+    summary = {
+        "slice": str(slice_),
+        "logged": slice_ in LOGGED,
+        "problems": len(results),
+        # the runs pooled, so the summary traces to their manifests and touches
+        "run_ids": [run_id for run_id, _ in runs],
+        "source_run_ids": [s.run_id for _, s in runs],
+        **_setup(first),
+        "model_dates": sorted({s.model_date for _, s in runs}),
+        "resampled": sum(r.resampled for r in results),
+        "resampled_without_check": sum(r.resampled_without_check for r in results),
+        "policy_sha256": policy_sha256,
+        "without_check": tally_record(pooled(results, both=False)),
+        "both_draws": tally_record(pooled(results, both=True)),
+    }
+    out = out_dir / f"nocheck-summary-{now().strftime('%Y%m%dt%H%M%Sz')}.json"
+    # mode x: a summary is never overwritten
+    with out.open("x", encoding="utf-8", newline="\n") as file:
+        file.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    return summary, out
