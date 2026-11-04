@@ -20,6 +20,8 @@ then refuses a manifest whose cluster names another namespace. This catches a ru
 the wrong namespace, not one that names the right one and then acts in another.
 
 log_creation appends a creation touch for a problem validated with a known fix, in any slice.
+log_authoring appends an authoring touch for a problem whose definition and known fix were read
+to write its retrieval corpus record.
 """
 
 import dataclasses
@@ -325,6 +327,8 @@ def start_run(
         raise RunRefused("run ids starting with create- are kept for creation touches")
     if run_id.startswith("seal-"):
         raise RunRefused("run ids starting with seal- are kept for seal touches")
+    if run_id.startswith("corpus-"):
+        raise RunRefused("run ids starting with corpus- are kept for authoring touches")
     slice_ = _slice_of(problem_id, registry)
     # the slice is opened once, at the end (R9.6); no run path opens it yet
     if slice_ is Slice.CONFIRMATION:
@@ -396,6 +400,35 @@ def log_creation(
         for e in _sound_touches(Path(log_path))
     ):
         raise RunRefused(f"{problem_id!r} is a confirmation problem already created")
+    entry = {
+        "problem_id": problem_id,
+        "run_id": run_id,
+        "slice": slice_,
+        "timestamp": now.strftime(_TIMESTAMP),
+    }
+    _append_touch(Path(log_path), entry)
+    return entry
+
+
+def log_authoring(
+    problem_id: str, registry: Registry, log_path: str | Path, now: datetime | None = None
+) -> dict:
+    """Append an authoring touch: the problem's definition and known fix were read to write its
+    retrieval corpus record (E4-S8), which is not a run. A confirmation problem is refused.
+
+    The run id is corpus-<problem id>-<UTC time>, so the entry is told apart from a run entry by
+    its prefix.
+    """
+    now = now or datetime.now(UTC)
+    if now.tzinfo is None:
+        raise ValueError("log_authoring now: expected an aware datetime, converted to UTC")
+    slice_ = _slice_of(problem_id, registry)
+    # reading a confirmation problem to write a record is the leak the seal guards against
+    if slice_ is Slice.CONFIRMATION:
+        raise RunRefused(f"{problem_id!r} is a confirmation problem: no corpus record is written")
+    now = now.astimezone(UTC)
+    run_id = f"corpus-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    _check_run_id(run_id, "log_authoring")
     entry = {
         "problem_id": problem_id,
         "run_id": run_id,
