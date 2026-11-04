@@ -21,10 +21,22 @@ def replace_service(command: str, recorded: str, observed: str) -> str:
 
 
 def _in_namespace(command: str, namespace: str) -> str:
+    """Set the command's namespace to the run's: a recorded -n or --namespace is dropped, since a
+    pool record carries the namespace of its own incident, which may be the other app's.
+
+    Only kubectl's own arguments are read; everything after an exec's -- is kept as it is.
+    """
     tokens = shlex.split(command)
-    if any(t in ("-n", "--namespace") or t.startswith("--namespace=") for t in tokens):
-        return command
-    return shlex.join([tokens[0], "-n", namespace, *tokens[1:]])
+    cut = tokens.index("--") if "--" in tokens else len(tokens)
+    kept, skip = [], False
+    for token in tokens[1:cut]:
+        if skip:
+            skip = False
+        elif token in ("-n", "--namespace"):
+            skip = True
+        elif not (token.startswith("--namespace=") or token.startswith("-n")):
+            kept.append(token)
+    return shlex.join([tokens[0], "-n", namespace, *kept, *tokens[cut:]])
 
 
 def retrieval_only(
