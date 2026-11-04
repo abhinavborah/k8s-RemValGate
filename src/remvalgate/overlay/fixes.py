@@ -5,7 +5,7 @@ Kept apart from that script, which imports aiopslab, so a test checks the keys i
 
 import json
 import shlex
-from collections.abc import Iterable, Mapping, Set
+from collections.abc import Callable, Iterable, Mapping, Set
 
 # the targetPort the target-port problem breaks and its known fix restores
 TARGET_PORT = 9090
@@ -97,6 +97,33 @@ def exec_shell(command: str, timeout: int | None = None) -> str:
         )
     extra = "" if timeout is None else f", timeout={int(timeout)}"
     return action('exec_shell("' + command.replace('"', '\\"') + '"' + extra + ")")
+
+
+class CannotSend(Exception):
+    """A free-form command that cannot reach exec_shell unchanged, so it is not applied."""
+
+
+def carried_action(command: str, parse: Callable[[str], dict], *, strict: bool) -> str:
+    """The exec_shell action for command, checked against the Orchestrator's parser.
+
+    A command the parser would change would run something else than was chosen: one ending in a
+    double quote, or a backslash before a single quote, which the parser drops. strict suits the
+    template baselines, whose commands are known to carry, so such a command is a bug and raises
+    ValueError or AssertionError. Not strict, as for the planner's free-form command, it raises
+    CannotSend before anything runs.
+    """
+    try:
+        action = exec_shell(command)
+    except ValueError as error:
+        if strict:
+            raise
+        raise CannotSend(str(error)) from None
+    if parse(action)["args"] != [command]:
+        if strict:
+            # not assert, which python -O strips
+            raise AssertionError(f"the parser changed {command!r}")
+        raise CannotSend(f"the parser changes the command: {command}")
+    return action
 
 
 def tool_call(tool: str, arguments: Mapping[str, object]) -> str:

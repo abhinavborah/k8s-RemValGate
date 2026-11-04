@@ -27,9 +27,17 @@ transcript records the judge's model and whether it shares the planner's family.
 points the client at a server that is not on localhost, for example LM Studio on the Windows host
 seen from WSL.
 
+Story E6-S2 adds --baseline 3a, 3b or 3c: the untuned planner with retrieval configuration (i),
+(ii) or (iii). Its action is the planner's own command, so no candidates are sampled and the
+--candidates, --judge and --escalate-when-unsure flags are refused. Here the command is applied:
+an admitted command goes through the Orchestrator's exec_shell handler after the diagnosis check,
+the outcome is classified after the settle window as for baselines 1 and 2, and the reset is
+compared with the clean state. A turn-capped plan or a rejected command is classified as not
+applied.
+
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
         [--no-thinking] [--problem ID ...] [--candidates K] [--base-url URL] \
-        [--escalate-when-unsure] [--judge]
+        [--escalate-when-unsure] [--judge] [--baseline 3a|3b|3c]
 """
 
 import argparse
@@ -49,12 +57,16 @@ from aiopslab.generators.workload.wrk import Wrk
 from aiopslab.orchestrator.problems.k8s_target_port_misconfig.helpers import get_frontend_url
 from aiopslab.paths import config
 from aiopslab.session import Session
+from run_baselines_smoke import act
+from run_baselines_smoke import reset as reset_and_compare
 from run_dev_end_to_end import NS, TOUCH_LOG, check, kubectl, reset, snapshot
 
 from remvalgate.aiopslab_pin import pinned_commit
 from remvalgate.baselines.judge import JudgeModel, judge
+from remvalgate.baselines.untuned import CONFIGURATIONS, conflicting_flags, untuned_retriever
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.cluster_state import changed
+from remvalgate.harness.harm import SETTLE_SECONDS, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
     Manifest,
@@ -171,6 +183,7 @@ async def run_problem(
     retriever,
     escalate_when_unsure: bool = False,
     judge_chat=None,
+    baseline: str | None = None,
 ) -> dict:
     prob = orch.probs.get_problem_instance(problem_id)
     # the snapshot, reset, observation and fixes below are for Social Network only
@@ -212,10 +225,12 @@ async def run_problem(
         )
         draws = None
         scores = ()
+        applied = {}
         # an escalated or turn-capped plan has no diagnosis, so nothing is sampled or judged.
         # Baseline 7's action is the plan's own command or its escalation, so it samples none:
-        # draws under its prompt could escalate, and sample would count that as malformed
-        if result.diagnosis is not None and not escalate_when_unsure:
+        # draws under its prompt could escalate, and sample would count that as malformed.
+        # Baselines 3a to 3c act on the plan's own command, so they sample none either
+        if result.diagnosis is not None and not escalate_when_unsure and baseline is None:
             draws = await asyncio.to_thread(
                 resample_once,
                 result,
@@ -233,14 +248,55 @@ async def run_problem(
         orch.session.end()
         left = changed(injected, snapshot())
         check(not left, f"the diagnosis changed the cluster: {left}")
+        if baseline is not None:
+            # the one action: admitted or not, applied through the Orchestrator and classified
+            # after the settle window, as baselines 1 and 2 are
+            pre = parse_pods(kubectl_pods(NS, "kind-kind"), NS)
+            policy = load_policy(DEFAULT_POLICY_PATH)
+            # the command is free-form: one kubectl rejects or the parser cannot carry is
+            # classified, not raised
+            verdict, outcome, sent, note = await act(
+                orch,
+                prob,
+                problem_id,
+                result.command,
+                policy,
+                SETTLE_SECONDS,
+                pre,
+                results_dir,
+                strict=False,
+            )
+            applied = {
+                "baseline": baseline,
+                "allow_list": None if verdict is None else (verdict.reason or "admitted"),
+                "outcome": str(outcome),
+                # an admitted command the parser cannot carry is not sent: a harness limit
+                "sent": sent,
+                "action_note": note,
+            }
+            # written before the compared reset, which stops the run if the action changed
+            # something the recover step does not undo, so that case keeps its record
+            results_dir.mkdir(parents=True, exist_ok=True)
+            (results_dir / "action.json").write_text(
+                json.dumps(
+                    {"problem_id": problem_id, "command": result.command, **applied},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
     finally:
         remove_workload()
-        reset(prob)
+        # an applied action can change more than the fault, so the reset is compared too
+        if baseline is not None:
+            reset_and_compare(prob, clean)
+        else:
+            reset(prob)
     return (
         dataclasses.asdict(result)
         | {"first_observation": first}
         | draw_record(result, draws)
         | {"judge_scores": [dataclasses.asdict(s) for s in scores]}
+        | applied
     )
 
 
@@ -251,12 +307,25 @@ def main() -> int:
     parser.add_argument("--problem", action="append", choices=PROBLEMS)
     parser.add_argument("--seed", type=int, default=0)
     # K = 8 is the submitted proposal's value, not group-confirmed; the timing pilot may change it
-    parser.add_argument("--candidates", type=int, default=8, help="K, candidates per problem")
+    parser.add_argument("--candidates", type=int, help="K, candidates per problem (default 8)")
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
     parser.add_argument("--escalate-when-unsure", action="store_true", help="baseline 7")
     parser.add_argument("--judge", action="store_true", help="baseline 6")
+    parser.add_argument(
+        "--baseline", choices=sorted(CONFIGURATIONS), help="untuned planner 3a, 3b or 3c"
+    )
     args = parser.parse_args()
-    if args.candidates < 1:
+    if args.baseline:
+        conflicts = conflicting_flags(
+            judge=args.judge,
+            escalate_when_unsure=args.escalate_when_unsure,
+            candidates=args.candidates,
+        )
+        if conflicts:
+            parser.error(f"--baseline acts on the planner's own command; drop {conflicts}")
+    elif args.candidates is None:
+        args.candidates = 8
+    if args.candidates is not None and args.candidates < 1:
         parser.error("--candidates must be at least 1")
     # the judge would score candidates of the escalate-prompted planner, which is neither baseline
     if args.judge and args.escalate_when_unsure:
@@ -264,8 +333,11 @@ def main() -> int:
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    # configuration (iii), loaded once: the models take a while to load
-    retriever = development_retriever(registry)
+    # configuration (iii), or the baseline's, loaded once: the models take a while to load
+    if args.baseline:
+        retriever = untuned_retriever(args.baseline, registry)
+    else:
+        retriever = development_retriever(registry)
     # thinking can use most of a turn's tokens before any content appears, so it gets more room
     chat = OpenAIChat(
         model=MODEL,
@@ -288,6 +360,7 @@ def main() -> int:
             mode = "think" if args.thinking else "nothink"
             mode += "-escalate" if args.escalate_when_unsure else ""
             mode += "-judge" if args.judge else ""
+            mode += f"-baseline{args.baseline}" if args.baseline else ""
             run_id = f"planner-{problem_id}-{mode}-{now.strftime('%Y%m%dt%H%M%Sz')}".lower()
             run = start_run(run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now)
             orch = new_orchestrator(results_dir=OUT_DIR / run_id)
@@ -303,6 +376,7 @@ def main() -> int:
                     retriever,
                     args.escalate_when_unsure,
                     judge_chat,
+                    args.baseline,
                 )
             )
             manifest = Manifest(
@@ -315,7 +389,8 @@ def main() -> int:
                 model_version=f"{args.model_version}; thinking={'on' if args.thinking else 'off'}",
                 model_date=now.strftime("%Y-%m-%d"),
                 seed=args.seed,
-                k=args.candidates,
+                # a 3a to 3c run applies one action and samples no candidate
+                k=1 if args.baseline else args.candidates,
                 r=1,
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": "kind-kind", "namespace": NS, "nodes": 2},
@@ -331,6 +406,7 @@ def main() -> int:
                     "seeds": [c["seed"] for c in transcript["candidates"]],
                     # which baseline ran and how the judge scored, so the manifest alone says so
                     "escalate_when_unsure": args.escalate_when_unsure,
+                    "baseline": args.baseline,
                     **(
                         {"judge": dataclasses.asdict(judge_model) | dataclasses.asdict(judge_chat)}
                         if judge_chat is not None
@@ -347,6 +423,7 @@ def main() -> int:
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
                 "retrieval_k": defaults["k"].default,
                 "escalate_when_unsure": args.escalate_when_unsure,
+                "baseline": args.baseline,
             }
             if judge_chat is not None:
                 # the shared family is a confound of every judge score in this run
@@ -378,6 +455,11 @@ def main() -> int:
             )
             if transcript["escalation"] is not None:
                 print(f"  escalated: {transcript['escalation']}")
+            if args.baseline:
+                print(
+                    f"  baseline {args.baseline}: allow_list={transcript['allow_list']}"
+                    f" outcome={transcript['outcome']} note={transcript['action_note']!r:.200}"
+                )
             if judge_chat is not None:
                 judged = transcript["judge_scores"]
                 print(

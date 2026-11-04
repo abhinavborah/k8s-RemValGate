@@ -17,7 +17,8 @@ from remvalgate.planner.loop import (
     task_text,
 )
 from remvalgate.retrieval import RetrieverRefused
-from remvalgate.retrieval.stub import DevStubRetriever
+from remvalgate.retrieval.configs import NoRetrieval
+from remvalgate.retrieval.stub import STUB_CORPUS, DevStubRetriever
 
 NS = "test-social-network"
 DEV, POOL = "p-synth-dev", "p-synth-pool"
@@ -64,7 +65,14 @@ class FakeTools:
         return self._output
 
 
-def run(replies, fake=None, problem=DEV, observation="media-service has no pods", **kwargs):
+def run(
+    replies,
+    fake=None,
+    problem=DEV,
+    observation="media-service has no pods",
+    retriever=RETRIEVER,
+    **kwargs,
+):
     fake = fake or FakeTools()
     chat = FakeChat(replies)
     result = plan(
@@ -74,7 +82,7 @@ def run(replies, fake=None, problem=DEV, observation="media-service has no pods"
         NS,
         chat=chat,
         run_tool=fake,
-        retriever=RETRIEVER,
+        retriever=retriever,
         policy=POLICY,
         schemas=SCHEMAS,
         **kwargs,
@@ -150,6 +158,28 @@ def test_the_prompt_carries_the_namespace_the_fault_types_and_retrieved_fixes():
     system, user = chat.seen[0][0]["content"], chat.seen[0][1]["content"]
     assert NS in system and all(t in system for t in FAULT_TYPES)
     assert "Fix: kubectl" in user and "media-service has no pods" in user
+
+
+def test_the_task_prompt_lists_the_retrieved_fixes_after_the_cluster_state():
+    result, _, chat = run([final()])
+    past = "\n".join(
+        f"- {e.fault_type} on {e.target_service}: {e.summary}. Fix: {e.fix_command}"
+        for e in (h.entry for h in RETRIEVER.retrieve("media-service has no pods", DEV, 3))
+    )
+    assert chat.seen[0][1]["content"] == (
+        "users report errors\n\nCluster state:\nmedia-service has no pods\n\n"
+        f"Past fixes that may be similar:\n{past}"
+    )
+    assert len(result.retrieved) == 3
+
+
+def test_with_no_retrieval_the_task_prompt_has_no_past_fixes_section():
+    none = NoRetrieval({DEV: -1}, {-1: STUB_CORPUS})
+    result, _, chat = run([final()], retriever=none)
+    assert chat.seen[0][1]["content"] == (
+        "users report errors\n\nCluster state:\nmedia-service has no pods"
+    )
+    assert result.retrieved == ()
 
 
 def test_a_problem_outside_development_is_refused_before_any_model_call():

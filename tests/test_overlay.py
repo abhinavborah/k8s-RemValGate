@@ -23,7 +23,14 @@ from remvalgate.harness.manifest import (
 )
 from remvalgate.overlay import confirmation
 from remvalgate.overlay.checks import has_available_replica, poll_until
-from remvalgate.overlay.fixes import FIXES, exec_shell, known_fix, select
+from remvalgate.overlay.fixes import (
+    FIXES,
+    CannotSend,
+    carried_action,
+    exec_shell,
+    known_fix,
+    select,
+)
 
 
 def _factory():
@@ -176,6 +183,43 @@ def test_a_command_ending_in_a_double_quote_is_refused_before_the_parser_loses_i
     assert parser.parse(reply)["args"] != [lossy]
     with pytest.raises(ValueError):
         exec_shell(lossy)
+
+
+# a backslash before a single quote reaches the parser, which drops the backslash
+LOSSY_COMMANDS = [
+    'kubectl -n test-social-network get pods -l "app=a"',
+    "kubectl -n test-social-network annotate deployment a note='it\\'s'",
+]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "kubectl -n test-social-network scale deployment media-service --replicas=1",
+        'kubectl -n test-social-network get pods -l "app=a" -o name',
+        "kubectl -n test-social-network get pods -o jsonpath='{.items[0].metadata.name}'",
+    ],
+)
+@pytest.mark.parametrize("strict", [False, True])
+def test_a_command_the_parser_keeps_is_carried(upstream_parser, command, strict):
+    action = carried_action(command, upstream_parser.parse, strict=strict)
+    assert upstream_parser.parse(action)["args"] == [command]
+
+
+@pytest.mark.parametrize("command", LOSSY_COMMANDS)
+def test_a_command_the_parser_would_change_cannot_be_sent(upstream_parser, command):
+    # the planner's free-form command: classified as not applied, never run changed
+    with pytest.raises(CannotSend):
+        carried_action(command, upstream_parser.parse, strict=False)
+
+
+@pytest.mark.parametrize(
+    ("command", "error"), [(LOSSY_COMMANDS[0], ValueError), (LOSSY_COMMANDS[1], AssertionError)]
+)
+def test_strict_still_raises_on_a_command_the_parser_would_change(upstream_parser, command, error):
+    # a template baseline's command is known to carry, so a change is a bug, not an outcome
+    with pytest.raises(error):
+        carried_action(command, upstream_parser.parse, strict=True)
 
 
 def test_the_target_port_fix_patches_to_the_shared_port():
