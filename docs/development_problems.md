@@ -30,8 +30,8 @@ The ids start with `dev-`, which no upstream id does, so the overlay registratio
 The ids are in `src/remvalgate/harness/slices.json` under `development`, beside the 9 current
 pool problems. The pool follows BRD R3.2 (`docs/brd.md`), which puts ScalePod and
 AssignNonExistentNode in the pool, as the inventory (`docs/problem_inventory.md`) now records.
-The five singleton ids are listed under `singleton` (R3.6); their runs are logged and refused
-like pool runs. The
+The five singleton ids are listed under `singleton` (R3.6); their runs are logged and subject
+to the same refusals as pool runs. The
 registry loader refuses an id in more than one slice, and a test loads the committed registry.
 
 ## Reserved services

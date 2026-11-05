@@ -493,11 +493,12 @@ def test_unpinned_aiopslab_allowed_for_development(tmp_path):
     assert start.slice is Slice.DEVELOPMENT
 
 
-def test_dirty_tree_refused_for_logged_slice(tmp_path):
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
+def test_dirty_tree_refused_for_logged_slice(tmp_path, problem_id):
     repo = _repo(tmp_path)
     (repo / "code.py").write_text("x = 2\n")
     with pytest.raises(RunRefused, match="uncommitted"):
-        _start(tmp_path, POOL, repo=repo)
+        _start(tmp_path, problem_id, repo=repo)
     assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
@@ -750,10 +751,11 @@ def _create(log, problem_id):
     log_creation(problem_id, load_registry(log.parents[2] / "slices.json"), log, NOW)
 
 
-def test_pool_run_refused_before_the_seal(tmp_path):
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
+def test_pool_run_refused_before_the_seal(tmp_path, problem_id):
     repo, registry, log = _unsealed(tmp_path)
     with pytest.raises(RunRefused, match="not sealed .gate G1"):
-        start_run("run-0001", POOL, registry, log, repo, PIN, NOW, checksum=_sum)
+        start_run("run-0001", problem_id, registry, log, repo, PIN, NOW, checksum=_sum)
     assert read_touches(log) == []
 
 

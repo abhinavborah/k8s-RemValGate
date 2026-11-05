@@ -383,7 +383,7 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   training: no fold holds them, so no gate, planner or retrieval corpus is trained on them. They
   form the exploratory generalization check (BRD R3.6, R9.5), reported descriptively only, since
   five types are too few for a quantitative claim. Their runs are logged as evaluation-set touches
-  and refused like pool runs, each in its own namespace: `test-hotel-reservation` for rows 9, 13
+  and subject to the same refusals as pool runs, each in its own namespace: `test-hotel-reservation` for rows 9, 13
   and 14, `astronomy-shop` for row 12 and `test-social-network` for row 8. BRD 7.3 names only the
   pool and the confirmation slice as touches; logging the singleton runs as well follows the E3-S6
   acceptance criteria. Decided in #28 by a group member, pending group confirmation.
