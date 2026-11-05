@@ -1,8 +1,10 @@
 # Pool queries
 
 Story E3-S7 (#29), requirement R3.7. One fixed telemetry query per pool incident, recorded after
-the injection, for the intrinsic retrieval metrics (#32) and reused by oracle labelling (#27), so
-neither records its own.
+the injection, for the intrinsic retrieval metrics (#32), so they do not record their own. Oracle
+labelling (#27) does not reuse these queries: its planner retrieves with its own first observation
+of the live cluster, since a recorded one names pods that a new injection replaces (BRD version
+1.10, proposed, pending group confirmation).
 
 ## What the query is
 

@@ -6,18 +6,22 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
+from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, check_chain, load_policy
 from remvalgate.harness.harm import Reason, Status
+from remvalgate.harness.manifest import Slice
 from remvalgate.harness.oracle import (
+    Clean,
     Label,
     ProblemLabels,
     coverage,
     dedup_key,
     fault_shows,
     label_problem,
+    one_slice,
     originals,
     pass_at_k,
     read_labels,
+    reset_namespace,
     smallest_k,
     summary,
 )
@@ -106,6 +110,15 @@ def test_an_exec_command_compares_token_for_token():
     assert not _same(a, b)
 
 
+def test_a_chain_compares_part_by_part_in_order():
+    chain = f"{SCALE} && {RESTART}"
+    assert _same(
+        chain, f"{SCALE.replace('=', ' ')} && kubectl  -n {NS} rollout restart deployment/svc-b"
+    )
+    assert not _same(chain, SCALE)
+    assert not _same(chain, f"{RESTART} && {SCALE}")
+
+
 def test_originals_points_each_command_at_its_first_twin():
     twin = SCALE.replace("=", " ")
     assert originals([SCALE, PATCH, twin, None, PATCH, RESTART], POLICY) == [0, 1, 0, None, 1, 5]
@@ -183,6 +196,19 @@ def test_the_plans_command_takes_the_label_of_a_candidate_it_duplicates():
     assert run.calls == [SCALE, PATCH]
     assert labels.plan.duplicate_of == 0
     assert labels.plan.outcome is Outcome.RECOVERED
+
+
+def test_a_chained_plan_command_is_admitted_as_3c_admits_it_and_runs():
+    chain = f"{SCALE} && {RESTART}"
+    # sample admits the K with check, 3c's action path with check_chain
+    assert not check(chain, POLICY, NS).admitted
+    assert check_chain(chain, POLICY, NS).admitted
+    run = FakeRun(
+        {SCALE: Outcome.RECOVERED, PATCH: Outcome.APPLIED_INEFFECTIVE, chain: Outcome.RECOVERED}
+    )
+    labels = label_problem("p-synth", CANDIDATES, (chain, None), run, POLICY)
+    assert run.calls == [SCALE, PATCH, chain]
+    assert labels.plan == Label(None, chain, None, None, Outcome.RECOVERED)
 
 
 def test_a_rejected_plan_command_is_never_run():
@@ -424,3 +450,111 @@ def test_fault_shows(fault_type, service, status, shows):
 def test_fault_shows_refuses_an_unknown_fault_type():
     with pytest.raises(ValueError, match="unknown fault type"):
         fault_shows("PodKill", "svc-a", {})
+
+
+# --- the reset between executions ---------------------------------------------------------------
+
+DEPLOY = {"spec": {"replicas": 1}}
+SERVICE = {"spec": {"ports": [{"targetPort": 8080}]}}
+CLEAN = Clean(
+    objects={"Deployment/svc-a": DEPLOY, "Service/svc-a": SERVICE},
+    sent={"Deployment/svc-a": {"sent": "deploy"}, "Service/svc-a": {"sent": "service"}},
+    workloads=frozenset({"Deployment/svc-a"}),
+)
+
+
+class FakeNamespace:
+    """Stands in for the kubectl calls of one reset: live returns each listing in turn, and every
+    call is recorded in order."""
+
+    def __init__(self, listings, eval_succeeds=True):
+        self.listings = iter(listings)
+        self.succeeds = eval_succeeds
+        self.calls = []
+
+    def reset(self, problem_id):
+        reset_namespace(
+            problem_id,
+            CLEAN,
+            recover=lambda: self.calls.append("recover"),
+            live=lambda: next(self.listings),
+            put=lambda verb, obj: self.calls.append((verb, obj)),
+            rolled_out=lambda ref: self.calls.append(("rolled_out", ref)),
+            wait_healthy=lambda: self.calls.append("wait_healthy"),
+            eval_succeeds=lambda: self.calls.append("eval") or self.succeeds,
+        )
+
+
+SCALE_ID = "scale_pod_zero-synth"
+REVOKE_ID = "revoke_auth-synth"
+
+
+def test_a_reset_with_nothing_left_changed_puts_nothing_back():
+    fake = FakeNamespace([CLEAN.objects, CLEAN.objects])
+    fake.reset(SCALE_ID)
+    assert fake.calls == ["recover", "wait_healthy"]
+
+
+def test_a_reset_puts_back_what_a_command_changed_and_waits_for_deployments_only():
+    left = {"Deployment/svc-a": {"spec": {"replicas": 3}}, "Service/svc-a": {"spec": {}}}
+    fake = FakeNamespace([left, CLEAN.objects])
+    fake.reset(SCALE_ID)
+    assert fake.calls == [
+        "recover",
+        ("replace", {"sent": "deploy"}),
+        ("rolled_out", ("Deployment", "svc-a")),
+        ("replace", {"sent": "service"}),
+        "wait_healthy",
+    ]
+
+
+@pytest.mark.parametrize(
+    "live",
+    [
+        # an object a command added, and one it removed: neither is put back
+        {**CLEAN.objects, "Deployment/svc-new": DEPLOY},
+        {"Deployment/svc-a": DEPLOY},
+    ],
+)
+def test_a_reset_stops_on_an_object_added_or_removed(live):
+    fake = FakeNamespace([live, live])
+    with pytest.raises(AssertionError, match="reset left the namespace changed"):
+        fake.reset(SCALE_ID)
+    assert not [c for c in fake.calls if isinstance(c, tuple)]
+
+
+def test_a_reset_stops_when_the_put_back_leaves_an_object_changed():
+    left = {**CLEAN.objects, "Service/svc-a": {"spec": {}}}
+    fake = FakeNamespace([left, left])
+    with pytest.raises(AssertionError, match=r"Service/svc-a"):
+        fake.reset(SCALE_ID)
+    assert ("replace", {"sent": "service"}) in fake.calls
+
+
+def test_only_a_database_problem_runs_its_eval_after_the_reset():
+    fake = FakeNamespace([CLEAN.objects, CLEAN.objects])
+    fake.reset(REVOKE_ID)
+    assert fake.calls == ["recover", "wait_healthy", "eval"]
+    failing = FakeNamespace([CLEAN.objects, CLEAN.objects], eval_succeeds=False)
+    with pytest.raises(AssertionError, match="eval fails after the reset"):
+        failing.reset(REVOKE_ID)
+
+
+# --- one slice per summary ----------------------------------------------------------------------
+
+SLICES = {"p-a": Slice.POOL, "p-b": Slice.POOL, "d-a": Slice.DEVELOPMENT}
+
+
+def test_one_slice_accepts_problems_of_one_slice():
+    one_slice(["p-a", "p-b"], SLICES)
+    one_slice(["d-a"], SLICES)
+
+
+def test_one_slice_refuses_the_pool_with_a_dry_run():
+    with pytest.raises(ValueError, match="mix slices: development, pool"):
+        one_slice(["p-a", "d-a"], SLICES)
+
+
+def test_one_slice_refuses_a_problem_outside_the_registry():
+    with pytest.raises(ValueError, match="not in the registry: x"):
+        one_slice(["p-a", "x"], SLICES)

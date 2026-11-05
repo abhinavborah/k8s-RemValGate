@@ -3,7 +3,8 @@
 scripts/run_oracle_labels.py executes every candidate of baseline 3c once, with a harness reset
 between candidates, and classifies each execution with the outcome classifier. This module holds
 the logic that needs no cluster: which candidates are near-identical, the labels of a problem, the
-coverage estimate for k = 1 to K, the rule for K, and when an injected fault shows in pod status.
+coverage estimate for k = 1 to K, the rule for K, when an injected fault shows in pod status, and
+the reset between executions, with its kubectl calls passed in.
 
 A candidate worked when its execution is RECOVERED. APPLIED_HARMFUL never counts as working, even
 when the fault is gone, since the classifier puts harm first. A candidate the allow-list rejected,
@@ -19,7 +20,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 
-from remvalgate.harness.allowlist import Policy, parse_args, tokenize
+from remvalgate.harness.allowlist import Policy, parse_args, split_chain, tokenize
+from remvalgate.harness.cluster_state import changed
+from remvalgate.harness.folds import fault_type as fault_type_of
 from remvalgate.harness.harm import Reason, Status
 from remvalgate.harness.outcome import Outcome
 
@@ -43,7 +46,7 @@ def _json_form(value: str | None) -> str | None:
 
 
 def dedup_key(command: str, policy: Policy) -> tuple:
-    """The form two near-identical commands share: the same kubectl call once the shell's quoting
+    """The form two near-identical commands share: the same kubectl calls once the shell's quoting
     is removed.
 
     Flags compare by name and value in any order, with --flag=value read as --flag value; a flag
@@ -51,9 +54,13 @@ def dedup_key(command: str, policy: Policy) -> tuple:
     parsed JSON with sorted keys, so spacing and key order do not count, and a list keeps its
     order. Positional arguments and what an exec runs after -- compare token for token, so deploy
     and deployment, -p and --patch, or two values stay apart: only commands that make the same
-    call are merged. Meant for admitted commands: one the allow-list's tokenizer refuses raises
-    Rejected.
+    call are merged. A chain (a && b, as check_chain admits it) has one form per part, in order.
+    Meant for admitted commands: one the allow-list's tokenizer refuses raises Rejected.
     """
+    return tuple(_call_key(part, policy) for part in split_chain(command))
+
+
+def _call_key(command: str, policy: Policy) -> tuple:
     argv = tokenize(command)
     parsed = parse_args(argv[1:], policy)
     # sorted is stable, so a repeated flag keeps the order of its values
@@ -229,6 +236,58 @@ def label_problem(
     )
 
 
+@dataclass(frozen=True)
+class Clean:
+    """One namespace before any injection."""
+
+    # the Services and Deployments as compared, and as sent back by kubectl replace
+    objects: dict
+    sent: dict
+    # every workload in the pod status, all healthy
+    workloads: frozenset[str]
+
+
+def reset_namespace(
+    problem_id: str,
+    clean: Clean,
+    *,
+    recover: Callable[[], None],
+    live: Callable[[], dict],
+    put: Callable[[str, dict], None],
+    rolled_out: Callable[[tuple[str, str]], None],
+    wait_healthy: Callable[[], None],
+    eval_succeeds: Callable[[], bool],
+) -> None:
+    """The reset between executions: AIOpsLab's recover step, then each Service and Deployment that
+    still differs from the clean state put back, then the checks.
+
+    recover is the problem's recover step, live returns the namespace's objects in the compared
+    form, put("replace", obj) writes one, rolled_out waits for one Deployment's rollout,
+    wait_healthy waits until every clean workload is healthy, and eval_succeeds runs the problem's
+    mitigation eval. Raises AssertionError when the namespace still differs from the clean state,
+    or when a database problem's eval fails, so a failed reset stops the labelling.
+    """
+    recover()
+    now = live()
+    for key in changed(clean.objects, now):
+        # an object added or removed cannot be put back here; the comparison below stops the run
+        if key in clean.objects and key in now:
+            put("replace", clean.sent[key])
+            kind, name = key.split("/", 1)
+            # the old pods still count as healthy until the new ones replace them
+            if kind == "Deployment":
+                rolled_out((kind, name))
+    # recover_fault returns without waiting after it deletes and applies a Deployment
+    wait_healthy()
+    left = changed(clean.objects, live())
+    if left:
+        raise AssertionError(f"{problem_id}: the reset left the namespace changed: {left}")
+    # no Kubernetes object holds the MongoDB users and roles, so the problem's own eval, which
+    # waits its settle window for every pod to be healthy, checks the reset
+    if fault_type_of(problem_id) in DATABASE_TYPES and not eval_succeeds():
+        raise AssertionError(f"{problem_id}: the eval fails after the reset")
+
+
 def pass_at_k(n: int, c: int, k: int) -> Fraction:
     """The unbiased estimate that at least one of k candidates drawn from n works, when c of the n
     work: 1 - C(n - c, k) / C(n, k) (Chen et al. 2021, arXiv 2107.03374, equation 1). It is 1
@@ -267,6 +326,17 @@ def smallest_k(counts: Sequence[tuple[int, int]]) -> int:
         raise ValueError("no problem has candidates")
     full = coverage(counts, size)
     return next(k for k in range(1, size + 1) if coverage(counts, k) == full)
+
+
+def one_slice(problem_ids: Sequence[str], slices: Mapping[str, object]) -> None:
+    """Raises ValueError unless every problem is in the registry's slices and all are of one slice,
+    so a summary never mixes the pool with a development dry run."""
+    unknown = sorted(i for i in problem_ids if i not in slices)
+    if unknown:
+        raise ValueError(f"not in the registry: {', '.join(unknown)}")
+    found = sorted({str(slices[i]) for i in problem_ids})
+    if len(found) > 1:
+        raise ValueError(f"the labels files mix slices: {', '.join(found)}")
 
 
 def summary(problems: Sequence[ProblemLabels]) -> dict:

@@ -69,7 +69,7 @@ from run_planner_dev import MODEL, prometheus_port_forward, remove_workload, sta
 from summarize_oracle_labels import summarize
 
 from remvalgate.aiopslab_pin import pinned_commit
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
+from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check_chain, load_policy
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.execute import kubectl_rolled_out
 from remvalgate.harness.folds import fault_type
@@ -83,7 +83,13 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
-from remvalgate.harness.oracle import DATABASE_TYPES, fault_shows, label_problem
+from remvalgate.harness.oracle import (
+    DATABASE_TYPES,
+    Clean,
+    fault_shows,
+    label_problem,
+    reset_namespace,
+)
 from remvalgate.harness.outcome import Outcome, classify, single_action_result
 from remvalgate.harness.snapshot import kubectl_put, strip
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
@@ -120,17 +126,6 @@ def pods(namespace: str) -> dict:
 
 def pod_names(namespace: str) -> set[str]:
     return set(kubectl("-n", namespace, "get", "pods", "-o", "name").stdout.split())
-
-
-@dataclasses.dataclass(frozen=True)
-class Clean:
-    """One namespace before any injection."""
-
-    # the Services and Deployments as compared, and as sent back by kubectl replace
-    objects: dict
-    sent: dict
-    # every workload in the pod status, all healthy
-    workloads: frozenset[str]
 
 
 def clean_state(namespace: str) -> Clean:
@@ -172,28 +167,19 @@ def wait_for_fault(prob, problem_id: str) -> dict:
 
 
 def reset(prob, problem_id: str, clean: Clean) -> None:
-    """AIOpsLab's recover step, then what a command left changed put back, then the checks."""
+    """AIOpsLab's recover step, then what a command left changed put back, then the checks
+    (reset_namespace in src/remvalgate/harness/oracle.py)."""
     namespace = prob.namespace
-    prob.recover_fault()
-    live = objects(namespace)
-    put = kubectl_put(namespace, CONTEXT)
-    rolled_out = kubectl_rolled_out(namespace, CONTEXT)
-    for key in changed(clean.objects, live):
-        # an object added or removed cannot be put back here; the comparison below stops the run
-        if key in clean.objects and key in live:
-            put("replace", clean.sent[key])
-            kind, name = key.split("/", 1)
-            # the old pods still count as healthy until the new ones replace them
-            if kind == "Deployment":
-                rolled_out((kind, name))
-    # recover_fault returns without waiting after it deletes and applies a Deployment
-    wait_until_healthy(namespace, clean.workloads)
-    left = changed(clean.objects, objects(namespace))
-    check(not left, f"{problem_id}: the reset left {namespace} changed: {left}")
-    if fault_type(problem_id) in DATABASE_TYPES:
-        # no Kubernetes object holds the MongoDB users and roles, so the problem's own eval,
-        # which waits its settle window for every pod to be healthy, checks the reset
-        check(prob.eval("", [], 0.0)["success"], f"{problem_id}: the eval fails after the reset")
+    reset_namespace(
+        problem_id,
+        clean,
+        recover=prob.recover_fault,
+        live=lambda: objects(namespace),
+        put=kubectl_put(namespace, CONTEXT),
+        rolled_out=kubectl_rolled_out(namespace, CONTEXT),
+        wait_healthy=lambda: wait_until_healthy(namespace, clean.workloads),
+        eval_succeeds=lambda: prob.eval("", [], 0.0)["success"],
+    )
 
 
 async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir):
@@ -424,7 +410,9 @@ def main() -> int:
             print(f"  candidates={len(candidates)} admitted={admitted}", flush=True)
             own = None
             if result.command is not None:
-                verdict = result.verdict
+                # admitted as 3c's action path admits it (act in run_baselines_smoke.py), so a
+                # chain of commands is executed; the K are admitted by sample with check
+                verdict = check_chain(result.command, POLICY, namespace)
                 own = (
                     result.command,
                     None if verdict.admitted else f"allow-list: {verdict.reason}",

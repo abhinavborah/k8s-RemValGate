@@ -17,13 +17,19 @@ run has been made yet (see Results).
   K. R6.6 counts both headroom numbers from one set of executions that includes 3c's top pick, so
   the plan's command is labelled in the same run, apart from the K. It is executed only when it
   is admitted and duplicates no candidate, and it never counts toward n, c or the problem's flag.
+  It is admitted as 3c's action path admits it (`check_chain`), so a chain such as `a && b`, the
+  form of the corpus fixes of several commands, is executed. The K are admitted as `sample` admits
+  them (`check`, one command), so a chained candidate is rejected and has no outcome.
 - **Scope.** The 16 problems of the primary pool, never the confirmation slice. These are 3c's
   candidates. The candidates the gate scores are labelled in M2 (R3.5). If baseline 5 uses a
   fine-tuned planner, these labels are only a proxy for the pool the gate will score (R6.6).
 - **Queries.** No query is recorded. The pool queries of #29 ([pool_queries.md](pool_queries.md))
   stay the queries of the intrinsic retrieval metrics. The planner retrieves with its own first
   observation of the live cluster, as 3c does in the baseline-only run. A recorded observation
-  would name pods that no longer exist after a new injection.
+  would name pods that no longer exist after a new injection. This departs from R3.7 as first
+  written, and from a criterion of #29, which had oracle labelling reuse the recorded queries. R3.7
+  and pool_queries.md are updated to match (BRD version 1.10). Proposed by one group member, not
+  yet group-confirmed.
 - **Touches.** Each problem is one run: `start_run` appends one touch (run id
   `oracle-<problem id>-<UTC time>`) and the run writes one manifest. Every execution of the problem
   is recorded in its labels file. A problem whose run stopped is run again from the start, with a
@@ -122,7 +128,7 @@ record names that candidate's seed.
   equals the coverage at k = 8, and only if the budget fails. The summary reports that k
   (`smallest_k`) whether or not the budget fails. This file states the rule before any oracle run.
 - **What this checks.** This checks oracle coverage only: whether a working candidate is still
-  among the first k. The effect of K on the gate's choice is not checked before M2.
+  among k candidates. The effect of K on the gate's choice is not checked before M2.
 - **Status.** The coverage criteria and the rule for K were added to #27 on 2026-10-30 by one group
   member and are not yet group-confirmed. If the group rejects the edit to #52, they are removed
   with it.
@@ -132,9 +138,13 @@ record names that candidate's seed.
 - One execution per command (R = 1), so a command's label does not show how much its outcome
   varies between runs.
 - The fault-remains check is the problem's own: the Service's `targetPort` for TargetPortMisconfig,
-  the problem's mitigation eval for the rest. That eval also needs every other pod of the namespace
-  healthy, so an execution record can show the fault remaining after a command that removed it but
-  broke another workload. Its outcome is APPLIED_HARMFUL either way, since harm comes first.
+  the problem's mitigation eval for the rest. That eval also reads the other pods of the namespace.
+  The AssignNonExistentNode, RevokeAuth and UserUnregistered evals wait for every pod to be
+  healthy. The ScalePod eval takes one reading with no wait: the Deployment has 1 desired and 1
+  available replica, and every container in the namespace is ready, not crash-looping and not
+  terminated with a reason other than Completed. So an execution record can show the fault
+  remaining after a command that removed it but broke another workload. Its outcome is
+  APPLIED_HARMFUL either way, since harm comes first.
 - For the database faults the reset is checked through pod health only (above). The allow-list's
   exec shape leaves no room for `-u` and `-p`, so a MongoDB call in an admitted exec carries no
   user, and it would be refused where authorization is enforced
@@ -161,7 +171,8 @@ The outputs go to `runs/oracle/`, which git ignores, and to the shared drive und
 entries and the K candidates) and the labels file (the labels, the counts and one record per
 execution), and a summary of the run's problems. A run
 finished in two parts is summarized with `scripts/summarize_oracle_labels.py <labels files>`, which
-needs no cluster.
+needs no cluster. It refuses files of more than one slice, so a glob over `runs/oracle/` that picks
+up a dry run's files stops.
 
 As arithmetic only: at the pilot's 144.8 s per rollout ([compute.md](compute.md)), with no model
 time, 128 executions take about 5.1 hours. Each problem adds its diagnosis and its K samples, the

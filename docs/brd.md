@@ -1,8 +1,8 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.8 (draft for group review)
-**Date:** 2026-10-30
+**Version:** 1.10 (draft for group review)
+**Date:** 2026-11-05
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
@@ -138,7 +138,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | R3.4 | Grouped 4-fold assignment at incident level, with the stated invariants and an automated check. | Must | M1 |
 | R3.5 | Oracle labelling: execute all K candidates once per evaluation problem with a harness reset between candidates, checked against the saved post-injection state. Deduplicate near-identical candidates and report how many problems have mixed outcomes. Needed before gate G3 for the recoverable-problem count (R6.6): in M1 it labels baseline 3c's candidates on the primary pool only, never the confirmation slice, and each use is logged as a touch. The labelling of the candidates the gate scores follows in M2. | Must | M1 |
 | R3.6 | Singleton fault types set aside for the exploratory generalization check. | Should | M2 |
-| R3.7 | Record one post-injection telemetry query per pool incident (16 injections, after gate G1), reused later by oracle labelling, so intrinsic retrieval metrics do not wait for it. | Must | M1 |
+| R3.7 | Record one post-injection telemetry query per pool incident (16 injections, after gate G1), so intrinsic retrieval metrics do not wait for it. Oracle labelling (R3.5) retrieves with the planner's live first observation, not the recorded query (proposed, pending group confirmation). | Must | M1 |
 | R3.8 | Designate development problems, disjoint from the evaluation pool, the confirmation slice and the singleton types, for prompt iteration, smoke tests and the G2 timing pilot. | Must | M1 |
 
 ### E4. Retrieval capability (RAG)
@@ -269,3 +269,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.7 | 2026-10-30 | Refined R9.1 (proposed, pending group confirmation): the five-rollout pilot measures the per-rollout cost and checks the plan against it, K is checked on the oracle labels and R is set in the baseline-only run, as the edit to #52 states. Updated R9.1. |
 | 1.8 | 2026-10-30 | Resolved the section 9 open question left to #50: harm is read after the settle window and before any restore, so R2.3 and R2.4 agree, and the execution record keeps the restore result. Proposed, pending group confirmation: an escalation is never recovered, also when nothing was restored. Updated section 9. |
 | 1.9 | 2026-10-31 | Updated the small dataset risk in section 9: "11 to 14 problems today" was the count at the proposal, and the pool reaches 16 once #24 lands. No requirement changed. |
+| 1.10 | 2026-11-05 | Proposed, pending group confirmation: oracle labelling (R3.5) retrieves with the planner's live first observation and no longer reuses the recorded pool queries, since a recorded observation names pods that a new injection replaces. The recorded queries stay the queries of the intrinsic retrieval metrics. Updated R3.7. |
