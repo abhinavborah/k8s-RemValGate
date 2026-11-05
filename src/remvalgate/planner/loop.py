@@ -212,7 +212,9 @@ def task_text(app_name: str, namespace: str) -> str:
 
 
 def _task_prompt(task: str, observation: str, past: str) -> str:
-    return f"{task}\n\nCluster state:\n{observation}\n\nPast fixes that may be similar:\n{past}"
+    prompt = f"{task}\n\nCluster state:\n{observation}"
+    # with no retrieval, configuration (i), the planner sees the cluster state only (baseline 3a)
+    return f"{prompt}\n\nPast fixes that may be similar:\n{past}" if past else prompt
 
 
 def _clip(text: str, tool: str, limit: int) -> str:

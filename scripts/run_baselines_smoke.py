@@ -39,13 +39,13 @@ from remvalgate.baselines.observe import observe
 from remvalgate.baselines.retrieval_only import retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
-from remvalgate.harness.allowlist import check as admit
+from remvalgate.harness.allowlist import check_chain as admit
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.harm import SETTLE_SECONDS, detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
-from remvalgate.harness.outcome import Outcome, ProblemResult, applied_result, classify
+from remvalgate.harness.outcome import Outcome, classify, single_action_result
 from remvalgate.overlay import new_orchestrator
-from remvalgate.overlay.fixes import TARGET_PORT, exec_shell
+from remvalgate.overlay.fixes import TARGET_PORT, CannotSend, carried_action
 from remvalgate.retrieval.fixed import development_retriever
 
 NS = "test-social-network"
@@ -122,9 +122,18 @@ class ScriptedAgent:
         return next(self._actions)
 
 
-async def apply(orch, prob, problem_id: str, command: str, results_dir: Path) -> None:
-    """Send one exec_shell action through the Orchestrator's parser and action handlers."""
-    action = exec_shell(command)
+async def apply(
+    orch, prob, problem_id: str, command: str, results_dir: Path, strict: bool = True
+) -> str:
+    """Send one exec_shell action through the Orchestrator's parser and action handlers and
+    return the response.
+
+    strict suits the template baselines, whose commands are known to carry and to succeed: a
+    command the parser would change, or an error response, raises. A free-form command (the
+    planner's) is not strict: a command that cannot be sent unchanged raises CannotSend before
+    anything runs, and an error response from kubectl is returned, since the command was applied.
+    """
+    action = carried_action(command, orch.parser.parse, strict=strict)
     orch.register_agent(ScriptedAgent([action]), name=AGENT)
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
@@ -132,11 +141,11 @@ async def apply(orch, prob, problem_id: str, command: str, results_dir: Path) ->
     orch.session.start()
     reply = await orch.ask_agent("Please take the next action")
     require(reply == action, f"the agent replied {reply!r}")
-    # a parse that changes the command would run something else than the baseline chose
-    require(orch.parser.parse(reply)["args"] == [command], f"the parser changed {command!r}")
     response = await orch.ask_env(reply)
     orch.session.end()
-    require(not response.startswith(("[ERROR]", "Error", "Failed")), response)
+    if strict:
+        require(not response.startswith(("[ERROR]", "Error", "Failed")), response)
+    return response
 
 
 def reset(prob, clean: dict) -> None:
@@ -146,6 +155,39 @@ def reset(prob, clean: dict) -> None:
     kubectl("wait", "--for=condition=Ready", "pods", "--all", "--timeout=300s")
     left = changed(clean, snapshot())
     require(not left, f"the reset left the cluster changed: {left}")
+
+
+async def act(orch, prob, problem_id, command, policy, settle, pre, results_dir, strict=True):
+    """Admit one command, apply it if admitted, wait the settle window and classify the outcome.
+
+    pre is the pod status taken after the fault shows and before the action. strict is apply's.
+    Returns the allow-list verdict (None when there is no command), the outcome, whether the
+    command was sent, and a note: the response to a sent command, or why an admitted free-form
+    command could not be sent, which is then classified as not applied. Also used by the untuned
+    planner baselines in run_planner_dev.py, with strict off.
+    """
+    verdict = admit(command, policy, NS) if command else None
+    note = None
+    sent = False
+    if verdict is not None and verdict.admitted:
+        try:
+            note = await apply(orch, prob, problem_id, command, results_dir, strict)
+            sent = True
+        except CannotSend as error:
+            note = str(error)
+    harm = None
+    if sent:
+        harm = detect_harm(
+            pre,
+            lambda: kubectl_pods(NS, CONTEXT),
+            fault_remains(prob, problem_id),
+            NS,
+            settle_seconds=settle,
+        )
+    # the development problems have a known fix, so a working candidate exists
+    outcome = classify(single_action_result(harm, True))
+    require(isinstance(outcome, Outcome), f"{command!r}: no outcome")
+    return verdict, outcome, sent, note
 
 
 def run_one(orch, problem_id, name, baseline, clean, policy, settle) -> dict:
@@ -158,27 +200,9 @@ def run_one(orch, problem_id, name, baseline, clean, policy, settle) -> dict:
         observations = wait_for_observation(prob.faulty_service)
         pre = parse_pods(kubectl_pods(NS, CONTEXT), NS)
         action: BaselineAction = baseline(observations, problem_id)
-        verdict = admit(action.command, policy, NS) if action.command else None
-        applied = verdict is not None and verdict.admitted
-        if applied:
-            asyncio.run(apply(orch, prob, problem_id, action.command, OUT_DIR / problem_id))
-            harm = detect_harm(
-                pre,
-                lambda: kubectl_pods(NS, CONTEXT),
-                fault_remains(prob, problem_id),
-                NS,
-                settle_seconds=settle,
-            )
-            # the baselines take no snapshot and restore nothing
-            result = applied_result(harm, True, restore_attempted=False)
-        else:
-            # nothing was applied: the development problems have a known fix, so a working
-            # candidate exists
-            result = ProblemResult(
-                applied=False, recovered=False, harmful=False, any_working_candidate=True
-            )
-        outcome = classify(result)
-        require(isinstance(outcome, Outcome), f"{name}: no outcome")
+        verdict, outcome, _, _ = asyncio.run(
+            act(orch, prob, problem_id, action.command, policy, settle, pre, OUT_DIR / problem_id)
+        )
         return {
             "problem": problem_id,
             "baseline": name,

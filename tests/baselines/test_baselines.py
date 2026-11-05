@@ -7,13 +7,15 @@ from remvalgate.baselines import BaselineAction
 from remvalgate.baselines.observe import Kind, Observation, observe, symptom_query
 from remvalgate.baselines.retrieval_only import replace_service, retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, load_policy
+from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check, check_chain, load_policy
 from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.overlay.fixes import exec_shell
-from remvalgate.retrieval import RetrieverRefused
+from remvalgate.retrieval import PastFix, RetrieverRefused, Source
+from remvalgate.retrieval.pool_corpus import incident
 from remvalgate.retrieval.stub import DevStubRetriever
 
 NS = "test-social-network"
+HOTEL = "test-hotel-reservation"
 POLICY = load_policy(DEFAULT_POLICY_PATH)
 DEV, POOL = "p-synth-dev", "p-synth-pool"
 REGISTRY = Registry(slices={DEV: Slice.DEVELOPMENT, POOL: Slice.POOL}, placeholder=None)
@@ -282,6 +284,25 @@ def test_retrieval_only_applies_the_top_hit_to_the_observed_service():
     assert admitted(action)
 
 
+def test_retrieval_only_rewrites_each_part_of_a_chained_fix():
+    entry = PastFix(
+        entry_id="stub-chain",
+        source=Source.INCIDENT,
+        fault_type="ScalePod",
+        target_service="demo-x",
+        summary="deployment scaled to zero replicas",
+        fix_command="kubectl scale deployment demo-x --replicas=1 "
+        "&& kubectl rollout restart deployment/demo-x",
+    )
+    obs = observe(listing(deployment("media-service", replicas=0)))
+    action = retrieval_only(DevStubRetriever(registry=REGISTRY, corpus=[entry]), obs, DEV, NS)
+    assert action.command == (
+        f"kubectl -n {NS} scale deployment media-service --replicas=1 "
+        f"&& kubectl -n {NS} rollout restart deployment/media-service"
+    )
+    assert check_chain(action.command, POLICY, NS).admitted
+
+
 def test_retrieval_only_replaces_the_recorded_service_name_as_a_whole_word():
     obs = [Observation(Kind.PORT_MISMATCH, "svc", "service svc port does not match", 0, 9090)]
     action = retrieval_only(_stub(), obs, DEV, NS)
@@ -312,6 +333,42 @@ def test_retrieval_only_does_not_add_a_second_namespace_flag():
     obs = observe(listing(deployment("media-service", replicas=0)))
     action = retrieval_only(_stub(), obs, DEV, NS)
     assert shlex.split(action.command).count("-n") == 1
+
+
+@pytest.mark.parametrize(
+    "recorded", [f"-n {NS}", f"--namespace {NS}", f"-n{NS}", f"--namespace={NS}"]
+)
+def test_retrieval_only_replaces_a_recorded_namespace(recorded):
+    entry = PastFix(
+        "stub-ns", Source.INCIDENT, "ScalePod", "demo-x", "deployment scaled to zero replicas",
+        f"kubectl {recorded} scale deployment demo-x --replicas=1",
+    )  # fmt: skip
+    obs = observe(listing(deployment("geo", replicas=0)))
+    action = retrieval_only(DevStubRetriever(REGISTRY, corpus=[entry]), obs, DEV, HOTEL)
+    assert action.command == f"kubectl -n {HOTEL} scale deployment geo --replicas=1"
+
+
+def test_a_pool_record_from_the_other_app_acts_in_the_problems_namespace():
+    # a social-network ScalePod record retrieved for a hotel-reservation problem
+    # built from this one pool problem only, so it is an evaluation-set touch, logged as a
+    # fixture- entry for that problem
+    entry = incident("pool-scale_pod_zero_social_net-mitigation-2")
+    assert f"-n {NS} " in entry.fix_command
+    obs = observe(listing(deployment("geo", replicas=0)))
+    action = retrieval_only(DevStubRetriever(REGISTRY, corpus=[entry]), obs, DEV, HOTEL)
+    assert action.command == f"kubectl -n {HOTEL} scale deployment geo --replicas=1"
+    verdict = check_chain(action.command, POLICY, HOTEL)
+    assert verdict.admitted, verdict.reason
+
+
+def test_a_recorded_namespace_after_the_exec_separator_is_kept():
+    entry = PastFix(
+        "stub-exec", Source.INCIDENT, "RevokeAuth", "mongodb-geo", "admin lost its role",
+        f"kubectl -n {HOTEL} exec deploy/mongodb-geo -- tool -n keep",
+    )  # fmt: skip
+    obs = [Observation(Kind.SCALED_TO_ZERO, "mongodb-rate", "admin lost its role")]
+    action = retrieval_only(DevStubRetriever(REGISTRY, corpus=[entry]), obs, DEV, NS)
+    assert action.command == f"kubectl -n {NS} exec deploy/mongodb-rate -- tool -n keep"
 
 
 def test_retrieval_only_passes_the_retrievers_refusal_on():

@@ -339,6 +339,37 @@ after the settle window. Baseline 1 retrieves nothing; baseline 2 retrieves with
 the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
 so CI does not run it; CI tests the baselines on synthetic cluster listings.
 
+`scripts/run_planner_dev.py --baseline 3a|3b|3c` runs baselines 3a, 3b and 3c (story E6-S2,
+R6.2): the untuned planner, zero-shot with no gate, with retrieval configuration (i), (ii) or (iii)
+(`src/remvalgate/baselines/untuned.py`). Its action is the planner's own command: no candidates
+are sampled, and `--candidates`, `--judge` and `--escalate-when-unsure` are refused. After the
+diagnosis check the command goes through the allow-list and the Orchestrator's `exec_shell`
+handler and is classified after the settle window, with the same code as baselines 1 and 2; a
+turn-capped plan or a rejected command is classified as not applied. The reset is then compared
+with the clean state. With configuration (i) the task prompt has no past-fixes section. On the
+development problems all three use the synthetic stub corpus, whose 5 entries are no more than the
+rerank depth, so 3b and 3c differ only in the reranker's order there and a run checks the wiring,
+not the ranking. 3b and 3c need `uv sync --group retrieval`. Their pool results come from the
+baseline-only run (#53).
+
+`scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
+It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
+slice, one model and one sampling setup, applies the allow-list again to every sampled candidate in
+each transcript, and reports the share removed by reason (`src/remvalgate/harness/no_check.py`).
+Nothing is run, so it needs neither the cluster nor a model server. The headline counts the
+candidates a run without the check would have drawn: the first draw, plus the second when every
+first-draw reply had no command, since such a draw is resampled with or without the check. Both
+draws are reported too, and replies with no command are counted apart, since the check never saw
+them. The inputs are checked before any touch. For a pool problem, reading its transcript is a
+touch: each gets a `nocheck-` run through `start_run` before it is read, so it needs gate G1 and a
+clean checkout. A recorded verdict that the policy file no longer gives, or a transcript that
+disagrees with its manifest or lacks a field the analysis reads, refuses the report after that
+touch, which is kept, and no summary is written. A run whose manifest records no seeds, as when its
+plan had no diagnosis, is listed in the summary's `no_candidates_run_ids` and is not touched. A
+manifest per problem, its `.nocheck.json` result and a pooled summary that names the runs, the
+model and the sampling setup go to `runs/manifests/`. The pool's sampled candidates come from the
+oracle labelling run (#27).
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
@@ -368,7 +399,11 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
   under the run's AIOpsLab commit must match the record
   ([docs/confirmation_problems.md](docs/confirmation_problems.md)). Run ids starting with `seal-`
-  are kept for the seal touches. Development runs are not logged and may run with neither a
+  are kept for the seal touches. Run ids starting with `corpus-` are kept for authoring touches
+  (`log_authoring`: a problem's definition and known fix were read to write its retrieval corpus
+  record), and those starting with `fixture-` for fixture touches (`log_fixture`: a test fixture
+  was built from the problem, which counts as an evaluation-set touch); `start_run` refuses both,
+  and neither is written for a confirmation problem. Development runs are not logged and may run with neither a
   pin nor a clean tree; only their creation is logged. Run ids are lowercase.
 - **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
   16 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode

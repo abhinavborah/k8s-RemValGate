@@ -10,7 +10,7 @@ import shlex
 
 from remvalgate.baselines import BaselineAction, escalate
 from remvalgate.baselines.observe import Observation, symptom_query
-from remvalgate.harness.allowlist import validate_namespace
+from remvalgate.harness.allowlist import split_chain, validate_namespace
 from remvalgate.retrieval import Retriever
 
 
@@ -21,10 +21,22 @@ def replace_service(command: str, recorded: str, observed: str) -> str:
 
 
 def _in_namespace(command: str, namespace: str) -> str:
+    """Set the command's namespace to the run's: a recorded -n or --namespace is dropped, since a
+    pool record carries the namespace of its own incident, which may be the other app's.
+
+    Only kubectl's own arguments are read; everything after an exec's -- is kept as it is.
+    """
     tokens = shlex.split(command)
-    if any(t in ("-n", "--namespace") or t.startswith("--namespace=") for t in tokens):
-        return command
-    return shlex.join([tokens[0], "-n", namespace, *tokens[1:]])
+    cut = tokens.index("--") if "--" in tokens else len(tokens)
+    kept, skip = [], False
+    for token in tokens[1:cut]:
+        if skip:
+            skip = False
+        elif token in ("-n", "--namespace"):
+            skip = True
+        elif not (token.startswith("--namespace=") or token.startswith("-n")):
+            kept.append(token)
+    return shlex.join([tokens[0], "-n", namespace, *kept, *tokens[cut:]])
 
 
 def retrieval_only(
@@ -46,7 +58,10 @@ def retrieval_only(
         return escalate("the retriever returned no hit")
     hit = hits[0]
     service = first.service
-    command = replace_service(hit.entry.fix_command, hit.entry.target_service, service)
-    return BaselineAction(
-        _in_namespace(command, namespace), f"top hit {hit.entry.entry_id} on {service}"
+    # a fix of several commands is joined with " && "; each part is rewritten on its own, and
+    # the harness checks each part against the allow-list (check_chain)
+    command = " && ".join(
+        _in_namespace(replace_service(part, hit.entry.target_service, service), namespace)
+        for part in split_chain(hit.entry.fix_command)
     )
+    return BaselineAction(command, f"top hit {hit.entry.entry_id} on {service}")
