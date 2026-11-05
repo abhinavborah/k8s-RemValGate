@@ -635,10 +635,11 @@ def test_log_authoring_appends_a_corpus_touch(tmp_path):
         log_authoring(POOL, _registry(tmp_path), log, NOW)
 
 
-def test_log_authoring_refuses_a_confirmation_problem(tmp_path):
+@pytest.mark.parametrize(("problem_id", "slice_"), [(CONF, "confirmation"), (SINGLE, "singleton")])
+def test_log_authoring_refuses_a_confirmation_or_singleton_problem(tmp_path, problem_id, slice_):
     log = tmp_path / "touch_log.jsonl"
-    with pytest.raises(RunRefused, match="confirmation problem"):
-        log_authoring(CONF, _registry(tmp_path), log, NOW)
+    with pytest.raises(RunRefused, match=f"{slice_} problem"):
+        log_authoring(problem_id, _registry(tmp_path), log, NOW)
     assert not log.exists()
 
 

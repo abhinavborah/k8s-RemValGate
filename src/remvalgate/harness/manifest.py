@@ -424,11 +424,14 @@ def log_authoring(
     problem_id: str, registry: Registry, log_path: str | Path, now: datetime | None = None
 ) -> dict:
     """Append an authoring touch: the problem's definition and known fix were read to write its
-    retrieval corpus record (E4-S8), which is not a run. A confirmation problem is refused.
+    retrieval corpus record (E4-S8), which is not a run. A confirmation problem is refused, and so
+    is a singleton problem, which is held out of every corpus for the exploratory check (R3.6).
 
     The run id is corpus-<problem id>-<UTC time>, so the entry is told apart from a run entry by
     its prefix.
     """
+    if _slice_of(problem_id, registry) is Slice.SINGLETON:
+        raise RunRefused(f"{problem_id!r} is a singleton problem: it has no corpus record")
     return _log_read_touch("corpus", "log_authoring", problem_id, registry, log_path, now)
 
 

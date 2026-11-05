@@ -415,7 +415,8 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   five singleton problems (rows 8, 9 and 12 to 14 of
   [docs/problem_inventory.md](docs/problem_inventory.md)).
 - **Singleton types (exploratory).** The five fault types with one instance each are held out of
-  training: no fold holds them, so no gate, planner or retrieval corpus is trained on them. They
+  training: no fold holds them, so no gate or planner is trained on them, and the retrieval corpus
+  is built from the pool slice only (`log_authoring` refuses a singleton problem). They
   form the exploratory generalization check (BRD R3.6, R9.5), reported descriptively only, since
   five types are too few for a quantitative claim. Their runs are logged as evaluation-set touches
   and subject to the same refusals as pool runs, each in its own namespace: `test-hotel-reservation` for rows 9, 13
