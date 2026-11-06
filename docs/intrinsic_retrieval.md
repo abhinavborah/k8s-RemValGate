@@ -50,21 +50,22 @@ run.
 
 ## Results (fault-type label)
 
-Counts out of the queries in each group. Recall@3 is the mean over queries of relevant entries in
-the first 3 divided by the relevant entries in the fold.
+Hit@1 and Hit@3 are counts out of the queries in each group, with the rate in brackets. Recall@3
+is the mean over queries of relevant entries in the first 3 divided by the relevant entries in the
+fold.
 
 | Configuration | Group | Hit@1 | Hit@3 | MRR | Recall@3 |
 |---|---|---|---|---|---|
-| (i) none | all 16 | 0 | 0 | 0.000 | 0.000 |
-| (ii) dense | all 16 | 5 | 9 | 0.497 | 0.271 |
-| (iii) dense + reranker | all 16 | 3 | 7 | 0.404 | 0.229 |
-| (iv) hybrid + reranker | all 16 | 3 | 6 | 0.387 | 0.198 |
-| (ii) dense | database 4 | 2 | 3 | 0.619 | 0.375 |
-| (iii) dense + reranker | database 4 | 0 | 2 | 0.348 | 0.250 |
-| (iv) hybrid + reranker | database 4 | 0 | 1 | 0.281 | 0.125 |
-| (ii) dense | TargetPortMisconfig 6 | 0 | 1 | 0.232 | 0.028 |
-| (iii) dense + reranker | TargetPortMisconfig 6 | 0 | 0 | 0.193 | 0.000 |
-| (iv) hybrid + reranker | TargetPortMisconfig 6 | 0 | 0 | 0.192 | 0.000 |
+| (i) none | all 16 | 0 (0.000) | 0 (0.000) | 0.000 | 0.000 |
+| (ii) dense | all 16 | 5 (0.313) | 9 (0.563) | 0.497 | 0.271 |
+| (iii) dense + reranker | all 16 | 3 (0.188) | 7 (0.438) | 0.404 | 0.229 |
+| (iv) hybrid + reranker | all 16 | 3 (0.188) | 6 (0.375) | 0.387 | 0.198 |
+| (ii) dense | database 4 | 2 (0.500) | 3 (0.750) | 0.619 | 0.375 |
+| (iii) dense + reranker | database 4 | 0 (0.000) | 2 (0.500) | 0.348 | 0.250 |
+| (iv) hybrid + reranker | database 4 | 0 (0.000) | 1 (0.250) | 0.281 | 0.125 |
+| (ii) dense | TargetPortMisconfig 6 | 0 (0.000) | 1 (0.167) | 0.232 | 0.028 |
+| (iii) dense + reranker | TargetPortMisconfig 6 | 0 (0.000) | 0 (0.000) | 0.193 | 0.000 |
+| (iv) hybrid + reranker | TargetPortMisconfig 6 | 0 (0.000) | 0 (0.000) | 0.192 | 0.000 |
 
 (i) returns nothing, so it scores 0 on every metric with every query counted.
 
@@ -112,6 +113,10 @@ truncation applies there. No query instruction is added to the dense model
   (ii) scores above (iii) and (iv) on every metric, and (iii) above (iv) on all but Hit@1, where
   they tie. No test is run on this ordering, and no claim that the reranker hurts is made from it;
   the paired comparison belongs to the ablation reporting (#57).
+- These metrics score the planner's query, the whole first observation. The retrieval-only
+  baseline retrieves with the rule baselines' symptom query instead
+  (`src/remvalgate/baselines/retrieval_only.py`), which is empty for the 4 database problems, so
+  these numbers do not describe that baseline's retrieval.
 - The findings of `docs/pool_queries.md` show in the results. The 6 TargetPortMisconfig queries
   show no trace of the fault and differ only in pod names and ages, and they score lowest. The
   namespace gives the database faults away, so any Hotel Reservation entry is a database entry:
