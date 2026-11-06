@@ -12,9 +12,9 @@ confirmation slice is sealed (gate G1) and the tree is clean, so the run needs a
 Per problem:
 
 1. inject, save the Services and Deployments as the injection left them, run the problem's
-   workload, run baseline 3c (the planner with retrieval configuration (iii), with the settings of
-   scripts/run_planner_dev.py), sample K candidates from its diagnosis in one draw, check that the
-   diagnosis changed nothing, reset;
+   workload, wait until the fault shows in pod status, run baseline 3c (the planner with retrieval
+   configuration (iii), with the settings of scripts/run_planner_dev.py), sample K candidates from
+   its diagnosis in one draw, check that the diagnosis changed nothing, reset;
 2. merge near-identical commands (src/remvalgate/harness/oracle.py); the plan's own command, the
    action of 3c, is labelled apart and executed only when it duplicates no candidate;
 3. for each command to execute, the candidates in draw order and then the plan's: inject, check
@@ -124,10 +124,6 @@ def pods(namespace: str) -> dict:
     return parse_pods(kubectl_pods(namespace, CONTEXT), namespace)
 
 
-def pod_names(namespace: str) -> set[str]:
-    return set(kubectl("-n", namespace, "get", "pods", "-o", "name").stdout.split())
-
-
 def clean_state(namespace: str) -> Clean:
     items = listing(namespace)["items"]
     status = pods(namespace)
@@ -193,20 +189,19 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
-    before = pod_names(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
         injected_at = int(time.time() * 1e6)
-        # the database faults change MongoDB users and delete the client's pods, which these
-        # objects do not record, so new pod names show they took effect
-        if fault_type(problem_id) in DATABASE_TYPES:
-            took = pod_names(namespace) != before
-        else:
+        # the database faults change MongoDB users, which these objects do not record
+        if fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
-        check(took, f"{problem_id}: the injection left the cluster unchanged")
+            check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
         await asyncio.to_thread(start_workload, prob)
+        # as before each execution; for the database faults the only check, since their injector
+        # deletes the client's pods whatever its script did (fault_shows)
+        wait_for_fault(prob, problem_id)
         orch.session.start()
 
         def run_tool(tool, arguments):

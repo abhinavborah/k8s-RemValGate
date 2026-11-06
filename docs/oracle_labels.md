@@ -40,8 +40,9 @@ run has been made yet (see Results).
 `scripts/run_oracle_labels.py`, per problem:
 
 1. Inject the fault and save the Services and Deployments as the injection left them. Run the
-   problem's workload, run 3c's planner and sample the K candidates. Check that the diagnosis
-   changed nothing, then reset.
+   problem's workload, then wait until the fault shows in pod status, as in step 3, so the K are
+   sampled from a cluster in which the fault shows. Run 3c's planner and sample the K candidates.
+   Check that the diagnosis changed nothing, then reset.
 2. Merge near-identical commands (below). The plan's own command is matched against the K the same
    way.
 3. For each command to execute, the K in draw order and then the plan's own: inject, check the

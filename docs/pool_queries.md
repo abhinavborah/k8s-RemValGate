@@ -51,6 +51,12 @@ it. This catches a script that names the wrong namespace, not one that names the
 acts in another. That change refactored the script, so the form in the repository has not run on
 the cluster; running it on a pool problem again takes a new touch.
 
+Since the run, the script also waits after the workload until the fault shows in pod status, with
+the oracle run's check (`wait_for_fault` in `scripts/run_oracle_labels.py`). For the 4 database
+problems that is a `geo` or `rate` client that runs and is not ready, so an injection whose script
+failed now stops the run instead of being taken as done when the pods were replaced. The recorded
+queries were taken without this wait.
+
 The manifests, the JSON listings and `pool_queries-<stamp>.jsonl` (one line per problem: problem
 id, run id, query, symptom query, seconds from the injection to the observation) go to
 `runs/queries/`, which git ignores, and to the shared drive under `k8s-RemValGate/run-logs/`.
