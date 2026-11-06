@@ -64,7 +64,12 @@ from run_dev_end_to_end import NS, TOUCH_LOG, check, kubectl, reset, snapshot
 from remvalgate.aiopslab_pin import pinned_commit
 from remvalgate.baselines.judge import JudgeModel, judge
 from remvalgate.baselines.untuned import CONFIGURATIONS, conflicting_flags, untuned_retriever
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
+from remvalgate.harness.allowlist import (
+    DEFAULT_POLICY_PATH,
+    Reason,
+    load_policy,
+    names_no_namespace,
+)
 from remvalgate.harness.cluster_state import changed
 from remvalgate.harness.harm import SETTLE_SECONDS, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import (
@@ -333,6 +338,7 @@ def main() -> int:
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
+    policy = load_policy(DEFAULT_POLICY_PATH)
     # configuration (iii), or the baseline's, loaded once: the models take a while to load
     if args.baseline:
         retriever = untuned_retriever(args.baseline, registry)
@@ -445,10 +451,16 @@ def main() -> int:
             print(f"  command={transcript['command']} admitted={verdict.get('admitted')}")
             drawn = transcript["candidates"]
             admitted = sum(c["rejection"] is None for c in drawn)
+            # rejected as OUT_OF_SANDBOX because the command names no namespace at all (#129)
+            no_namespace = sum(
+                (c["verdict"] or {}).get("reason") == Reason.OUT_OF_SANDBOX
+                and names_no_namespace(c["command"], policy)
+                for c in drawn
+            )
             print(f"  tokens={tokens} seconds={seconds:.1f}")
             # apart from the diagnosis, so the cost of K can be read from a run
             print(
-                f"  candidates={len(drawn)} admitted={admitted}"
+                f"  candidates={len(drawn)} admitted={admitted} no_namespace={no_namespace}"
                 f" tokens={sum(c['completion_tokens'] for c in drawn)}"
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
                 f" draws={transcript['draws']} escalated={transcript['escalated']}"

@@ -14,6 +14,7 @@ from remvalgate.harness.allowlist import (
     check,
     check_chain,
     load_policy,
+    names_no_namespace,
     parse_args,
     reason_counts,
     split_chain,
@@ -534,3 +535,17 @@ def test_check_chain_needs_every_part_admitted():
     assert not verdict.admitted
     assert verdict.command == chain
     assert verdict.reason == check(f"kubectl -n {NS} delete deployment a", POLICY, NS).reason
+
+
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        ("kubectl scale deployment user-service --replicas=1", True),
+        ("kubectl -n sandbox-a scale deployment user-service --replicas=1", False),
+        ("kubectl --namespace=other get pods", False),
+        ("kubectl get pods -A", False),
+        ("kubectl get pods | head", False),
+    ],
+)
+def test_names_no_namespace(command, expected):
+    assert names_no_namespace(command, POLICY) is expected
