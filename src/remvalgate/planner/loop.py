@@ -402,10 +402,13 @@ def _cost(completion) -> tuple[int, float, str]:
 
 
 def _sample_prompt(namespace: str) -> str:
+    # sampled commands often dropped the namespace flag although the planner's own command had it,
+    # so the reply's shape and the rejection are spelled out (#129)
     return (
         "Now give one candidate fix for this diagnosis. Reply with exactly one JSON object and "
-        'nothing else: {"command": C} where C is one kubectl command that fixes the fault and '
-        f"starts with kubectl -n {namespace}. C is not run here."
+        f'nothing else: {{"command": "kubectl -n {namespace} ..."}} where the value is one '
+        f"kubectl command that fixes the fault. It must start with kubectl -n {namespace}: a "
+        f"command without -n {namespace} is rejected. It is not run here."
     )
 
 
