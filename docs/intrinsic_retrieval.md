@@ -30,8 +30,8 @@ The run added 16 `intrinsic-*` touches to `runs/touch_log.jsonl`, one per pool p
 (`intrinsic-20261105t122501z.json`: metrics, saturation, the top 3 and the first relevant rank of
 every query, and the query lengths) and the 16 manifests are in `runs/intrinsic/`, which git
 ignores. They are archived as `intrinsic_20261105.tar.gz` (sha256
-`05ee47a4218f756382d5604146c5290a362cfe9ce8703f3c65fd4071e457487d`) on one group member's drive;
-ask for the link.
+`05ee47a4218f756382d5604146c5290a362cfe9ce8703f3c65fd4071e457487d`) in the folder
+`intrinsic_retrieval_20261105` on one group member's drive, shared with the reviewers.
 
 Before the touches, the query files were opened once to count their rows and problem ids and the
 length in characters of each query (3201 to 4586). No query text was read or scored before the
@@ -89,18 +89,26 @@ Both models read at most 512 tokens (`model_max_length` 512 in both tokenizer co
 to 1419 tokens for the dense model's tokenizer and 803 to 1445 for the reranker's, so the dense and
 reranker stages of (ii) to (iv) read only the start of every query. The BM25 stage of (iv) has no
 such limit and reads the whole query. The target service is named in every query (pod and
-Deployment names), and in the part the dense model reads for all 16. For the reranker the service
-falls outside the first 512 tokens of the query for 2 queries
+Deployment names), and in the first 512 query tokens of the dense model's tokenizer for all 16.
+For the reranker the service falls outside the first 512 tokens of the query for 2 queries
 (`pool-assign_to_non_existent_node_social_net-mitigation-3`,
-`pool-k8s_target_port-misconfig-mitigation-6`). The reranker scores the query and the entry text
-as one pair within its 512, so it likely reads less of the query than this: the count is an upper
-bound. The planner retrieves with its first observation as it was taken, before any clipping, so
-the same truncation applies there. No query instruction is added to the dense model
+`pool-k8s_target_port-misconfig-mitigation-6`).
+
+These counts are of query tokens against the full 512, but the special tokens take part of the
+window. The dense model adds 2 (`[CLS]` and `[SEP]`), so it reads at most 510 query tokens, and the
+check for it is within 2 tokens of what it reads: a service named only in query tokens 511 and 512
+would be counted as read. The reranker adds 4 to a query and entry pair and also reads the entry
+text, so it reads less of the query than the check assumes, and its count is an upper bound. The
+check now subtracts each tokenizer's special tokens (`query_lengths`, `special`); it was not run
+again, since that reads the query files and takes a new touch.
+
+The planner retrieves with its first observation as it was taken, before any clipping, so the same
+truncation applies there. No query instruction is added to the dense model
 (`load_models`).
 
 ## What the numbers say and do not say
 
-- 16 queries, about 5 fault types: one query changes Hit@3 by 6 percentage points. Over all 16,
+- 16 queries, 5 fault types: one query changes Hit@3 by 6 percentage points. Over all 16,
   (ii) scores above (iii) and (iv) on every metric, and (iii) above (iv) on all but Hit@1, where
   they tie. No test is run on this ordering, and no claim that the reranker hurts is made from it;
   the paired comparison belongs to the ablation reporting (#57).

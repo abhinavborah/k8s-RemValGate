@@ -57,6 +57,7 @@ def lengths(queries: dict[str, str], services: dict[str, str], loaded: dict) -> 
             services,
             lambda text, t=tokenizer: t(text, add_special_tokens=False).input_ids,
             lambda ids, t=tokenizer: t.decode(ids),
+            special=tokenizer.num_special_tokens_to_add(),
         )
         for name, tokenizer in loaded.items()
     }

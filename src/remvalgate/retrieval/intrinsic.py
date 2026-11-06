@@ -209,11 +209,17 @@ def query_lengths(
     tokenize: Callable[[str], Sequence[int]],
     decode: Callable[[Sequence[int]], str],
     limit: int = MODEL_TOKENS,
+    special: int = 0,
 ) -> dict:
     """How many tokens each query has and whether its target service is named in the part a model
-    reads. The comparison ignores case and spaces, since a tokenizer may split a hyphenated name
-    when it decodes. A reranker also reads the entry text in the same limit, so for it this is an
-    upper bound on the query it reads."""
+    reads. tokenize returns the query's tokens without special tokens; special is the number the
+    model adds around one text (2 for BERT's [CLS] and [SEP]), which take part of the limit, so a
+    model reads limit - special query tokens. The comparison ignores case and spaces, since a
+    tokenizer may split a hyphenated name when it decodes. A reranker also reads the entry text in
+    the same limit, so for it this is an upper bound on the query it reads."""
+    read = limit - special
+    if read < 1:
+        raise ValueError(f"special: {special} leaves no query token within {limit}")
 
     def squeeze(text: str) -> str:
         return "".join(text.split()).lower()
@@ -225,8 +231,9 @@ def query_lengths(
         report[problem_id] = {
             "characters": len(query),
             "tokens": len(ids),
-            "truncated": len(ids) > limit,
+            "read_tokens": read,
+            "truncated": len(ids) > read,
             "service_in_query": service in squeeze(query),
-            "service_in_read_part": service in squeeze(decode(ids[:limit])),
+            "service_in_read_part": service in squeeze(decode(ids[:read])),
         }
     return report

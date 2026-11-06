@@ -200,3 +200,22 @@ def test_query_lengths_sees_a_service_cut_off_by_the_limit():
     assert report["late"]["service_in_read_part"] is False
     assert report["none"]["truncated"] is False
     assert report["none"]["service_in_query"] is False
+
+
+def test_special_tokens_take_part_of_the_limit():
+    # the service fills the last two of 512 positions, which [CLS] and [SEP] take from the query
+    query = " ".join(["a"] * 510 + ["user", "service"])
+    services = {"p": "user service"}
+    args = ({"p": query}, services, str.split, " ".join)
+    full = query_lengths(*args)["p"]
+    assert full["truncated"] is False
+    assert full["service_in_read_part"] is True
+    bert = query_lengths(*args, special=2)["p"]
+    assert bert["read_tokens"] == 510
+    assert bert["truncated"] is True
+    assert bert["service_in_read_part"] is False
+
+
+def test_special_tokens_cannot_fill_the_limit():
+    with pytest.raises(ValueError, match="no query token"):
+        query_lengths({"p": "a"}, {"p": "a"}, str.split, " ".join, limit=2, special=2)
