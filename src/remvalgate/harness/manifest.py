@@ -139,6 +139,12 @@ def _check_run_id(run_id: object, where: str) -> None:
         )
 
 
+def _stamped_run_id(prefix: str, problem_id: str, now: datetime) -> str:
+    """<prefix>-<problem id>-<UTC time>, lowercased: a problem id may hold uppercase letters
+    (redeploy_without_PV-mitigation-1), and a run id may not."""
+    return f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}".lower()
+
+
 def _int(name: str, value: object, low: int, high: int | None = None) -> None:
     if type(value) is not int or value < low or (high is not None and value > high):
         bound = f"from {low} to {high}" if high is not None else f"at least {low}"
@@ -403,7 +409,7 @@ def log_creation(
         raise ValueError("log_creation now: expected an aware datetime, converted to UTC")
     slice_ = _slice_of(problem_id, registry)
     now = now.astimezone(UTC)
-    run_id = f"create-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    run_id = _stamped_run_id("create", problem_id, now)
     _check_run_id(run_id, "log_creation")
     if slice_ is Slice.CONFIRMATION and any(
         e["problem_id"] == problem_id and e["run_id"].startswith("create-")
@@ -462,7 +468,7 @@ def _log_read_touch(
     if slice_ is Slice.CONFIRMATION:
         raise RunRefused(f"{problem_id!r} is a confirmation problem: it is not read for {prefix}")
     now = now.astimezone(UTC)
-    run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    run_id = _stamped_run_id(prefix, problem_id, now)
     _check_run_id(run_id, where)
     entry = {
         "problem_id": problem_id,
@@ -586,7 +592,7 @@ def seal_confirmation(
     for problem_id in ids:
         entry = {
             "problem_id": problem_id,
-            "run_id": f"seal-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}",
+            "run_id": _stamped_run_id("seal", problem_id, now),
             "slice": Slice.CONFIRMATION,
             "timestamp": seal["sealed"],
         }

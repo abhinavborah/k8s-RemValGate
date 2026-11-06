@@ -643,6 +643,20 @@ def test_log_authoring_refuses_a_confirmation_or_singleton_problem(tmp_path, pro
     assert not log.exists()
 
 
+def test_every_committed_problem_gets_a_lowercase_creation_and_fixture_run_id(tmp_path):
+    # redeploy_without_PV-mitigation-1 holds uppercase letters, which a run id may not
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    log = tmp_path / "touch_log.jsonl"
+    for problem_id, slice_ in registry.slices.items():
+        logged = [log_creation(problem_id, registry, log, NOW)]
+        if slice_ is not Slice.CONFIRMATION:
+            logged.append(log_fixture(problem_id, registry, log, NOW))
+        for entry in logged:
+            assert entry["problem_id"] == problem_id
+            assert entry["run_id"] == entry["run_id"].lower()
+            assert problem_id.lower() in entry["run_id"]
+
+
 def test_start_run_refuses_a_fixture_run_id(tmp_path):
     with pytest.raises(RunRefused, match="fixture touches"):
         _start(tmp_path, DEV, run_id="fixture-run-0001")
