@@ -50,6 +50,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -439,6 +440,13 @@ def main() -> int:
                     "date": now.strftime("%Y-%m-%d"),
                     "chat": dataclasses.asdict(judge_chat),
                 }
+            # rejected as OUT_OF_SANDBOX because the command names no namespace at all (#129),
+            # stored so a run's count reads off its record
+            transcript["no_namespace"] = sum(
+                (c["verdict"] or {}).get("reason") == Reason.OUT_OF_SANDBOX
+                and names_no_namespace(c["command"], policy)
+                for c in transcript["candidates"]
+            )
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
             )
@@ -451,16 +459,18 @@ def main() -> int:
             print(f"  command={transcript['command']} admitted={verdict.get('admitted')}")
             drawn = transcript["candidates"]
             admitted = sum(c["rejection"] is None for c in drawn)
-            # rejected as OUT_OF_SANDBOX because the command names no namespace at all (#129)
-            no_namespace = sum(
-                (c["verdict"] or {}).get("reason") == Reason.OUT_OF_SANDBOX
-                and names_no_namespace(c["command"], policy)
+            # why each rejected candidate was rejected; a reply with no command has no verdict
+            rejected = Counter(
+                str(c["verdict"]["reason"]) if c["verdict"] else "no_command"
                 for c in drawn
+                if c["rejection"] is not None
             )
             print(f"  tokens={tokens} seconds={seconds:.1f}")
             # apart from the diagnosis, so the cost of K can be read from a run
             print(
-                f"  candidates={len(drawn)} admitted={admitted} no_namespace={no_namespace}"
+                f"  candidates={len(drawn)} admitted={admitted}"
+                f" no_namespace={transcript['no_namespace']}"
+                f" rejected={dict(sorted(rejected.items()))}"
                 f" tokens={sum(c['completion_tokens'] for c in drawn)}"
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
                 f" draws={transcript['draws']} escalated={transcript['escalated']}"

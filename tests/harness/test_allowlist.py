@@ -545,6 +545,10 @@ def test_check_chain_needs_every_part_admitted():
         ("kubectl --namespace=other get pods", False),
         ("kubectl get pods -A", False),
         ("kubectl get pods | head", False),
+        ("helm rollback social-network 1", False),
+        # a flag with no value counts as present: check rejects these as OUT_OF_SANDBOX
+        ("kubectl get pods -n", False),
+        ("kubectl -n= get pods", False),
     ],
 )
 def test_names_no_namespace(command, expected):
