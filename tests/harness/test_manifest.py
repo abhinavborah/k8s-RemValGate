@@ -1061,11 +1061,37 @@ def test_a_hotel_reservation_pool_problem_runs_only_in_its_namespace(tmp_path, n
         assert [e["problem_id"] for e in _runs(log)] == [HOTEL]
 
 
+KAFKA = "astronomy_shop_kafka_queue_problems-mitigation-1"
+
+
+@pytest.mark.parametrize(
+    ("namespace", "refused"), [(SOCIAL_NETWORK, True), (ASTRONOMY_SHOP, False)]
+)
+def test_the_kafka_singleton_runs_only_in_astronomy_shop(tmp_path, namespace, refused):
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    registry = load_registry(_write_registry(tmp_path, {**_registry_data(), "singleton": [KAFKA]}))
+
+    def start():
+        return start_run(
+            "run-0001", KAFKA, registry, log, repo, PIN, NOW, checksum=_sum, namespace=namespace
+        )
+
+    if refused:
+        with pytest.raises(RunRefused, match="runs in 'astronomy-shop'"):
+            start()
+        assert _runs(log) == []
+    else:
+        assert start().namespace == ASTRONOMY_SHOP
+        assert [e["problem_id"] for e in _runs(log)] == [KAFKA]
+
+
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
 @pytest.mark.parametrize("namespace", [None, HOTEL_RESERVATION])
-def test_logged_run_in_another_namespace_refused_before_the_touch(tmp_path, namespace):
+def test_logged_run_in_another_namespace_refused_before_the_touch(tmp_path, namespace, problem_id):
     repo = _repo(tmp_path)
     with pytest.raises(RunRefused, match="runs in 'test-social-network'"):
-        _start(tmp_path, POOL, repo=repo, namespace=namespace)
+        _start(tmp_path, problem_id, repo=repo, namespace=namespace)
     assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
@@ -1074,11 +1100,13 @@ def test_unlogged_run_needs_no_namespace(tmp_path):
     assert start.namespace is None
 
 
-def test_manifest_naming_another_namespace_refused(tmp_path):
-    start, log, repo = _start(tmp_path, POOL)
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
+def test_manifest_naming_another_namespace_refused(tmp_path, problem_id):
+    start, log, repo = _start(tmp_path, problem_id)
     cluster = {"kind": "kind", "nodes": 1, "namespace": HOTEL_RESERVATION}
+    manifest = _for(start, problem_id=problem_id, cluster=cluster)
     with pytest.raises(RunRefused, match="cluster namespace"):
-        write_manifest(_for(start, cluster=cluster), start, repo / "m", _registry(tmp_path), log)
+        write_manifest(manifest, start, repo / "m", _registry(tmp_path), log)
 
 
 def test_logged_manifest_without_a_cluster_namespace_refused(tmp_path):
