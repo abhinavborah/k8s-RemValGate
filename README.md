@@ -304,6 +304,13 @@ outputs go to `runs/queries/`, which git ignores, and to the shared drive
 ([docs/pool_queries.md](docs/pool_queries.md)). Run it with Social Network and Hotel Reservation
 deployed and Ready; CI does not run it.
 
+`scripts/run_intrinsic_retrieval.py` scores the four retrieval configurations on those queries
+(story E4-S3, R4.3): Hit@1, Hit@3, MRR and fault-type Recall@3 per configuration. It reads the
+query files from `runs/queries/`, needs the retrieval dependency group and no cluster, and each
+problem is a pool run with a touch, so it needs gate G1 and a clean checkout. The outputs go to
+`runs/intrinsic/`, which git ignores ([docs/intrinsic_retrieval.md](docs/intrinsic_retrieval.md)).
+CI does not run it.
+
 ### Telemetry for `get_metrics` and `get_traces`
 
 - **Traces.** The Jaeger client keeps 1 percent of requests, so the script's workload is 100
