@@ -127,6 +127,8 @@ class Candidate:
     # the sum of the reply's token log-probabilities, None when the server returns none or a
     # token's value is unknown
     logprob: float | None = None
+    # the command as the reply held it when a stray closing brace was stripped, None otherwise
+    raw_command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -412,6 +414,28 @@ def _sample_prompt(namespace: str) -> str:
     )
 
 
+def _without_stray_brace(command: str) -> str | None:
+    """The command with one stray closing brace after its last single quote removed, or None
+    when the command does not end that way or the rest is not balanced.
+
+    Sampled JSON patch commands often end in ]'} (#146), a brace the allow-list always rejects
+    because it is unquoted. Only that one brace is stripped, and only when the quotes, the square
+    brackets and the braces of the rest are balanced, so nothing else about the command changes.
+    """
+    if not command.endswith("'}"):
+        return None
+    rest = command[:-1]
+    quote = None
+    for ch in rest:
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+    if quote or rest.count("[") != rest.count("]") or rest.count("{") != rest.count("}"):
+        return None
+    return rest
+
+
 def _candidate_command(completion) -> tuple[str | None, str | None]:
     try:
         obj = _json_object(completion.text)
@@ -452,6 +476,10 @@ def sample(
     for draw in range(seed, seed + k):
         completion = chat.complete(messages, seed=draw, logprobs=True)
         command, rejection = _candidate_command(completion)
+        raw_command = None
+        stripped = None if command is None else _without_stray_brace(command)
+        if stripped is not None:
+            raw_command, command = command, stripped
         verdict = None if command is None else check(command, policy, namespace)
         if verdict is not None and not verdict.admitted:
             rejection = f"allow-list: {verdict.reason}"
@@ -464,6 +492,7 @@ def sample(
                 rejection,
                 *_cost(completion),
                 completion.logprob,
+                raw_command,
             )
         )
     return tuple(candidates)

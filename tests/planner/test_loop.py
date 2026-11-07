@@ -373,6 +373,55 @@ def test_an_answer_in_the_final_format_still_yields_its_command():
     assert candidate.command == FIX and candidate.rejection is None
 
 
+PATCH = (
+    f"kubectl -n {NS} patch deployment unique-id-service --type=json "
+    """-p '[{"op": "remove", "path": "/spec/template/spec/nodeSelector"}]'"""
+)
+
+
+# AC: the stray brace sampled JSON patch commands end with is stripped and recorded (#146)
+def test_one_stray_brace_after_the_closing_quote_is_stripped_and_the_raw_command_kept():
+    reply = command(PATCH + "}")
+    (candidate,), _ = draw([reply])
+    assert candidate.command == PATCH and candidate.raw_command == PATCH + "}"
+    assert candidate.reply == reply
+    assert candidate.verdict.admitted and candidate.rejection is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        FIX,
+        PATCH,
+        # two braces: only exactly one stray brace is stripped
+        PATCH + "}}",
+        # a brace that does not follow a closing quote
+        f"kubectl -n {NS} get pods}}",
+        # the rest has an unbalanced brace
+        f"""kubectl -n {NS} patch deployment a --type=json -p '[{{"op": "remove"]'}}""",
+        # the rest has an open quote
+        f"""kubectl -n {NS} patch deployment a -p "x'}}""",
+    ],
+)
+def test_any_other_command_is_left_as_the_reply_held_it(text):
+    (candidate,), _ = draw([command(text)])
+    assert candidate.command == text and candidate.raw_command is None
+
+
+def test_a_stripped_command_the_allow_list_rejects_stays_rejected():
+    text = "kubectl delete namespace kube-system -o 'name'"
+    (candidate,), _ = draw([command(text + "}")])
+    assert candidate.command == text and candidate.raw_command == text + "}"
+    assert not candidate.verdict.admitted
+    assert candidate.rejection == f"allow-list: {candidate.verdict.reason}"
+
+
+def test_the_planners_own_command_is_never_stripped():
+    result = run([final(command=PATCH + "}")])[0]
+    assert result.command == PATCH + "}"
+    assert not result.verdict.admitted and result.verdict.reason == "SHELL_METACHAR"
+
+
 def test_a_plan_without_a_diagnosis_or_a_k_below_one_is_refused_before_any_model_call():
     capped = run([tool("get_logs", namespace=NS, service="s")], max_turns=1)[0]
     with pytest.raises(ValueError, match="no diagnosis"):
