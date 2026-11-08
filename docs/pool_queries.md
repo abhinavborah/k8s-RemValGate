@@ -45,7 +45,8 @@ script's result, and the reset is checked on Kubernetes objects and pod readines
 records show the `geo` or `rate` pod failing after each of these injections, which the fault
 explains, but the restored user and role state was not checked.
 
-Since the run, `start_run` also refuses a pool or confirmation run that does not name the problem's
+Since the run, `start_run` also refuses a pool, confirmation or singleton run that does not name the
+problem's
 own namespace (`logged_namespace` in `src/remvalgate/harness/manifest.py`), and the script passes
 it. This catches a script that names the wrong namespace, not one that names the right one and then
 acts in another. That change refactored the script, so the form in the repository has not run on

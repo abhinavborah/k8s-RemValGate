@@ -6,8 +6,8 @@ problem outside the development slice. The hand runs of the planner and baseline
 with configuration (iii) over STUB_CORPUS (fixed.py, #35); the stub stays as a retriever that
 needs no model, for the unit tests.
 
-The corpus is synthetic: an entry built from a pool or confirmation problem would be an
-evaluation-set touch (BRD 7.2).
+The corpus is synthetic: an entry built from a pool, confirmation or singleton problem would
+be an evaluation-set touch (BRD 7.2).
 """
 
 import re

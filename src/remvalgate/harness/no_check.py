@@ -15,11 +15,11 @@ Each recorded verdict is compared with the recomputed one, so a policy changed s
 refuses the report instead of mixing two policies.
 
 ablate_runs reads the runs: one per problem, all of one slice and one model and sampling setup,
-all checked before any touch. A pool problem's run gets a nocheck- touch through start_run before
-its transcript is read. A run refused after its touch keeps that touch, since the transcript was
-read; the problems before it keep their results, and no summary is written. A run whose manifest
-records no seeds, as when its plan had no diagnosis, is listed in the summary and not touched,
-since there is no candidate to read.
+all checked before any touch. A pool or singleton problem's run gets a nocheck- touch through
+start_run before its transcript is read. A run refused after its touch keeps that touch, since the
+transcript was read; the problems before it keep their results, and no summary is written. A run
+whose manifest records no seeds, as when its plan had no diagnosis, is listed in the summary and
+not touched, since there is no candidate to read.
 """
 
 import dataclasses

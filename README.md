@@ -186,7 +186,7 @@ first pull took about 5 minutes, and a repeat about one. All 27 pods were Ready 
 `Helm.install` runs `helm dependency update` inside the nested `aiopslab-applications` chart
 folder. After the deploy, `git status --porcelain -- external/AIOpsLab` at the repository root
 printed nothing (checked 2026-10-27), so the deploy does not dirty the pin. The run manifest also
-refuses a pool or confirmation run while the repository has any uncommitted or untracked file, so
+refuses a pool, confirmation or singleton run while the repository has any uncommitted or untracked file, so
 check `git status --porcelain` before such a run.
 
 The four RevokeAuth and UserUnregistered pool problems run on AIOpsLab's Hotel Reservation
@@ -278,7 +278,11 @@ runs. It then samples K candidate commands from that diagnosis (`--candidates`, 
 submitted proposal's value): one model call each, with seeds `--seed` to `--seed` plus K minus 1, on
 the diagnosis conversation with the accepted answer's command left out. Earlier turns, a refused
 final answer among them, and the retrieved past fixes are still seen by every draw. Each
-candidate is admitted by the allow-list or rejected with a reason, and none is run. Each candidate
+candidate is admitted by the allow-list or rejected with a reason, and none is run. A sampled
+command, or the plan's own final command, that ends in one stray closing brace after its last
+single quote, with balanced quotes, brackets and braces otherwise, has that brace stripped before
+the check; the candidate or the plan records the command as the reply held it in `raw_command`
+(None when nothing was stripped), and the run summary prints how many were stripped. Each candidate
 also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
 completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
 rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
@@ -303,6 +307,13 @@ and resets. Each problem is a pool run with a touch, so it needs gate G1 and a c
 outputs go to `runs/queries/`, which git ignores, and to the shared drive
 ([docs/pool_queries.md](docs/pool_queries.md)). Run it with Social Network and Hotel Reservation
 deployed and Ready; CI does not run it.
+
+`scripts/run_intrinsic_retrieval.py` scores the four retrieval configurations on those queries
+(story E4-S3, R4.3): Hit@1, Hit@3, MRR and fault-type Recall@3 per configuration. It reads the
+query files from `runs/queries/`, needs the retrieval dependency group and no cluster, and each
+problem is a pool run with a touch, so it needs gate G1 and a clean checkout. The outputs go to
+`runs/intrinsic/`, which git ignores ([docs/intrinsic_retrieval.md](docs/intrinsic_retrieval.md)).
+CI does not run it.
 
 ### Telemetry for `get_metrics` and `get_traces`
 
@@ -399,15 +410,15 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
 - **Run manifests** (`<run_id>.json`) are written next to the rollout's logs on shared drive storage.
   The `runs/` folder is ignored by git, except for the touch log and the confirmation seal.
 - **The evaluation-set touch log** is `runs/touch_log.jsonl`, committed, one JSON line per use of a
-  primary-pool or confirmation-slice problem, and one per creation touch: `log_creation` logs the
+  primary-pool, confirmation-slice or singleton problem, and one per creation touch: `log_creation` logs the
   validation of a new problem in any slice, with a run id that starts with `create-`, a prefix
   `start_run` refuses. Lines are only appended, never edited or removed.
   `.gitattributes` merges it as a union, so appends from two branches keep both lines. A union merge
   may put the added lines in any order; each entry carries its own timestamp, so order is not used.
-- **Refusals.** A pool or confirmation run is refused when it has no touch entry, when its run id is
+- **Refusals.** A pool, confirmation or singleton run is refused when it has no touch entry, when its run id is
   already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
   does not ignore (new files included). A confirmation run is refused in every case for now: the
-  slice is opened once, at the end, by a run path added in #59. A pool run is also refused until
+  slice is opened once, at the end, by a run path added in #59. A pool or singleton run is also refused until
   the confirmation slice is sealed (gate G1): `runs/confirmation_seal.json` must cover the registry's confirmation ids, the
   touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
   under the run's AIOpsLab commit must match the record
@@ -424,5 +435,15 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   ScalePod and two AssignNonExistentNode problems of the pool extension
   ([docs/pool_extension.md](docs/pool_extension.md)). It also holds the development problems
   designated in [docs/development_problems.md](docs/development_problems.md), and the three
-  confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)). The
-  singleton problems are not in it yet.
+  confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)), and the
+  five singleton problems (rows 8, 9 and 12 to 14 of
+  [docs/problem_inventory.md](docs/problem_inventory.md)).
+- **Singleton types (exploratory).** The five fault types with one instance each are held out of
+  training: no fold holds them, so no gate or planner is trained on them, and the retrieval corpus
+  is built from the pool slice only (`log_authoring` refuses a singleton problem). They
+  form the exploratory generalization check (BRD R3.6, R9.5), reported descriptively only, since
+  five types are too few for a quantitative claim. Their runs are logged as evaluation-set touches
+  and subject to the same refusals as pool runs, each in its own namespace: `test-hotel-reservation` for rows 9, 13
+  and 14, `astronomy-shop` for row 12 and `test-social-network` for row 8. BRD 7.3 names only the
+  pool and the confirmation slice as touches; logging the singleton runs as well follows the E3-S6
+  acceptance criteria. Decided in #28 by a group member, pending group confirmation.

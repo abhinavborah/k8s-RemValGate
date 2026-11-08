@@ -13,7 +13,7 @@ def pinned_commit(repo: str | Path) -> str:
 
     Read from HEAD, not from the checkout under external/, so a submodule moved by hand and not
     committed does not change it. The run manifest records such a tree as dirty, and refuses it for
-    pool and confirmation runs.
+    pool, confirmation and singleton runs.
     """
     out = subprocess.run(
         ["git", "ls-tree", "HEAD", "--", SUBMODULE],
