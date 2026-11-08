@@ -10,6 +10,9 @@ result is read. No baseline-only pool run has been made yet.
 3b, 3c) on the 16 pool problems. Each baseline on each problem is one run with one touch, so the
 run needs gate G1 and a clean checkout. Development ids run the same way with no touch, as a dry
 run; one run takes pool or development ids, never both.
+The Hotel Reservation problems need the two MongoDB password variables of the labelling run
+([oracle_labels.md](oracle_labels.md)), with the same values; the run stops before any touch
+if one is missing.
 
 Each run executes the baseline's single action once, with the procedure of the oracle labelling
 run ([oracle_labels.md](oracle_labels.md)), so every baseline is compared with the labels on one

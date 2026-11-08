@@ -114,6 +114,7 @@ from remvalgate.baselines.observe import observe
 from remvalgate.baselines.retrieval_only import retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
 from remvalgate.baselines.untuned import pool_untuned_retriever, untuned_retriever
+from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import check_chain
 from remvalgate.harness.cluster_state import changed
 from remvalgate.harness.folds import fault_type
@@ -223,6 +224,9 @@ def main() -> int:
         max_tokens=4096 if args.thinking else 1024,
     )
     namespaces = sorted({logged_namespace(i) for i in selected})
+    if credentials.AUTH_NAMESPACES & set(namespaces):
+        # a missing or unsafe password variable stops the run before anything is touched
+        credentials.values()
     SCRATCH.mkdir(parents=True, exist_ok=True)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     # the tools write files to the current directory (get_traces and get_metrics do)
