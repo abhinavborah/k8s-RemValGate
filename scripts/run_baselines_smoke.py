@@ -38,6 +38,7 @@ from remvalgate.baselines import BaselineAction
 from remvalgate.baselines.observe import observe
 from remvalgate.baselines.retrieval_only import retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
+from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.allowlist import check_chain as admit
 from remvalgate.harness.cluster_state import changed, normalise
@@ -62,9 +63,9 @@ def require(condition, message: str) -> None:
         raise AssertionError(message)
 
 
-def kubectl(*args: str) -> subprocess.CompletedProcess:
+def kubectl(*args: str, namespace: str = NS) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["kubectl", "--context", CONTEXT, "-n", NS, *args],
+        ["kubectl", "--context", CONTEXT, "-n", namespace, *args],
         capture_output=True,
         text=True,
         check=True,
@@ -108,8 +109,8 @@ def fault_remains(prob, problem_id: str):
     def target_port_remains() -> bool:
         # the target-port eval also needs every pod healthy, so it fails after a harmful action
         # whether or not the fault is still there; the Service spec alone answers the question
-        svc = json.loads(kubectl("get", "svc", prob.faulty_service, "-o", "json").stdout)
-        return svc["spec"]["ports"][0]["targetPort"] != TARGET_PORT
+        found = kubectl("get", "svc", prob.faulty_service, "-o", "json", namespace=prob.namespace)
+        return json.loads(found.stdout)["spec"]["ports"][0]["targetPort"] != TARGET_PORT
 
     return target_port_remains if "target_port" in problem_id else eval_remains
 
@@ -133,7 +134,8 @@ async def apply(
     planner's) is not strict: a command that cannot be sent unchanged raises CannotSend before
     anything runs, and an error response from kubectl is returned, since the command was applied.
     """
-    action = carried_action(command, orch.parser.parse, strict=strict)
+    # password tokens are filled in only here, so nothing stored holds a password
+    action = carried_action(credentials.fill(command), orch.parser.parse, strict=strict)
     orch.register_agent(ScriptedAgent([action]), name=AGENT)
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
@@ -141,7 +143,7 @@ async def apply(
     orch.session.start()
     reply = await orch.ask_agent("Please take the next action")
     require(reply == action, f"the agent replied {reply!r}")
-    response = await orch.ask_env(reply)
+    response = credentials.redact(await orch.ask_env(reply))
     orch.session.end()
     if strict:
         require(not response.startswith(("[ERROR]", "Error", "Failed")), response)

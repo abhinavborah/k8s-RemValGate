@@ -23,6 +23,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import (
     Policy,
     Verdict,
@@ -177,6 +178,18 @@ _ESCALATE_INSTRUCTIONS = (
 )
 
 
+# an operator's note where MongoDB enforces authentication: the users, and the password tokens
+# the harness fills in when the command runs, so a database fix can log in (credentials.py)
+_LOGIN_NOTE = (
+    "\nMongoDB in NS enforces authentication. Its users are admin and root. A mongo call in a "
+    "fix logs in with -u USER -p PASSWORD --authenticationDatabase admin before --eval, for "
+    "example kubectl -n NS exec deploy/DEPLOYMENT -- mongo admin -u root -p ROOT_PASSWORD_REF "
+    "--authenticationDatabase admin --eval 'SCRIPT'. Write the passwords only as "
+    "ADMIN_PASSWORD_REF and ROOT_PASSWORD_REF, also inside SCRIPT; they are filled in when the "
+    "command runs."
+)
+
+
 def _system_prompt(
     namespace: str, tools: frozenset[str], max_turns: int, escalate_when_unsure: bool = False
 ) -> str:
@@ -201,6 +214,7 @@ def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
         f"and C is one kubectl command that fixes the fault and starts with kubectl -n {namespace}."
         " C is not run during diagnosis.\n"
         f"You have at most {max_turns} turns. Gather evidence first, then finish."
+        + (_LOGIN_NOTE.replace("NS", namespace) if namespace in credentials.AUTH_NAMESPACES else "")
     )
 
 
@@ -298,7 +312,7 @@ def plan(
     policy: Policy,
     schemas: Schemas,
     tools: frozenset[str] = DEFAULT_TOOLS,
-    max_turns: int = 8,
+    max_turns: int = 16,
     k: int = 3,
     max_observation_chars: int = 4000,
     escalate_when_unsure: bool = False,

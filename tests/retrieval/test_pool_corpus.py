@@ -2,7 +2,6 @@ import pytest
 
 from remvalgate.harness.allowlist import (
     DEFAULT_POLICY_PATH,
-    Reason,
     check_chain,
     load_policy,
     split_chain,
@@ -80,15 +79,15 @@ def test_build_corpus_builds_every_fold(fold):
     assert len(corpus) == 12 + len(RUNBOOK)
 
 
-def test_kubernetes_records_pass_the_allow_list_and_mongodb_records_do_not():
+def test_every_record_passes_the_allow_list():
     for e in INCIDENTS:
         verdict = check_chain(e.fix_command, POLICY, logged_namespace(e.entry_id))
+        assert verdict.admitted, e.entry_id
         if e.fault_type in MONGO_TYPES:
-            # deploy/<name> is not a bare pod name, which the exec rule needs
-            assert verdict.reason is Reason.RESOURCE_NOT_ALLOWED
+            # admitted since exec may target deploy/<name>, but with no login, which the database
+            # refuses (module docstring)
             assert len(split_chain(e.fix_command)) == 2
-        else:
-            assert verdict.admitted, e.entry_id
+            assert " -u " not in e.fix_command
 
 
 def test_fix_command_drops_waits_and_joins_the_rest():

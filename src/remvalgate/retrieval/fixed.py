@@ -12,6 +12,9 @@ The development problems are served under a key of their own with the synthetic 
 development run touches no evaluation problem and every other problem is refused. The stub corpus
 has no more entries than the fixed depth, so there the reranker scores every entry and the dense
 stage changes nothing: a development run checks the wiring, not the two-stage ranking.
+
+The pool problems are served by pool_retriever, each from the corpus of the fold that holds it
+out (R4.1), built from the pool incident records and the runbook entries (E4-S8).
 """
 
 import inspect
@@ -20,6 +23,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 
+from remvalgate.harness.folds import pool_folds
 from remvalgate.harness.manifest import Registry, Slice
 from remvalgate.planner.loop import plan
 from remvalgate.retrieval import PastFix, Source
@@ -33,6 +37,8 @@ from remvalgate.retrieval.configs import (
     entry_text,
     load_models,
 )
+from remvalgate.retrieval.corpus import build_corpus
+from remvalgate.retrieval.pool_corpus import RUNBOOK, pool_incidents
 from remvalgate.retrieval.stub import STUB_CORPUS
 
 FIXED_PATH = Path(__file__).with_name("fixed.json")
@@ -116,3 +122,18 @@ def development_retriever(
         models=models,
         device=device,
     )
+
+
+def pool_retriever(
+    registry: Registry, *, models: tuple[Encode, Score] | None = None, device: str | None = None
+) -> DenseRerank:
+    """(iii) over the fold corpora of the pool, serving the registry's pool problems only: each
+    problem retrieves from the corpus of the fold that holds it out, so it never retrieves its
+    own record. build_corpus refuses a fold with a leak."""
+    assignment = pool_folds(registry)
+    incidents = pool_incidents(registry)
+    corpora = {
+        fold: build_corpus(fold, assignment=assignment, incidents=incidents, runbook=RUNBOOK)
+        for fold in sorted(set(assignment.values()))
+    }
+    return configuration_iii(assignment, corpora, models=models, device=device)

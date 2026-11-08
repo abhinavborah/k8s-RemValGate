@@ -1,8 +1,10 @@
 # Pool queries
 
 Story E3-S7 (#29), requirement R3.7. One fixed telemetry query per pool incident, recorded after
-the injection, for the intrinsic retrieval metrics (#32) and reused by oracle labelling (#27), so
-neither records its own.
+the injection, for the intrinsic retrieval metrics (#32), so they do not record their own. Oracle
+labelling (#27) does not reuse these queries: its planner retrieves with its own first observation
+of the live cluster, since a recorded one names pods that a new injection replaces (BRD version
+1.10, confirmed by the group in version 1.14).
 
 ## What the query is
 
@@ -49,6 +51,12 @@ own namespace (`logged_namespace` in `src/remvalgate/harness/manifest.py`), and 
 it. This catches a script that names the wrong namespace, not one that names the right one and then
 acts in another. That change refactored the script, so the form in the repository has not run on
 the cluster; running it on a pool problem again takes a new touch.
+
+Since the run, the script also waits after the workload until the fault shows in pod status, with
+the oracle run's check (`wait_for_fault` in `scripts/run_oracle_labels.py`). For the 4 database
+problems that is a `geo` or `rate` client that runs and is not ready, so an injection whose script
+failed now stops the run instead of being taken as done when the pods were replaced. The recorded
+queries were taken without this wait.
 
 The manifests, the JSON listings and `pool_queries-<stamp>.jsonl` (one line per problem: problem
 id, run id, query, symptom query, seconds from the injection to the observation) go to

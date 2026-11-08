@@ -6,8 +6,9 @@ by CI. No model runs and the LLM judge must be off. Each problem is a pool run: 
 a touch to runs/touch_log.jsonl and refuses it unless the confirmation slice is sealed (gate G1)
 and the tree is clean, so the run needs a clean checkout.
 
-Per problem: inject, run the problem's workload, take the planner's first observation through
-AIOpsLab's interface as scripts/run_planner_dev.py does, in the problem's own namespace, reset.
+Per problem: inject, run the problem's workload, wait until the fault shows in pod status, take
+the planner's first observation through AIOpsLab's interface as scripts/run_planner_dev.py does,
+in the problem's own namespace, reset.
 That observation is the query: it is what the planner retrieves with, and it names no service, so
 it does not give the fault away. The symptom query of the rule baselines is derived from a JSON
 listing taken at the same time; the rules read object-state faults only, so it is empty for the
@@ -38,6 +39,7 @@ from pathlib import Path
 from aiopslab.paths import config
 from aiopslab.session import Session
 from run_dev_end_to_end import TOUCH_LOG, check, kubectl
+from run_oracle_labels import wait_for_fault
 from run_planner_dev import remove_workload, start_workload
 
 from remvalgate.aiopslab_pin import pinned_commit
@@ -67,10 +69,6 @@ def snapshot(namespace: str) -> dict:
     return normalise(json.loads(kubectl("-n", namespace, "get", "svc,deploy", "-o", "json").stdout))
 
 
-def pod_names(namespace: str) -> set[str]:
-    return set(kubectl("-n", namespace, "get", "pods", "-o", "name").stdout.split())
-
-
 def reset(prob) -> None:
     # AIOpsLab's recover step, then the README health check in the problem's namespace
     prob.recover_fault()
@@ -84,18 +82,17 @@ async def record(orch, prob, problem_id: str, clean: dict, results_dir: Path) ->
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent(AGENT)
-    pods = pod_names(namespace)
     try:
         prob.inject_fault()
         injected = time.perf_counter()
-        # the database faults change MongoDB users and delete the service's pods, which these
-        # objects do not record, so a new pod name shows they took effect
-        if "mongodb" in problem_id:
-            took = pod_names(namespace) != pods
-        else:
+        # the database faults change MongoDB users, which these objects do not record
+        if "mongodb" not in problem_id:
             took = bool(changed(clean[namespace], snapshot(namespace)))
-        check(took, f"{problem_id}: the injection left the cluster unchanged")
+            check(took, f"{problem_id}: the injection left the cluster unchanged")
         await asyncio.to_thread(start_workload, prob)
+        # the oracle run's check; for the database faults the only one, since their injector
+        # deletes the service's pods whatever its script did
+        wait_for_fault(prob, problem_id)
         orch.session.start()
         # the planner's first observation (scripts/run_planner_dev.py)
         query = await orch.ask_env(exec_shell(f"kubectl -n {namespace} get deployments,pods"))

@@ -268,7 +268,8 @@ it, and it takes about 12 minutes.
 `scripts/run_planner_dev.py` runs the planner (stories E5-S1, E5-S5 and E5-S2) on the development
 problems. For each problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
 read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`, which first retrieves
-3 past fixes with configuration (iii) (needs `uv sync --group retrieval`): at most 8 turns,
+3 past fixes with configuration (iii) (needs `uv sync --group retrieval`): at most 16 turns (8
+before 2026-11-08, when 5 of 6 TargetPort pool problems hit the cap),
 one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
 limited to `kubectl get` and `describe`, `get_logs`, `get_metrics` and `get_traces`. The last two
 save files and return a path, so the model also gets a bounded summary of what they saved
@@ -282,7 +283,9 @@ candidate is admitted by the allow-list or rejected with a reason, and none is r
 command, or the plan's own final command, that ends in one stray closing brace after its last
 single quote, with balanced quotes, brackets and braces otherwise, has that brace stripped before
 the check; the candidate or the plan records the command as the reply held it in `raw_command`
-(None when nothing was stripped), and the run summary prints how many were stripped. Each candidate
+(None when nothing was stripped), and the run summary prints how many were stripped. The
+allow-list reads a deployment or replica set type written with its group (`deployment.apps/web`,
+`deployments.v1.apps web`) as the plain type, as kubectl does, and only for those two. Each candidate
 also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
 completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
 rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
@@ -362,6 +365,19 @@ development problems all three use the synthetic stub corpus, whose 5 entries ar
 rerank depth, so 3b and 3c differ only in the reranker's order there and a run checks the wiring,
 not the ranking. 3b and 3c need `uv sync --group retrieval`. Their pool results come from the
 baseline-only run (#53).
+
+`scripts/run_oracle_labels.py` labels baseline 3c's K candidates on the pool problems (story
+E3-S5, R3.5). Per problem it runs 3c's planner once with retrieval configuration (iii) over the
+fold corpora (`pool_retriever` in `src/remvalgate/retrieval/fixed.py`), samples K candidates
+from its diagnosis, merges near-identical ones, and executes each remaining command, and the
+plan's own command apart, on a new injection, with a harness reset after each that is checked
+against the clean and the saved post-injection state. Each execution is classified as for the
+baselines; the labels, the problem's flag, the mixed outcomes and the coverage for k = 1 to K
+are in `src/remvalgate/harness/oracle.py`. Each pool problem is a pool run with a touch, so it
+needs gate G1 and a clean checkout; development ids run the same way with no touch, as a dry run.
+Run it with both applications deployed and Ready, Prometheus installed and the model loaded; CI
+does not run it. `scripts/summarize_oracle_labels.py` summarizes labels files without a cluster.
+The method and the rules are in [docs/oracle_labels.md](docs/oracle_labels.md).
 
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
