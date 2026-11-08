@@ -181,8 +181,8 @@ def reset(prob, problem_id: str, clean: Clean) -> None:
 async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir):
     """Inject, run 3c's planner and sample K candidates, check the diagnosis changed nothing, reset.
 
-    Returns the plan, the candidates (none when the plan has no diagnosis), the first observation
-    and the objects as the injection left them.
+    Returns the plan, the candidates (none when the plan has no diagnosis or k is 0), the first
+    observation and the objects as the injection left them.
     """
     namespace = prob.namespace
     orch.session = Session(results_dir=results_dir)
@@ -225,8 +225,9 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
             schemas=SCHEMAS,
         )
         candidates = ()
-        # one draw of K: 3c is the untuned planner, which does not resample (R5.2 is the system's)
-        if result.diagnosis is not None:
+        # one draw of K: 3c is the untuned planner, which does not resample (R5.2 is the system's);
+        # k = 0 runs the plan only, as the baseline-only run does (scripts/run_baselines_pool.py)
+        if k and result.diagnosis is not None:
             candidates = await asyncio.to_thread(
                 sample, result, namespace, chat=chat, policy=POLICY, k=k, seed=seed
             )
@@ -390,6 +391,8 @@ def main() -> int:
                 | {"first_observation": first}
                 | draw_record(result, Draws((candidates,)) if candidates else None)
             )
+            # candidates whose stray closing brace was stripped before the check (#146)
+            transcript["stripped"] = sum(c.raw_command is not None for c in candidates)
             transcript["config"] = {
                 **dataclasses.asdict(chat),
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
@@ -400,9 +403,13 @@ def main() -> int:
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
             )
             print(f"{problem_id}: stop={result.stop} diagnosis={result.diagnosis}")
-            print(f"  plan's command: {result.command}")
+            print(f"  plan's command: {result.command} stripped={result.raw_command is not None}")
             admitted = sum(c.rejection is None for c in candidates)
-            print(f"  candidates={len(candidates)} admitted={admitted}", flush=True)
+            print(
+                f"  candidates={len(candidates)} admitted={admitted}"
+                f" stripped={transcript['stripped']}",
+                flush=True,
+            )
             own = None
             if result.command is not None:
                 # admitted as 3c's action path admits it (act in run_baselines_smoke.py), so a

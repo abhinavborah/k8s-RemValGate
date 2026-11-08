@@ -150,6 +150,18 @@ def test_the_committed_pool_of_sixteen_meets_every_criterion():
         assert sorted(per_fold(assignment, type_)) == [0, 1, 1, 1]
 
 
+def test_the_committed_singletons_are_five_types_held_out_of_every_fold():
+    # R3.6: the five singleton types are set aside for the exploratory check, so none is a pool
+    # type and none is in a fold, which keeps them out of training on every fold
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    singletons = [i for i, s in registry.slices.items() if s is Slice.SINGLETON]
+    assert len({i.split("-mitigation-")[0] for i in singletons}) == len(singletons) == 5
+    for problem_id in singletons:
+        with pytest.raises(ValueError):
+            fault_type(problem_id)
+    assert not set(singletons) & set(pool_folds(registry))
+
+
 def test_pool_folds_takes_only_the_pool_slice():
     registry = Registry(
         slices={

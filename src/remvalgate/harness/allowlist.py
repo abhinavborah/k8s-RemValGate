@@ -283,13 +283,27 @@ def split_verb(positionals: list[str], policy: Policy) -> tuple[str, list[str]] 
     return None
 
 
+# the apps group resources kubectl also accepts with their group, as deployment.apps or
+# deployment.v1.apps; the plain name is checked, so the qualified form is admitted the same way
+_APPS_RESOURCES = frozenset({"deployments", "deployment", "replicasets", "replicaset"})
+
+
+def _plain(resource: str) -> str:
+    for suffix in (".v1.apps", ".apps"):
+        base = resource.removesuffix(suffix)
+        if base != resource and base in _APPS_RESOURCES:
+            return base
+    return resource
+
+
 def split_targets(targets: list[str]) -> tuple[list[str], list[str]]:
-    """Split verb targets into resource types and object names. targets must not be empty."""
+    """Split verb targets into resource types and object names. targets must not be empty. A
+    type written with its apps group (deployment.apps) is returned without it."""
     if "/" in targets[0]:
         # type/name form: every argument names its own type
         pairs = [target.partition("/") for target in targets]
-        return [t for t, _, _ in pairs], [n for _, _, n in pairs]
-    return targets[0].split(","), targets[1:]
+        return [_plain(t) for t, _, _ in pairs], [n for _, _, n in pairs]
+    return [_plain(t) for t in targets[0].split(",")], targets[1:]
 
 
 def _check_args(args: list[str], policy: Policy, namespace: str) -> None:
@@ -353,6 +367,20 @@ def check(command: str, policy: Policy, namespace: str) -> Verdict:
     except Rejected as rejected:
         return Verdict(command=command, admitted=False, reason=rejected.reason)
     return Verdict(command=command, admitted=True, reason=None)
+
+
+def names_no_namespace(command: str, policy: Policy) -> bool:
+    """True when the command parses, starts with an allowed binary and has neither
+    -n/--namespace nor -A/--all-namespaces. Such a command is rejected as OUT_OF_SANDBOX for a
+    missing flag, not for a wrong one. A flag with no value counts as present."""
+    try:
+        argv = tokenize(command)
+    except Rejected:
+        return False
+    if argv[0] not in policy.binaries:
+        return False
+    parsed = parse_args(argv[1:], policy)
+    return not parsed.namespaces and not parsed.all_namespaces
 
 
 _CHAIN = " && "

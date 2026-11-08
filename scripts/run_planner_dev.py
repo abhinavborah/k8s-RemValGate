@@ -50,6 +50,7 @@ import socket
 import subprocess
 import sys
 import time
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,7 +65,12 @@ from run_dev_end_to_end import NS, TOUCH_LOG, check, kubectl, reset, snapshot
 from remvalgate.aiopslab_pin import pinned_commit
 from remvalgate.baselines.judge import JudgeModel, judge
 from remvalgate.baselines.untuned import CONFIGURATIONS, conflicting_flags, untuned_retriever
-from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
+from remvalgate.harness.allowlist import (
+    DEFAULT_POLICY_PATH,
+    Reason,
+    load_policy,
+    names_no_namespace,
+)
 from remvalgate.harness.cluster_state import changed
 from remvalgate.harness.harm import SETTLE_SECONDS, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import (
@@ -333,6 +339,7 @@ def main() -> int:
     if config.get("qualitative_eval"):
         raise AssertionError("set qualitative_eval: false in aiopslab/config.yml")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
+    policy = load_policy(DEFAULT_POLICY_PATH)
     # configuration (iii), or the baseline's, loaded once: the models take a while to load
     if args.baseline:
         retriever = untuned_retriever(args.baseline, registry)
@@ -433,6 +440,17 @@ def main() -> int:
                     "date": now.strftime("%Y-%m-%d"),
                     "chat": dataclasses.asdict(judge_chat),
                 }
+            # rejected as OUT_OF_SANDBOX because the command names no namespace at all (#129),
+            # stored so a run's count reads off its record
+            transcript["no_namespace"] = sum(
+                (c["verdict"] or {}).get("reason") == Reason.OUT_OF_SANDBOX
+                and names_no_namespace(c["command"], policy)
+                for c in transcript["candidates"]
+            )
+            # candidates whose stray closing brace was stripped before the check (#146)
+            transcript["stripped"] = sum(
+                c["raw_command"] is not None for c in transcript["candidates"]
+            )
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
             )
@@ -442,13 +460,24 @@ def main() -> int:
             seconds = sum(s["seconds"] for s in steps)
             print(f"{problem_id} [{mode}]: stop={transcript['stop']} turns={len(steps)}")
             print(f"  diagnosis={transcript['diagnosis']}")
-            print(f"  command={transcript['command']} admitted={verdict.get('admitted')}")
+            print(
+                f"  command={transcript['command']} admitted={verdict.get('admitted')}"
+                f" stripped={transcript['raw_command'] is not None}"
+            )
             drawn = transcript["candidates"]
             admitted = sum(c["rejection"] is None for c in drawn)
+            # why each rejected candidate was rejected; a reply with no command has no verdict
+            rejected = Counter(
+                str(c["verdict"]["reason"]) if c["verdict"] else "no_command"
+                for c in drawn
+                if c["rejection"] is not None
+            )
             print(f"  tokens={tokens} seconds={seconds:.1f}")
             # apart from the diagnosis, so the cost of K can be read from a run
             print(
                 f"  candidates={len(drawn)} admitted={admitted}"
+                f" no_namespace={transcript['no_namespace']} stripped={transcript['stripped']}"
+                f" rejected={dict(sorted(rejected.items()))}"
                 f" tokens={sum(c['completion_tokens'] for c in drawn)}"
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
                 f" draws={transcript['draws']} escalated={transcript['escalated']}"

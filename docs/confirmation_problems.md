@@ -58,13 +58,13 @@ before the table is updated.
 
 ## Seal
 
-Gate G1 (#25): no pool run starts until the slice is sealed. `scripts/seal_confirmation.py`, run
+Gate G1 (#25): no pool or singleton run starts until the slice is sealed. `scripts/seal_confirmation.py`, run
 once on a clean tree, checks that each problem has its creation touch and no other touch and that
 its checksum matches the table above. It then writes `runs/confirmation_seal.json` (the ids and
 checksums, the AIOpsLab pin, the commit and the time) and appends one `seal-` touch per problem to
 `runs/touch_log.jsonl`. It refuses a second seal. Nothing is built, injected or run.
 
-`start_run` refuses a pool run unless the seal record covers exactly the confirmation ids in
+`start_run` refuses a pool or singleton run unless the seal record covers exactly the confirmation ids in
 `slices.json`, the touch log holds one `seal-` touch per id at the sealed time, and each checksum,
 recomputed under the run's AIOpsLab commit, equals the sealed one. A record written by hand,
 without the touches, does not open the gate. An edit to a definition, or a new AIOpsLab pin,

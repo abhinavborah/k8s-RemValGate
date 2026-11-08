@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from remvalgate import overlay
 from remvalgate.harness.manifest import (
+    ASTRONOMY_SHOP,
     DEFAULT_REGISTRY_PATH,
     HOTEL_RESERVATION,
     SOCIAL_NETWORK,
@@ -193,7 +194,12 @@ def test_default_registry_counts():
     # the loader already refuses an id in two slices, so loading checks disjointness
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     counts = Counter(registry.slices.values())
-    assert counts == {Slice.POOL: 16, Slice.CONFIRMATION: 3, Slice.DEVELOPMENT: 3}
+    assert counts == {
+        Slice.POOL: 16,
+        Slice.CONFIRMATION: 3,
+        Slice.DEVELOPMENT: 3,
+        Slice.SINGLETON: 5,
+    }
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     assert sum(i.removeprefix("pool-").startswith("k8s_target_port") for i in pool) == 6
     assert sum(i.removeprefix("pool-").startswith("scale_pod_zero") for i in pool) == 3
@@ -429,10 +435,20 @@ def test_logged_start_appends_dated_entry(tmp_path):
     assert start.slice is Slice.POOL
 
 
-@pytest.mark.parametrize("problem_id", [DEV, SINGLE])
-def test_unlogged_start_writes_no_entry(tmp_path, problem_id):
-    _, log, _ = _start(tmp_path, problem_id)
+def test_unlogged_start_writes_no_entry(tmp_path):
+    _, log, _ = _start(tmp_path, DEV)
     assert _runs(log) == []
+
+
+def test_singleton_start_is_logged(tmp_path):
+    start, log, _ = _start(tmp_path, SINGLE)
+    assert start.slice is Slice.SINGLETON
+    assert [(e["problem_id"], e["slice"]) for e in _runs(log)] == [(SINGLE, "singleton")]
+
+
+def test_singleton_run_without_a_pin_refused(tmp_path):
+    with pytest.raises(RunRefused, match="pinned"):
+        _start(tmp_path, SINGLE, aiopslab_commit=None)
 
 
 def test_touch_line_format(tmp_path):
@@ -479,11 +495,12 @@ def test_unpinned_aiopslab_allowed_for_development(tmp_path):
     assert start.slice is Slice.DEVELOPMENT
 
 
-def test_dirty_tree_refused_for_logged_slice(tmp_path):
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
+def test_dirty_tree_refused_for_logged_slice(tmp_path, problem_id):
     repo = _repo(tmp_path)
     (repo / "code.py").write_text("x = 2\n")
     with pytest.raises(RunRefused, match="uncommitted"):
-        _start(tmp_path, POOL, repo=repo)
+        _start(tmp_path, problem_id, repo=repo)
     assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
@@ -618,11 +635,26 @@ def test_log_authoring_appends_a_corpus_touch(tmp_path):
         log_authoring(POOL, _registry(tmp_path), log, NOW)
 
 
-def test_log_authoring_refuses_a_confirmation_problem(tmp_path):
+@pytest.mark.parametrize(("problem_id", "slice_"), [(CONF, "confirmation"), (SINGLE, "singleton")])
+def test_log_authoring_refuses_a_confirmation_or_singleton_problem(tmp_path, problem_id, slice_):
     log = tmp_path / "touch_log.jsonl"
-    with pytest.raises(RunRefused, match="confirmation problem"):
-        log_authoring(CONF, _registry(tmp_path), log, NOW)
+    with pytest.raises(RunRefused, match=f"{slice_} problem"):
+        log_authoring(problem_id, _registry(tmp_path), log, NOW)
     assert not log.exists()
+
+
+def test_every_committed_problem_gets_a_lowercase_creation_and_fixture_run_id(tmp_path):
+    # redeploy_without_PV-mitigation-1 holds uppercase letters, which a run id may not
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    log = tmp_path / "touch_log.jsonl"
+    for problem_id, slice_ in registry.slices.items():
+        logged = [log_creation(problem_id, registry, log, NOW)]
+        if slice_ is not Slice.CONFIRMATION:
+            logged.append(log_fixture(problem_id, registry, log, NOW))
+        for entry in logged:
+            assert entry["problem_id"] == problem_id
+            assert entry["run_id"] == entry["run_id"].lower()
+            assert problem_id.lower() in entry["run_id"]
 
 
 def test_start_run_refuses_a_fixture_run_id(tmp_path):
@@ -778,10 +810,11 @@ def _create(log, problem_id):
     log_creation(problem_id, load_registry(log.parents[2] / "slices.json"), log, NOW)
 
 
-def test_pool_run_refused_before_the_seal(tmp_path):
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
+def test_pool_run_refused_before_the_seal(tmp_path, problem_id):
     repo, registry, log = _unsealed(tmp_path)
     with pytest.raises(RunRefused, match="not sealed .gate G1"):
-        start_run("run-0001", POOL, registry, log, repo, PIN, NOW, checksum=_sum)
+        start_run("run-0001", problem_id, registry, log, repo, PIN, NOW, checksum=_sum)
     assert read_touches(log) == []
 
 
@@ -1004,6 +1037,19 @@ def test_logged_namespace_maps_the_database_pool_problems_to_hotel_reservation()
     assert {logged_namespace(i) for i in confirmation} == {SOCIAL_NETWORK}
 
 
+def test_logged_namespace_maps_each_singleton_to_its_inventory_namespace():
+    # docs/problem_inventory.md, rows 8, 9 and 12 to 14
+    registry = load_registry(DEFAULT_REGISTRY_PATH)
+    singletons = {i for i, s in registry.slices.items() if s is Slice.SINGLETON}
+    assert {i: logged_namespace(i) for i in singletons} == {
+        "auth_miss_mongodb-mitigation-1": SOCIAL_NETWORK,
+        "misconfig_app_hotel_res-mitigation-1": HOTEL_RESERVATION,
+        "astronomy_shop_kafka_queue_problems-mitigation-1": ASTRONOMY_SHOP,
+        "redeploy_without_PV-mitigation-1": HOTEL_RESERVATION,
+        "wrong_bin_usage-mitigation-1": HOTEL_RESERVATION,
+    }
+
+
 HOTEL = "revoke_auth_mongodb-mitigation-1"
 
 
@@ -1029,11 +1075,37 @@ def test_a_hotel_reservation_pool_problem_runs_only_in_its_namespace(tmp_path, n
         assert [e["problem_id"] for e in _runs(log)] == [HOTEL]
 
 
+KAFKA = "astronomy_shop_kafka_queue_problems-mitigation-1"
+
+
+@pytest.mark.parametrize(
+    ("namespace", "refused"), [(SOCIAL_NETWORK, True), (ASTRONOMY_SHOP, False)]
+)
+def test_the_kafka_singleton_runs_only_in_astronomy_shop(tmp_path, namespace, refused):
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    registry = load_registry(_write_registry(tmp_path, {**_registry_data(), "singleton": [KAFKA]}))
+
+    def start():
+        return start_run(
+            "run-0001", KAFKA, registry, log, repo, PIN, NOW, checksum=_sum, namespace=namespace
+        )
+
+    if refused:
+        with pytest.raises(RunRefused, match="runs in 'astronomy-shop'"):
+            start()
+        assert _runs(log) == []
+    else:
+        assert start().namespace == ASTRONOMY_SHOP
+        assert [e["problem_id"] for e in _runs(log)] == [KAFKA]
+
+
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
 @pytest.mark.parametrize("namespace", [None, HOTEL_RESERVATION])
-def test_logged_run_in_another_namespace_refused_before_the_touch(tmp_path, namespace):
+def test_logged_run_in_another_namespace_refused_before_the_touch(tmp_path, namespace, problem_id):
     repo = _repo(tmp_path)
     with pytest.raises(RunRefused, match="runs in 'test-social-network'"):
-        _start(tmp_path, POOL, repo=repo, namespace=namespace)
+        _start(tmp_path, problem_id, repo=repo, namespace=namespace)
     assert _runs(repo / "runs" / "touch_log.jsonl") == []
 
 
@@ -1042,11 +1114,13 @@ def test_unlogged_run_needs_no_namespace(tmp_path):
     assert start.namespace is None
 
 
-def test_manifest_naming_another_namespace_refused(tmp_path):
-    start, log, repo = _start(tmp_path, POOL)
+@pytest.mark.parametrize("problem_id", [POOL, SINGLE])
+def test_manifest_naming_another_namespace_refused(tmp_path, problem_id):
+    start, log, repo = _start(tmp_path, problem_id)
     cluster = {"kind": "kind", "nodes": 1, "namespace": HOTEL_RESERVATION}
+    manifest = _for(start, problem_id=problem_id, cluster=cluster)
     with pytest.raises(RunRefused, match="cluster namespace"):
-        write_manifest(_for(start, cluster=cluster), start, repo / "m", _registry(tmp_path), log)
+        write_manifest(manifest, start, repo / "m", _registry(tmp_path), log)
 
 
 def test_logged_manifest_without_a_cluster_namespace_refused(tmp_path):

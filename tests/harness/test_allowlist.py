@@ -14,6 +14,7 @@ from remvalgate.harness.allowlist import (
     check,
     check_chain,
     load_policy,
+    names_no_namespace,
     parse_args,
     reason_counts,
     split_chain,
@@ -306,6 +307,11 @@ REJECTED = [
     ("kubectl get deploy,secrets -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get deploy/web secrets/x -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    # only the apps group resources are read without their group
+    ("kubectl get secrets.v1 -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl get pods.apps -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl scale deploy.apps/web --replicas=1 -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    ("kubectl scale deployment.batch/web --replicas=1 -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     # resources are checked per verb, and some verbs need a name
     ("kubectl scale pods web --replicas=1 -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl delete deploy web -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
@@ -338,6 +344,10 @@ ADMITTED = [
     "kubectl patch deploy web -n sandbox-a --type json"
     ' -p \'[{"op":"replace","path":"/spec/replicas","value":2}]\'',
     "kubectl rollout restart deploy/web -n sandbox-a",
+    "kubectl scale deployment.apps/web --replicas=1 -n sandbox-a",
+    "kubectl scale deployments.v1.apps web --replicas=1 -n sandbox-a",
+    "kubectl get deployment.apps,svc -n sandbox-a",
+    "kubectl get replicasets.apps -n sandbox-a",
     "kubectl delete pod web-0 -n sandbox-a",
     "kubectl exec mongo-0 -n sandbox-a -- mongo db1"
     """ --eval 'db.createUser({user:"app",pwd:"pw",roles:["readWrite"]})'""",
@@ -438,6 +448,8 @@ def test_split_targets_reads_both_forms():
     assert split_targets(["deploy,svc", "web", "api"]) == (["deploy", "svc"], ["web", "api"])
     assert split_targets(["deploy/web", "svc/api"]) == (["deploy", "svc"], ["web", "api"])
     assert split_targets(["pods"]) == (["pods"], [])
+    assert split_targets(["deployment.apps/web"]) == (["deployment"], ["web"])
+    assert split_targets(["deployments.v1.apps,svc", "web"]) == (["deployments", "svc"], ["web"])
 
 
 def test_split_verb_prefers_two_words():
@@ -534,3 +546,21 @@ def test_check_chain_needs_every_part_admitted():
     assert not verdict.admitted
     assert verdict.command == chain
     assert verdict.reason == check(f"kubectl -n {NS} delete deployment a", POLICY, NS).reason
+
+
+@pytest.mark.parametrize(
+    "command, expected",
+    [
+        ("kubectl scale deployment user-service --replicas=1", True),
+        ("kubectl -n sandbox-a scale deployment user-service --replicas=1", False),
+        ("kubectl --namespace=other get pods", False),
+        ("kubectl get pods -A", False),
+        ("kubectl get pods | head", False),
+        ("helm rollback social-network 1", False),
+        # a flag with no value counts as present: check rejects these as OUT_OF_SANDBOX
+        ("kubectl get pods -n", False),
+        ("kubectl -n= get pods", False),
+    ],
+)
+def test_names_no_namespace(command, expected):
+    assert names_no_namespace(command, POLICY) is expected

@@ -30,8 +30,8 @@ The ids start with `dev-`, which no upstream id does, so the overlay registratio
 The ids are in `src/remvalgate/harness/slices.json` under `development`, beside the 9 current
 pool problems. The pool follows BRD R3.2 (`docs/brd.md`), which puts ScalePod and
 AssignNonExistentNode in the pool, as the inventory (`docs/problem_inventory.md`) now records.
-The singleton ids are not listed until the exploratory check
-(R3.6) sets how their runs are pinned and logged, so the harness refuses them for now. The
+The five singleton ids are listed under `singleton` (R3.6); their runs are logged and subject
+to the same refusals as pool runs. The
 registry loader refuses an id in more than one slice, and a test loads the committed registry.
 
 ## Reserved services
@@ -68,9 +68,9 @@ That leaves `compose-post-service`, `home-timeline-service`, `user-timeline-serv
 
 ## Creation touches
 
-The eval block of E3-S8 and E3-S9 says "touch logged: yes", while the harness logs only pool and
-confirmation runs (`LOGGED` in `src/remvalgate/harness/manifest.py`). Decided in #70 by a group
-member, pending group confirmation: the creation of a development problem is logged, and its later
+The eval block of E3-S8 and E3-S9 says "touch logged: yes", while the harness logged only pool and
+confirmation runs when this was decided (`LOGGED` in `src/remvalgate/harness/manifest.py`).
+Decided in #70 by a group member, pending group confirmation: the creation of a development problem is logged, and its later
 runs are not. `log_creation` appends the entry, with a run id of the form
 `create-<problem id>-<UTC time>`, before each problem is validated, so a failed validation is
 logged too. The run refusals are unchanged.
