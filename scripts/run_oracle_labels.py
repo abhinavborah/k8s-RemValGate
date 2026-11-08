@@ -181,8 +181,8 @@ def reset(prob, problem_id: str, clean: Clean) -> None:
 async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir):
     """Inject, run 3c's planner and sample K candidates, check the diagnosis changed nothing, reset.
 
-    Returns the plan, the candidates (none when the plan has no diagnosis), the first observation
-    and the objects as the injection left them.
+    Returns the plan, the candidates (none when the plan has no diagnosis or k is 0), the first
+    observation and the objects as the injection left them.
     """
     namespace = prob.namespace
     orch.session = Session(results_dir=results_dir)
@@ -225,8 +225,9 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
             schemas=SCHEMAS,
         )
         candidates = ()
-        # one draw of K: 3c is the untuned planner, which does not resample (R5.2 is the system's)
-        if result.diagnosis is not None:
+        # one draw of K: 3c is the untuned planner, which does not resample (R5.2 is the system's);
+        # k = 0 runs the plan only, as the baseline-only run does (scripts/run_baselines_pool.py)
+        if k and result.diagnosis is not None:
             candidates = await asyncio.to_thread(
                 sample, result, namespace, chat=chat, policy=POLICY, k=k, seed=seed
             )
