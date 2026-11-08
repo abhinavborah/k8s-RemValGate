@@ -355,6 +355,20 @@ def check(command: str, policy: Policy, namespace: str) -> Verdict:
     return Verdict(command=command, admitted=True, reason=None)
 
 
+def names_no_namespace(command: str, policy: Policy) -> bool:
+    """True when the command parses, starts with an allowed binary and has neither
+    -n/--namespace nor -A/--all-namespaces. Such a command is rejected as OUT_OF_SANDBOX for a
+    missing flag, not for a wrong one. A flag with no value counts as present."""
+    try:
+        argv = tokenize(command)
+    except Rejected:
+        return False
+    if argv[0] not in policy.binaries:
+        return False
+    parsed = parse_args(argv[1:], policy)
+    return not parsed.namespaces and not parsed.all_namespaces
+
+
 _CHAIN = " && "
 
 
