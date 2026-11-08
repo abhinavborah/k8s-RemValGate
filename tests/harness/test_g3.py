@@ -8,6 +8,7 @@ from remvalgate.harness.g3 import (
     headroom,
     meets_min_gain,
     r_check,
+    solved_by_baseline,
     top_pick_solved,
 )
 from remvalgate.harness.oracle import Label, ProblemLabels
@@ -155,8 +156,16 @@ def test_g3_bundles_the_three_values():
     assert result["min_gain"]["wins_needed_by_losses"] == MIN_GAIN
 
 
-def _manifest(seed: int, version: str = "gguf q8_0; thinking=on") -> dict:
-    return {"model_name": "qwen3-4b", "model_version": version, "seed": seed}
+SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "max_tokens": 2048, "thinking": True}
+
+
+def _manifest(seed: int, version: str = "gguf q8_0; thinking=on", **sampling) -> dict:
+    return {
+        "model_name": "qwen3-4b",
+        "model_version": version,
+        "seed": seed,
+        "sampling": SAMPLING | sampling,
+    }
 
 
 def test_rerun_settings_pass_with_one_new_seed_and_the_same_build():
@@ -169,8 +178,39 @@ def test_rerun_settings_pass_with_one_new_seed_and_the_same_build():
         ([_manifest(0)], "repeats the labelling run's seed 0"),
         ([_manifest(1000), _manifest(1001)], "more than one seed"),
         ([_manifest(1000, "gguf q8_0; thinking=off")], "differ in model_version"),
+        ([_manifest(1000, temperature=1.0)], "differ in sampling temperature"),
+        ([_manifest(1000, max_tokens=4096)], "differ in sampling max_tokens"),
     ],
 )
 def test_rerun_settings_refuse_a_repeated_seed_or_another_build(rerun, match):
     with pytest.raises(ValueError, match=match):
         check_rerun_settings([_manifest(0)] * 16, rerun)
+
+
+def _row(problem_id: str, baseline: str, outcome: Outcome) -> dict:
+    return {"problem_id": problem_id, "baseline": baseline, "outcome": str(outcome)}
+
+
+def test_solved_by_baseline_counts_recovered_rows_per_baseline():
+    rows = [
+        _row(i, "1", Outcome.RECOVERED if n < 3 else Outcome.APPLIED_INEFFECTIVE)
+        for n, i in enumerate(POOL)
+    ]
+    rows += [_row(i, "3a", Outcome.APPLIED_INEFFECTIVE) for i in POOL]
+    assert solved_by_baseline(rows, POOL) == {"1": 3, "3a": 0}
+
+
+@pytest.mark.parametrize(
+    "rows, match",
+    [
+        # a resumed run that left two rows for one problem
+        (
+            [_row(i, "2", Outcome.RECOVERED) for i in [*POOL, POOL[0]]],
+            "baseline 2: a problem is given more than once",
+        ),
+        ([_row(i, "2", Outcome.RECOVERED) for i in POOL[:-1]], "baseline 2: pool problems missing"),
+    ],
+)
+def test_solved_by_baseline_refuses_a_partial_or_repeated_run(rows, match):
+    with pytest.raises(ValueError, match=match):
+        solved_by_baseline(rows, POOL)

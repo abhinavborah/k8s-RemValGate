@@ -23,10 +23,14 @@ Every function takes the pool's ids and refuses records that do not cover each o
 once, so a development dry run or a partial run is never counted.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 
 from remvalgate.harness.oracle import ProblemLabels
 from remvalgate.harness.outcome import Outcome
+
+# the sampling settings both runs' manifests record, compared by check_rerun_settings
+SAMPLING_KEYS = ("temperature", "top_p", "top_k", "max_tokens")
 
 # the project stops when 3c's top pick solves at least this many pool problems
 HEADROOM_STOP = 12
@@ -135,15 +139,35 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
     """Refuse an R check whose two runs differ in anything but the seed.
 
     labelling and rerun hold the manifests of the labelling run and of 3c's rerun. Both runs must
-    name one model and one model version (format, quantization and thinking setting), the same in
-    both, and the rerun one seed that the labelling run did not use. Raises ValueError otherwise.
+    name one model and one model version (format, quantization and thinking setting) and the same
+    sampling settings, the same in both, and the rerun one seed that the labelling run did not use.
+    Raises ValueError otherwise.
     """
     for name in ("model_name", "model_version"):
         values = {m[name] for m in [*labelling, *rerun]}
         if len(values) != 1:
             raise ValueError(f"the two runs differ in {name}: {sorted(values)}")
+    for name in SAMPLING_KEYS:
+        values = {json.dumps(m.get("sampling", {}).get(name)) for m in [*labelling, *rerun]}
+        if len(values) != 1:
+            raise ValueError(f"the two runs differ in sampling {name}: {sorted(values)}")
     seeds = {m["seed"] for m in rerun}
     if len(seeds) != 1:
         raise ValueError(f"the rerun has more than one seed: {sorted(seeds)}")
     if seeds & {m["seed"] for m in labelling}:
         raise ValueError(f"the rerun repeats the labelling run's seed {seeds.pop()}")
+
+
+def solved_by_baseline(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:
+    """Per baseline, how many pool problems its result rows solved (RECOVERED), from rows that
+    cover each pool problem exactly once. Raises ValueError for a baseline whose rows repeat a
+    problem, miss one or name a problem outside the pool, so a partial or resumed run that left
+    two rows for one problem is never counted."""
+    by_baseline: dict[str, list[Mapping]] = {}
+    for row in rows:
+        by_baseline.setdefault(row["baseline"], []).append(row)
+    counts = {}
+    for baseline, mine in sorted(by_baseline.items()):
+        _complete([r["problem_id"] for r in mine], pool, f"baseline {baseline}")
+        counts[baseline] = sum(Outcome(r["outcome"]) is Outcome.RECOVERED for r in mine)
+    return counts

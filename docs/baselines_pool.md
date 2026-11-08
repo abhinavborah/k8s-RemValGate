@@ -77,10 +77,27 @@ on recoverable problems, so the recoverable count bounds them. The values are `M
 
 ## Before the first touch
 
-- The 3c rerun runs the same planner code as the labelling run. With C the commit its
-  manifests name, this prints nothing:
-  `git diff C HEAD -- src/remvalgate/planner src/remvalgate/retrieval`. Otherwise the R check also measures the code change, not only the seed, and is
-  confounded.
+- The 3c rerun runs the same code as the labelling run on every path that decides 3c's outcome:
+  the planner and retrieval, the allow-list and its policy, the folds and the slice registry, the
+  executor, reset and harm check, the outcome classification, the send path, and the scripts the
+  rerun imports them from. With C the commit the labelling run's manifests name, this prints
+  nothing:
+
+  ```
+  git diff C HEAD -- src/remvalgate/planner src/remvalgate/retrieval src/remvalgate/overlay \
+      src/remvalgate/harness/allowlist.py src/remvalgate/harness/allowlist_policy.json \
+      src/remvalgate/harness/folds.py src/remvalgate/harness/slices.json \
+      src/remvalgate/harness/execute.py src/remvalgate/harness/cluster_state.py \
+      src/remvalgate/harness/snapshot.py src/remvalgate/harness/harm.py \
+      src/remvalgate/harness/outcome.py src/remvalgate/harness/toolcall.py \
+      src/remvalgate/harness/toolcall_schemas.json scripts/run_oracle_labels.py \
+      scripts/run_baselines_smoke.py scripts/run_dev_end_to_end.py scripts/run_planner_dev.py
+  ```
+
+  Otherwise the R check also measures the code change, not only the seed, and is confounded.
+  So every change to these paths (the namespace prompt, #129, and the stray brace strip, #146,
+  among them) is merged before the labelling run starts; a change that lands after it means the
+  labelling run is repeated.
 - The labelling run's touch log lines are committed before this run starts in another checkout,
   so the two touch logs never diverge.
 - Read the headroom result from the labels first (below, with no result files). If it says stop,

@@ -16,10 +16,9 @@ and a result file read twice (src/remvalgate/harness/g3.py).
 import argparse
 import json
 import sys
-from collections import Counter
 from pathlib import Path
 
-from remvalgate.harness.g3 import check_rerun_settings, g3, headroom
+from remvalgate.harness.g3 import check_rerun_settings, g3, headroom, solved_by_baseline
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
 from remvalgate.harness.oracle import read_labels
 from remvalgate.harness.outcome import Outcome
@@ -59,11 +58,7 @@ def main() -> int:
     if len(dict(outcomes)) != len(outcomes):
         parser.error("3c: a problem has more than one result")
     result = g3(labels, dict(outcomes), pool)
-    solved = Counter(r["baseline"] for r in rows if r["outcome"] == Outcome.RECOVERED)
-    result["solved_by_baseline"] = {
-        b: {"solved": solved[b], "runs": n}
-        for b, n in sorted(Counter(r["baseline"] for r in rows).items())
-    }
+    result["solved_by_baseline"] = solved_by_baseline(rows, pool)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
