@@ -12,6 +12,8 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 
+from remvalgate.harness import credentials
+
 DEFAULT_POLICY_PATH = Path(__file__).with_name("allowlist_policy.json")
 
 _POLICY_KEYS = {"binaries", "verbs", "patch_denied_keys", "exec"}
@@ -196,13 +198,29 @@ def _patch_allowed(body: str, policy: Policy) -> bool:
 def _check_exec(targets: list[str], command: list[str] | None, policy: Policy) -> None:
     # ponytail: role grants are not limited, since a fix may need a broad admin role;
     # check the roles named in grantRolesToUser and createUser if that proves too loose
-    if len(targets) != 1 or not _SUBDOMAIN.fullmatch(targets[0]):
+    if len(targets) != 1:
+        raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
+    # a pod, or a deployment, whose pod kubectl picks: pod names are random
+    kind, _, name = targets[0].rpartition("/")
+    if _plain(kind) not in _EXEC_KINDS or not _SUBDOMAIN.fullmatch(name):
         raise Rejected(Reason.RESOURCE_NOT_ALLOWED)
     if not command or command[0] not in policy.exec_shells:
         raise Rejected(Reason.VERB_NOT_ALLOWED)
     shape = command[1:]
-    if len(shape) == 3 and re.fullmatch(r"\w+", shape[0]):
+    if shape and re.fullmatch(r"\w+", shape[0]):
         shape = shape[1:]
+    # the login, each flag once: a known user, a password token, the admin database
+    login = {}
+    while len(shape) > 2 and shape[0] in _LOGIN_FLAGS and shape[0] not in login:
+        login[shape[0]] = shape[1]
+        shape = shape[2:]
+    if login and (
+        login.keys() != _LOGIN_FLAGS
+        or login["-u"] not in credentials.USERS
+        or login["-p"] not in credentials.TOKENS
+        or login["--authenticationDatabase"] != "admin"
+    ):
+        raise Rejected(Reason.FLAG_DENIED)
     if len(shape) != 2 or shape[0] != "--eval":
         raise Rejected(Reason.FLAG_DENIED)
     script = shape[1]
@@ -282,6 +300,9 @@ def split_verb(positionals: list[str], policy: Policy) -> tuple[str, list[str]] 
         return positionals[0], positionals[1:]
     return None
 
+
+_EXEC_KINDS = frozenset({"", "deploy", "deployment", "deployments"})
+_LOGIN_FLAGS = frozenset({"-u", "-p", "--authenticationDatabase"})
 
 # the apps group resources kubectl also accepts with their group, as deployment.apps or
 # deployment.v1.apps; the plain name is checked, so the qualified form is admitted the same way

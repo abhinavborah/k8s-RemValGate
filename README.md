@@ -268,7 +268,8 @@ it, and it takes about 12 minutes.
 `scripts/run_planner_dev.py` runs the planner (stories E5-S1, E5-S5 and E5-S2) on the development
 problems. For each problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
 read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`, which first retrieves
-3 past fixes with configuration (iii) (needs `uv sync --group retrieval`): at most 8 turns,
+3 past fixes with configuration (iii) (needs `uv sync --group retrieval`): at most 16 turns (8
+before 2026-11-08, when 5 of 6 TargetPort pool problems hit the cap),
 one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
 limited to `kubectl get` and `describe`, `get_logs`, `get_metrics` and `get_traces`. The last two
 save files and return a path, so the model also gets a bounded summary of what they saved
