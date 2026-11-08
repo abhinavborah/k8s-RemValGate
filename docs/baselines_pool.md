@@ -30,7 +30,7 @@ four database problems run in `test-hotel-reservation`.
 
 All baselines run at one pre-stated seed, 1000, with the labelling run's thinking setting and model
 build. The G3 part is the 3c run alone; baselines 1, 2, 3a and 3b can run later with the same code
-and settings.
+and settings (#150).
 
 ## Headroom
 
