@@ -1,8 +1,8 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.10 (draft for group review)
-**Date:** 2026-11-05
+**Version:** 1.12 (draft for group review)
+**Date:** 2026-11-08
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
@@ -192,7 +192,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
-| R9.1 | Five-rollout timing pilot on development problems (gate G2), which sets K and R and produces no AUROC, and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). Refined 2026-10-30 (proposed, see #52): the pilot measures the per-rollout cost and checks the plan against it; K is checked on the oracle labels of #27 and R is set in #53. | Must | M1 |
+| R9.1 | Five-rollout timing pilot on development problems (gate G2), which sets K and R and produces no AUROC, and the baseline-only run of baselines 1, 2 and 3a to 3c on the primary pool (gate G3). Refined 2026-10-30 (proposed, see #52): the pilot measures the per-rollout cost and checks the plan against it; K is checked on the oracle labels of #27 and R is set in #53. Split 2026-11-08 (proposed, pending group confirmation): #53 keeps the gate G3 part (baseline 3c, R, the minimum gain and the headroom check), and baselines 1, 2, 3a and 3b run on the pool in #150 after the labelling run, since none of them reads a gate result. | Must | M1 |
 | R9.2 | Main runs with R fixed by the stated rule, and every primary-pool use logged. | Must | M2 |
 | R9.3 | Primary analysis: gate against baseline 5 at candidate level with the confirmed interval method, plus descriptive problem-level recovery, and the number of problems with mixed outcomes. | Must | M2 |
 | R9.4 | All capability ablations reported as counts with rates, not tested. | Must | M1 |
@@ -270,3 +270,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.8 | 2026-10-30 | Resolved the section 9 open question left to #50: harm is read after the settle window and before any restore, so R2.3 and R2.4 agree, and the execution record keeps the restore result. Proposed, pending group confirmation: an escalation is never recovered, also when nothing was restored. Updated section 9. |
 | 1.9 | 2026-10-31 | Updated the small dataset risk in section 9: "11 to 14 problems today" was the count at the proposal, and the pool reaches 16 once #24 lands. No requirement changed. |
 | 1.10 | 2026-11-05 | Proposed, pending group confirmation: oracle labelling (R3.5) retrieves with the planner's live first observation and no longer reuses the recorded pool queries, since a recorded observation names pods that a new injection replaces. The recorded queries stay the queries of the intrinsic retrieval metrics. Updated R3.7. |
+| 1.12 | 2026-11-08 | Proposed, pending group confirmation: the baseline-only run is split. #53 keeps the gate G3 part (baseline 3c, R, the minimum gain and the headroom check), and baselines 1, 2, 3a and 3b move to #150, run after the labelling run on the same frozen code. Gate G3 never needed them, and the split takes about 4 to 5 hours of cluster time off the critical path to gate training. Updated R9.1. |
