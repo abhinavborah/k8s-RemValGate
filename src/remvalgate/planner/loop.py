@@ -109,6 +109,9 @@ class Plan:
     context: tuple[Message, ...] = ()
     # the model's reason when it stops with Stop.ESCALATE, else None
     escalation: str | None = None
+    # the command as the final answer held it when a stray closing brace was stripped, None
+    # otherwise; the same strip as sampled candidates, so every system is checked one way (#146)
+    raw_command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -342,6 +345,10 @@ def plan(
                     steps.append(
                         Step(turn, completion.text, None, None, "final", *_cost(completion))
                     )
+                    raw_command = None
+                    stripped = _without_stray_brace(command)
+                    if stripped is not None:
+                        raw_command, command = command, stripped
                     verdict = check(command, policy, namespace)
                     return Plan(
                         diagnosis,
@@ -352,6 +359,7 @@ def plan(
                         retrieved,
                         system,
                         tuple(messages[:-1]),
+                        raw_command=raw_command,
                     )
                 observation = f"Refused: {result}"
             elif escalate_when_unsure and "escalate" in obj:

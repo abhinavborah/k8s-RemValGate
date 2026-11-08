@@ -416,10 +416,13 @@ def test_a_stripped_command_the_allow_list_rejects_stays_rejected():
     assert candidate.rejection == f"allow-list: {candidate.verdict.reason}"
 
 
-def test_the_planners_own_command_is_never_stripped():
+# AC: the plan's own command gets the same strip, so a system and its baselines are checked one way
+def test_the_planners_own_command_is_stripped_the_same_way():
     result = run([final(command=PATCH + "}")])[0]
-    assert result.command == PATCH + "}"
-    assert not result.verdict.admitted and result.verdict.reason == "SHELL_METACHAR"
+    assert result.command == PATCH and result.raw_command == PATCH + "}"
+    assert result.verdict.admitted
+    kept = run([final(command=PATCH)])[0]
+    assert kept.command == PATCH and kept.raw_command is None
 
 
 def test_a_plan_without_a_diagnosis_or_a_k_below_one_is_refused_before_any_model_call():
