@@ -278,7 +278,11 @@ runs. It then samples K candidate commands from that diagnosis (`--candidates`, 
 submitted proposal's value): one model call each, with seeds `--seed` to `--seed` plus K minus 1, on
 the diagnosis conversation with the accepted answer's command left out. Earlier turns, a refused
 final answer among them, and the retrieved past fixes are still seen by every draw. Each
-candidate is admitted by the allow-list or rejected with a reason, and none is run. Each candidate
+candidate is admitted by the allow-list or rejected with a reason, and none is run. A sampled
+command, or the plan's own final command, that ends in one stray closing brace after its last
+single quote, with balanced quotes, brackets and braces otherwise, has that brace stripped before
+the check; the candidate or the plan records the command as the reply held it in `raw_command`
+(None when nothing was stripped), and the run summary prints how many were stripped. Each candidate
 also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
 completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
 rejected (by the allow-list, or because the reply held no command or was cut), the planner draws

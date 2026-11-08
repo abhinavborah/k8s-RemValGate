@@ -447,6 +447,10 @@ def main() -> int:
                 and names_no_namespace(c["command"], policy)
                 for c in transcript["candidates"]
             )
+            # candidates whose stray closing brace was stripped before the check (#146)
+            transcript["stripped"] = sum(
+                c["raw_command"] is not None for c in transcript["candidates"]
+            )
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
             )
@@ -456,7 +460,10 @@ def main() -> int:
             seconds = sum(s["seconds"] for s in steps)
             print(f"{problem_id} [{mode}]: stop={transcript['stop']} turns={len(steps)}")
             print(f"  diagnosis={transcript['diagnosis']}")
-            print(f"  command={transcript['command']} admitted={verdict.get('admitted')}")
+            print(
+                f"  command={transcript['command']} admitted={verdict.get('admitted')}"
+                f" stripped={transcript['raw_command'] is not None}"
+            )
             drawn = transcript["candidates"]
             admitted = sum(c["rejection"] is None for c in drawn)
             # why each rejected candidate was rejected; a reply with no command has no verdict
@@ -469,7 +476,7 @@ def main() -> int:
             # apart from the diagnosis, so the cost of K can be read from a run
             print(
                 f"  candidates={len(drawn)} admitted={admitted}"
-                f" no_namespace={transcript['no_namespace']}"
+                f" no_namespace={transcript['no_namespace']} stripped={transcript['stripped']}"
                 f" rejected={dict(sorted(rejected.items()))}"
                 f" tokens={sum(c['completion_tokens'] for c in drawn)}"
                 f" seconds={sum(c['seconds'] for c in drawn):.1f}"
