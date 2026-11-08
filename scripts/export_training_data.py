@@ -56,6 +56,7 @@ def main() -> int:
         repo=ROOT,
         aiopslab_commit=pinned_commit(ROOT),
         recorded_fixes={e.entry_id: e.fix_command for e in pool_incidents(registry)},
+        recorded_summaries={e.entry_id: e.summary for e in pool_incidents(registry)},
         policy=load_policy(DEFAULT_POLICY_PATH),
         count=count,
         counter=counter,

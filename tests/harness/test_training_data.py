@@ -41,10 +41,24 @@ REGISTRY = load_registry(DEFAULT_REGISTRY_PATH)
 ASSIGNMENT = pool_folds(REGISTRY)
 POLICY = load_policy(DEFAULT_POLICY_PATH)
 FIXES = {e.entry_id: e.fix_command for e in pool_incidents(REGISTRY)}
+SUMMARIES = {e.entry_id: e.summary for e in pool_incidents(REGISTRY)}
 FOLD = 0
 HELD = sorted(p for p, f in ASSIGNMENT.items() if f == FOLD)
 TRAIN = sorted(p for p, f in ASSIGNMENT.items() if f != FOLD)
 STAMP = "20261108t100000z"
+SETUP = {
+    "model_name": "qwen/qwen3.5-4b",
+    "model_version": "gguf q8_0, context 16384; thinking=on",
+    "k": 8,
+    "seed": 0,
+    "sampling": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "max_tokens": 2048,
+        "thinking": True,
+    },
+}
 PIN = "b" * 40
 NOW = datetime(2026, 11, 8, 10, 0, tzinfo=UTC)
 SEALED = "2026-11-01T09:00:00Z"
@@ -111,7 +125,12 @@ def _synthetic(problem_id, retrieved=None, extra=()):
         "first_observation": observation,
         "retrieved": [[entry_id, n] for n, entry_id in enumerate(retrieved, start=1)],
     }
-    manifest = {"run_id": run_id, "problem_id": problem_id, "cluster": {"namespace": namespace}}
+    manifest = {
+        "run_id": run_id,
+        "problem_id": problem_id,
+        "cluster": {"namespace": namespace},
+        **SETUP,
+    }
     record = {"run_id": run_id, **labels.record(), "executions": []}
     return manifest, transcript, record
 
@@ -123,7 +142,9 @@ def _run(problem_id, **kwargs):
 
 def _build(runs=None, count=length_proxy):
     runs = runs if runs is not None else [_run(p) for p in TRAIN]
-    return build_fold(runs, FOLD, ASSIGNMENT, REGISTRY, FIXES, POLICY, count)
+    return build_fold(
+        runs, FOLD, ASSIGNMENT, REGISTRY, FIXES, POLICY, count, recorded_summaries=SUMMARIES
+    )
 
 
 def test_a_fold_holds_one_merged_record_per_distinct_command_of_its_training_problems():
@@ -309,6 +330,7 @@ def _export(tmp_path, paths, repo):
         repo=repo,
         aiopslab_commit=PIN,
         recorded_fixes=FIXES,
+        recorded_summaries=SUMMARIES,
         policy=POLICY,
         now=NOW,
         checksum=_sum,
@@ -388,3 +410,39 @@ def test_rebuilt_sampling_messages_equal_what_the_draws_of_sample_saw():
     stored = json.loads(json.dumps({"context": context, "diagnosis": fields}, sort_keys=True))
     rebuilt = sampling_messages(stored["context"], stored["diagnosis"], namespace)
     assert rebuilt == seen[0] == seen[1]
+
+
+@pytest.mark.parametrize(
+    "change, field",
+    [
+        ({"model_version": "gguf q4_k_m, context 16384; thinking=on"}, "model_version"),
+        ({"k": 4}, "k"),
+        ({"seed": 1000}, "seed"),
+        ({"sampling": {**SETUP["sampling"], "thinking": False}}, "sampling.thinking"),
+    ],
+)
+def test_labelling_runs_of_another_setup_are_not_pooled(change, field):
+    runs = [_run(p) for p in TRAIN]
+    other = runs[-1]
+    runs[-1] = Run(
+        {**other.manifest, **change}, other.transcript, other.labels, other.labels_sha256
+    )
+    with pytest.raises(ValueError, match=f"{field} is .* the labelling runs must share one setup"):
+        _build(runs)
+
+
+def test_held_out_text_the_masking_cannot_reach_is_counted():
+    held = sorted(p for p, f in ASSIGNMENT.items() if f == FOLD)[0]
+    # a planner reason that quotes a held-out fix in another namespace, after reading it
+    fix = FIXES[held].replace(logged_namespace(held), "test-social-network")
+    runs = [_run(p) for p in TRAIN]
+    first = runs[0]
+    transcript = {**first.transcript, "diagnosis": {**first.transcript["diagnosis"], "reason": fix}}
+    runs[0] = Run(first.manifest, transcript, first.labels, first.labels_sha256)
+    report = _build(runs)[2]
+    trained = sum(r["train"] for r in _build(runs)[0] if r["problem_id"] == first.problem_id)
+    assert trained and report["held_out_text"] == {
+        "gate_train": trained,
+        "baseline5_train": trained,
+    }
+    assert _build()[2]["held_out_text"] == {"gate_train": 0, "baseline5_train": 0}

@@ -23,7 +23,15 @@ with no new rollouts. The builder is `src/remvalgate/harness/training_data.py`, 
   can retrieve the record of a fold-f problem, fix included. In fold f's files every such entry is
   replaced by `[held-out record removed]`, in the gate input and in baseline 5's prompt. Runbook
   entries are never masked. Text the planner wrote after reading an entry, in a later turn of
-  baseline 5's prompt, is not masked.
+  baseline 5's prompt or in the diagnosis the gate input keeps, is not masked. The report counts
+  it instead: `held_out_text` gives, per file, the training records whose text, namespace flags
+  left out, still holds a fold-f problem's recorded fix or summary, as written or JSON-escaped.
+  It is an upper bound, since a summary is one template per fault type and service and can match
+  without being copied.
+- **One setup.** The labelling runs pooled into one training set must share the model name and
+  version (which holds the thinking setting), K, the seed and the sampling settings (temperature,
+  top_p, top_k, max_tokens, thinking). The build refuses runs that differ, so a run resumed with
+  another setup is never pooled.
 - **Copied fixes.** A record whose command makes the same calls as the recorded fix of a fold-f
   problem, namespaces left out, is stored with `train` false.
 - **Length.** The gate input is checked against 2,048 tokens: with the tokenizer saved at
@@ -78,7 +86,8 @@ the diagnosis as its answer and the request for one command, rebuilt from the tr
 The report gives `problems`, `records`, `candidates`, `train`, `train_by_outcome`,
 `train_label_1`, `no_outcome`, `no_outcome_candidates` (candidates, not records, with no outcome,
 by cause: `rejected`, `not_sendable`, `no_command`), `fix_match_excluded`, `masked_entries`,
-`records_with_masked_entries`, `train_with_masked_entries`, `held_out`, `token_budget`, and for
+`records_with_masked_entries`, `train_with_masked_entries`, `held_out_text` (`gate_train`,
+`baseline5_train`), `held_out`, `token_budget`, and for
 each kind the maximum length, the 95th percentile and the ids over the budget.
 
 ## Limits

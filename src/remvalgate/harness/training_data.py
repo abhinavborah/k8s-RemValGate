@@ -34,6 +34,7 @@ import dataclasses
 import hashlib
 import json
 import math
+import re
 import statistics
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
@@ -54,6 +55,11 @@ TOKEN_BUDGET = 2048
 # the task prompt as planner.loop._task_prompt writes it
 _STATE = "\n\nCluster state:\n"
 _PAST = "\n\nPast fixes that may be similar:\n"
+# a namespace flag and its value, left out when held-out text is looked for in a record
+_NAMESPACE_FLAG = re.compile(r"\s(?:-n|--namespace)(?:=|\s+)\S+")
+# what every labelling run must share, so one training set pools one setup
+SETUP_FIELDS = ("model_name", "model_version", "k", "seed")
+SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "max_tokens", "thinking")
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 # mirrors planner.loop._sample_prompt, the request every draw of sample sees; a test pins it
 _SAMPLE_PROMPT = (
@@ -118,6 +124,49 @@ def check_run(run: Run) -> None:
     labelled = [(c["seed"], c["command"]) for c in run.labels["candidates"]]
     if pairs != labelled:
         raise ValueError(f"{pid}: the labelled candidates are not the transcript's")
+
+
+def setup(manifest: Mapping) -> dict:
+    """The labelling run's model, K, seed and sampling settings, which every pooled run shares."""
+    sampling = manifest.get("sampling", {})
+    return {
+        **{name: manifest.get(name) for name in SETUP_FIELDS},
+        **{f"sampling.{name}": sampling.get(name) for name in SAMPLING_FIELDS},
+    }
+
+
+def check_setup(runs: Sequence["Run"]) -> None:
+    """Raise ValueError naming the first field in which two labelling runs differ, so a run
+    resumed with another build, thinking setting, K, seed or sampling setting is never pooled."""
+    if not runs:
+        return
+    first = setup(runs[0].manifest)
+    for run in runs[1:]:
+        other = setup(run.manifest)
+        for name, value in first.items():
+            if other[name] != value:
+                raise ValueError(
+                    f"{run.problem_id}: {name} is {other[name]!r}, {runs[0].problem_id} has "
+                    f"{value!r}; the labelling runs must share one setup"
+                )
+
+
+def without_namespaces(text: str) -> str:
+    return _NAMESPACE_FLAG.sub("", text)
+
+
+def held_out_text(text: str, held: Sequence[str]) -> bool:
+    """Whether text, namespaces left out, still holds one of the held-out texts, as written or
+    as a JSON string escapes it (the model's turns and the diagnosis answer are JSON)."""
+    plain = without_namespaces(text)
+    return any(h in plain or json.dumps(h)[1:-1] in plain for h in held)
+
+
+def _gate_text(record: dict) -> str:
+    """The gate input's text fields, decoded, so quotes inside a command are compared as written."""
+    obj = json.loads(record["input"])
+    parts = [obj["task"], obj["first_observation"], *obj["diagnosis"].values(), *obj["retrieved"]]
+    return "\n".join([*parts, obj["candidate"] or ""])
 
 
 def check_ids(
@@ -310,13 +359,15 @@ def build_fold(
     recorded_fixes: Mapping[str, str],
     policy: Policy,
     count: Callable[[str], int] = length_proxy,
+    *,
+    recorded_summaries: Mapping[str, str],
 ) -> tuple[list[dict], list[dict], dict]:
     """The gate records, the baseline 5 records and the report of fold f.
 
     runs holds the labelled runs of fold f's training problems, each problem once; a missing
     training problem, a repeated one or an id check_ids refuses raises ValueError.
-    recorded_fixes maps each pool problem id to its recorded fix (retrieval.pool_corpus).
-    count measures a text's length in tokens.
+    recorded_fixes and recorded_summaries map each pool problem id to its recorded fix and its
+    summary (retrieval.pool_corpus). count measures a text's length in tokens.
     """
     ids = [run.problem_id for run in runs]
     check_ids(ids, fold, assignment, registry)
@@ -331,13 +382,24 @@ def build_fold(
         shape = _call_shape(recorded_fixes[pid], policy)
         if shape is not None:
             fixes.setdefault(shape, pid)
+    check_setup(runs)
     gate, baseline5, masked = [], [], {}
     for run in sorted(runs, key=lambda r: r.problem_id):
         check_run(run)
         g, b, masked[run.problem_id] = problem_records(run, held_out, fixes, policy)
         gate += g
         baseline5 += b
+    # text the masking cannot reach: a held-out fix or summary the planner wrote in a later turn
+    held = [without_namespaces(recorded_fixes[p]) for p in sorted(held_out)]
+    held += [recorded_summaries[p] for p in sorted(held_out)]
     report = _counts(gate, masked) | {
+        "held_out_text": {
+            "gate_train": sum(r["train"] and held_out_text(_gate_text(r), held) for r in gate),
+            "baseline5_train": sum(
+                r["train"] and held_out_text("".join(m["content"] for m in r["messages"]), held)
+                for r in baseline5
+            ),
+        },
         "held_out": sorted(held_out),
         "token_budget": TOKEN_BUDGET,
         "gate_length": _lengths(gate, lambda r: r["input"], count),
@@ -374,6 +436,7 @@ def export(
     repo: str | Path,
     aiopslab_commit: str | None,
     recorded_fixes: Mapping[str, str],
+    recorded_summaries: Mapping[str, str],
     policy: Policy,
     now: datetime | None = None,
     count: Callable[[str], int] = length_proxy,
@@ -444,7 +507,14 @@ def export(
     for fold in sorted(set(assignment.values())):
         training = [runs[p] for p in sorted(runs) if assignment[p] != fold]
         gate, baseline5, report = build_fold(
-            training, fold, assignment, registry, recorded_fixes, policy, count
+            training,
+            fold,
+            assignment,
+            registry,
+            recorded_fixes,
+            policy,
+            count,
+            recorded_summaries=recorded_summaries,
         )
         header = {
             "format": FORMAT,
