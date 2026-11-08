@@ -47,7 +47,7 @@ from remvalgate.harness.folds import pool_folds
 from remvalgate.harness.manifest import Registry, Slice, logged_namespace, start_run
 from remvalgate.harness.oracle import dedup_key, read_labels
 from remvalgate.harness.outcome import Outcome
-from remvalgate.planner.loop import Diagnosis
+from remvalgate.planner.loop import Diagnosis, _sample_prompt
 
 FORMAT = "remvalgate-training-data/1"
 MASK = "[held-out record removed]"
@@ -61,12 +61,6 @@ _NAMESPACE_FLAG = re.compile(r"\s(?:-n|--namespace)(?:=|\s+)\S+")
 SETUP_FIELDS = ("model_name", "model_version", "k", "seed")
 SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "max_tokens", "thinking")
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
-# mirrors planner.loop._sample_prompt, the request every draw of sample sees; a test pins it
-_SAMPLE_PROMPT = (
-    "Now give one candidate fix for this diagnosis. Reply with exactly one JSON object and "
-    'nothing else: {{"command": C}} where C is one kubectl command that fixes the fault and '
-    "starts with kubectl -n {namespace}. C is not run here."
-)
 
 
 def length_proxy(text: str) -> int:
@@ -217,7 +211,7 @@ def sampling_messages(context: Sequence[dict], diagnosis: dict, namespace: str) 
     return [
         *(dict(m) for m in context),
         {"role": "assistant", "content": json.dumps(final)},
-        {"role": "user", "content": _SAMPLE_PROMPT.format(namespace=namespace)},
+        {"role": "user", "content": _sample_prompt(namespace)},
     ]
 
 
