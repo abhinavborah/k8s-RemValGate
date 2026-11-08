@@ -109,6 +109,9 @@ class Plan:
     context: tuple[Message, ...] = ()
     # the model's reason when it stops with Stop.ESCALATE, else None
     escalation: str | None = None
+    # the command as the final answer held it when a stray closing brace was stripped, None
+    # otherwise; the same strip as sampled candidates, so every system is checked one way (#146)
+    raw_command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +130,8 @@ class Candidate:
     # the sum of the reply's token log-probabilities, None when the server returns none or a
     # token's value is unknown
     logprob: float | None = None
+    # the command as the reply held it when a stray closing brace was stripped, None otherwise
+    raw_command: str | None = None
 
 
 @dataclass(frozen=True)
@@ -340,6 +345,10 @@ def plan(
                     steps.append(
                         Step(turn, completion.text, None, None, "final", *_cost(completion))
                     )
+                    raw_command = None
+                    stripped = _without_stray_brace(command)
+                    if stripped is not None:
+                        raw_command, command = command, stripped
                     verdict = check(command, policy, namespace)
                     return Plan(
                         diagnosis,
@@ -350,6 +359,7 @@ def plan(
                         retrieved,
                         system,
                         tuple(messages[:-1]),
+                        raw_command=raw_command,
                     )
                 observation = f"Refused: {result}"
             elif escalate_when_unsure and "escalate" in obj:
@@ -402,11 +412,36 @@ def _cost(completion) -> tuple[int, float, str]:
 
 
 def _sample_prompt(namespace: str) -> str:
+    # sampled commands often dropped the namespace flag although the planner's own command had it,
+    # so the reply's shape and the rejection are spelled out (#129)
     return (
         "Now give one candidate fix for this diagnosis. Reply with exactly one JSON object and "
-        'nothing else: {"command": C} where C is one kubectl command that fixes the fault and '
-        f"starts with kubectl -n {namespace}. C is not run here."
+        f'nothing else: {{"command": "kubectl -n {namespace} ..."}} where the value is one '
+        f"kubectl command that fixes the fault. It must start with kubectl -n {namespace}: a "
+        f"command without -n {namespace} is rejected. It is not run here."
     )
+
+
+def _without_stray_brace(command: str) -> str | None:
+    """The command with one stray closing brace after its last single quote removed, or None
+    when the command does not end that way or the rest is not balanced.
+
+    Sampled JSON patch commands often end in ]'} (#146), a brace the allow-list always rejects
+    because it is unquoted. Only that one brace is stripped, and only when the quotes, the square
+    brackets and the braces of the rest are balanced, so nothing else about the command changes.
+    """
+    if not command.endswith("'}"):
+        return None
+    rest = command[:-1]
+    quote = None
+    for ch in rest:
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+    if quote or rest.count("[") != rest.count("]") or rest.count("{") != rest.count("}"):
+        return None
+    return rest
 
 
 def _candidate_command(completion) -> tuple[str | None, str | None]:
@@ -449,6 +484,10 @@ def sample(
     for draw in range(seed, seed + k):
         completion = chat.complete(messages, seed=draw, logprobs=True)
         command, rejection = _candidate_command(completion)
+        raw_command = None
+        stripped = None if command is None else _without_stray_brace(command)
+        if stripped is not None:
+            raw_command, command = command, stripped
         verdict = None if command is None else check(command, policy, namespace)
         if verdict is not None and not verdict.admitted:
             rejection = f"allow-list: {verdict.reason}"
@@ -461,6 +500,7 @@ def sample(
                 rejection,
                 *_cost(completion),
                 completion.logprob,
+                raw_command,
             )
         )
     return tuple(candidates)

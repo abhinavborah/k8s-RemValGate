@@ -1,21 +1,22 @@
 """Run manifest per rollout, and the evaluation-set touch log.
 
-A run calls start_run before it starts. For a primary-pool or confirmation-slice problem it
-appends a dated entry to the touch log, and it refuses the run if the entry cannot be written,
-the AIOpsLab commit is not pinned, the work tree has changes git does not ignore, or the run id
-is already in the log. write_manifest checks the entry again and compares the manifest with what
-start_run recorded, so a run without an entry gets no manifest.
+A run calls start_run before it starts. For a primary-pool, confirmation-slice or singleton
+problem it appends a dated entry to the touch log, and it refuses the run if the entry cannot be
+written, the AIOpsLab commit is not pinned, the work tree has changes git does not ignore, or the
+run id is already in the log. write_manifest checks the entry again and compares the manifest
+with what start_run recorded, so a run without an entry gets no manifest.
 
 Every confirmation-slice run is refused: the slice is opened once, at the end (R9.6), by a run
-path not added yet. A pool run, and that path when it exists, is refused until the confirmation
-slice is sealed (gate G1):
+path not added yet. A pool or singleton run, and that path when it exists, is refused until the
+confirmation slice is sealed (gate G1):
 seal_confirmation writes the seal record beside the touch log and a seal touch per id, and
 start_run checks that both cover the registry's confirmation ids and that each checksum still
 matches.
 
 A logged run also names the namespace it runs in, and start_run refuses it before the touch
-unless that is the problem's own: the 4 RevokeAuth and UserUnregistered pool problems run on Hotel
-Reservation, the rest of the pool on Social Network (docs/problem_inventory.md). write_manifest
+unless that is the problem's own: the 4 RevokeAuth and UserUnregistered pool problems and 3 of the
+singletons run on Hotel Reservation, the KafkaQueueProblems singleton on Astronomy Shop, and the
+rest on Social Network (docs/problem_inventory.md). write_manifest
 then refuses a manifest whose cluster names another namespace. This catches a run script that names
 the wrong namespace, not one that names the right one and then acts in another.
 
@@ -62,25 +63,31 @@ class Slice(StrEnum):
     SINGLETON = "singleton"
 
 
-# uses of these slices are evaluation-set touches (BRD 7.3)
-LOGGED = frozenset({Slice.POOL, Slice.CONFIRMATION})
+# uses of these slices are evaluation-set touches (BRD 7.3); the singleton types are logged too,
+# since the exploratory check (R3.6) is evaluation data that nothing may be tuned on
+LOGGED = frozenset({Slice.POOL, Slice.CONFIRMATION, Slice.SINGLETON})
 
 SOCIAL_NETWORK = "test-social-network"
 HOTEL_RESERVATION = "test-hotel-reservation"
-# the pool problems on Hotel Reservation (docs/problem_inventory.md, rows 4 to 7)
-_HOTEL_POOL = frozenset(
+ASTRONOMY_SHOP = "astronomy-shop"
+# the logged problems not on Social Network (docs/problem_inventory.md, rows 4 to 7, 9 and 12 to 14)
+_NAMESPACES = MappingProxyType(
     {
-        "revoke_auth_mongodb-mitigation-1",
-        "revoke_auth_mongodb-mitigation-2",
-        "user_unregistered_mongodb-mitigation-1",
-        "user_unregistered_mongodb-mitigation-2",
+        "revoke_auth_mongodb-mitigation-1": HOTEL_RESERVATION,
+        "revoke_auth_mongodb-mitigation-2": HOTEL_RESERVATION,
+        "user_unregistered_mongodb-mitigation-1": HOTEL_RESERVATION,
+        "user_unregistered_mongodb-mitigation-2": HOTEL_RESERVATION,
+        "misconfig_app_hotel_res-mitigation-1": HOTEL_RESERVATION,
+        "redeploy_without_PV-mitigation-1": HOTEL_RESERVATION,
+        "wrong_bin_usage-mitigation-1": HOTEL_RESERVATION,
+        "astronomy_shop_kafka_queue_problems-mitigation-1": ASTRONOMY_SHOP,
     }
 )
 
 
 def logged_namespace(problem_id: str) -> str:
-    """The namespace a pool or confirmation problem runs in."""
-    return HOTEL_RESERVATION if problem_id in _HOTEL_POOL else SOCIAL_NETWORK
+    """The namespace a pool, confirmation or singleton problem runs in."""
+    return _NAMESPACES.get(problem_id, SOCIAL_NETWORK)
 
 
 class RunRefused(Exception):
@@ -130,6 +137,12 @@ def _check_run_id(run_id: object, where: str) -> None:
             f"{where} run_id: expected lowercase letters, digits, dot, dash or underscore, "
             "starting with a letter or digit, and not a device name"
         )
+
+
+def _stamped_run_id(prefix: str, problem_id: str, now: datetime) -> str:
+    """<prefix>-<problem id>-<UTC time>, lowercased: a problem id may hold uppercase letters
+    (redeploy_without_PV-mitigation-1), and a run id may not."""
+    return f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}".lower()
 
 
 def _int(name: str, value: object, low: int, high: int | None = None) -> None:
@@ -263,7 +276,7 @@ def _slice_of(problem_id: str, registry: Registry) -> Slice:
 
 
 def require_touch(run_id: str, problem_id: str, registry: Registry, log_path: str | Path) -> None:
-    """Refuse a pool or confirmation run that has no touch log entry."""
+    """Refuse a pool, confirmation or singleton run that has no touch log entry."""
     slice_ = _slice_of(problem_id, registry)
     if slice_ in LOGGED and not any(
         e["run_id"] == run_id and e["problem_id"] == problem_id for e in read_touches(log_path)
@@ -396,7 +409,7 @@ def log_creation(
         raise ValueError("log_creation now: expected an aware datetime, converted to UTC")
     slice_ = _slice_of(problem_id, registry)
     now = now.astimezone(UTC)
-    run_id = f"create-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    run_id = _stamped_run_id("create", problem_id, now)
     _check_run_id(run_id, "log_creation")
     if slice_ is Slice.CONFIRMATION and any(
         e["problem_id"] == problem_id and e["run_id"].startswith("create-")
@@ -417,11 +430,14 @@ def log_authoring(
     problem_id: str, registry: Registry, log_path: str | Path, now: datetime | None = None
 ) -> dict:
     """Append an authoring touch: the problem's definition and known fix were read to write its
-    retrieval corpus record (E4-S8), which is not a run. A confirmation problem is refused.
+    retrieval corpus record (E4-S8), which is not a run. A confirmation problem is refused, and so
+    is a singleton problem, which is held out of every corpus for the exploratory check (R3.6).
 
     The run id is corpus-<problem id>-<UTC time>, so the entry is told apart from a run entry by
     its prefix.
     """
+    if _slice_of(problem_id, registry) is Slice.SINGLETON:
+        raise RunRefused(f"{problem_id!r} is a singleton problem: it has no corpus record")
     return _log_read_touch("corpus", "log_authoring", problem_id, registry, log_path, now)
 
 
@@ -452,7 +468,7 @@ def _log_read_touch(
     if slice_ is Slice.CONFIRMATION:
         raise RunRefused(f"{problem_id!r} is a confirmation problem: it is not read for {prefix}")
     now = now.astimezone(UTC)
-    run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    run_id = _stamped_run_id(prefix, problem_id, now)
     _check_run_id(run_id, where)
     entry = {
         "problem_id": problem_id,
@@ -467,9 +483,7 @@ def _log_read_touch(
 def _confirmation_ids(registry: Registry) -> list[str]:
     ids = [i for i, s in registry.slices.items() if s is Slice.CONFIRMATION]
     if not ids:
-        raise RunRefused(
-            "a pool or confirmation run needs the confirmation slice in the registry (gate G1)"
-        )
+        raise RunRefused("a logged run needs the confirmation slice in the registry (gate G1)")
     return ids
 
 
@@ -578,7 +592,7 @@ def seal_confirmation(
     for problem_id in ids:
         entry = {
             "problem_id": problem_id,
-            "run_id": f"seal-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}",
+            "run_id": _stamped_run_id("seal", problem_id, now),
             "slice": Slice.CONFIRMATION,
             "timestamp": seal["sealed"],
         }

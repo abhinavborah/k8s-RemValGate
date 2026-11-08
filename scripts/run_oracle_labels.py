@@ -391,6 +391,8 @@ def main() -> int:
                 | {"first_observation": first}
                 | draw_record(result, Draws((candidates,)) if candidates else None)
             )
+            # candidates whose stray closing brace was stripped before the check (#146)
+            transcript["stripped"] = sum(c.raw_command is not None for c in candidates)
             transcript["config"] = {
                 **dataclasses.asdict(chat),
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
@@ -401,9 +403,13 @@ def main() -> int:
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
             )
             print(f"{problem_id}: stop={result.stop} diagnosis={result.diagnosis}")
-            print(f"  plan's command: {result.command}")
+            print(f"  plan's command: {result.command} stripped={result.raw_command is not None}")
             admitted = sum(c.rejection is None for c in candidates)
-            print(f"  candidates={len(candidates)} admitted={admitted}", flush=True)
+            print(
+                f"  candidates={len(candidates)} admitted={admitted}"
+                f" stripped={transcript['stripped']}",
+                flush=True,
+            )
             own = None
             if result.command is not None:
                 # admitted as 3c's action path admits it (act in run_baselines_smoke.py), so a
