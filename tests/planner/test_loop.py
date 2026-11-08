@@ -8,8 +8,10 @@ from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay.fixes import tool_call
 from remvalgate.planner.chat import Completion
 from remvalgate.planner.loop import (
+    DEFAULT_TOOLS,
     FAULT_TYPES,
     Stop,
+    _base_prompt,
     draw_record,
     plan,
     resample_once,
@@ -500,12 +502,18 @@ def escalate(reason="the evidence does not single out one service"):
 
 
 def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7():
-    # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt
+    # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt;
+    # updated once for the turn cap of 16 (from 8), the only change, as the second hash shows
     import hashlib
 
     result, _, _ = run([final()])
     digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
-    assert digest == "f29dd9d78018b6f948f3999453567ef01d317bdf0729f14d9df6702d5438d288"
+    assert digest == "ca0c96959d3505bf4c75f69387b14c086391dfa442b04568313947494bffea04"
+    old = result.system_prompt.replace("at most 16 turns", "at most 8 turns")
+    assert (
+        hashlib.sha256(old.encode()).hexdigest()
+        == "f29dd9d78018b6f948f3999453567ef01d317bdf0729f14d9df6702d5438d288"
+    )
     assert "escalate" not in result.system_prompt
 
 
@@ -545,3 +553,9 @@ def test_an_escalated_plan_cannot_be_sampled_from():
     result = run([escalate()], escalate_when_unsure=True)[0]
     with pytest.raises(ValueError, match="no diagnosis"):
         sample(result, NS, chat=FakeChat([]), policy=POLICY, k=1, seed=0)
+
+
+def test_only_a_namespace_whose_mongodb_enforces_login_gets_the_login_note():
+    hotel = _base_prompt("test-hotel-reservation", DEFAULT_TOOLS, 16)
+    assert "ROOT_PASSWORD_REF" in hotel and "-n test-hotel-reservation exec deploy/" in hotel
+    assert "PASSWORD_REF" not in _base_prompt("test-social-network", DEFAULT_TOOLS, 16)
