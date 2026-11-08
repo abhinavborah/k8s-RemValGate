@@ -1,8 +1,8 @@
 # Business Requirements Document: Validity Gate for Agentic Kubernetes Incident Remediation
 
 **Project:** k8s-RemValGate
-**Version:** 1.10 (draft for group review)
-**Date:** 2026-11-05
+**Version:** 1.11 (draft for group review)
+**Date:** 2026-11-08
 **Authors:** project group (four members)
 **Baseline:** the project proposal, version 2 (8 pages, created 2026-10-12, sent to the course TA, no reply recorded at this date). The TA's feedback on version 1 asked for an ablation of each capability and, for retrieval, no retrieval, simple retrieval and retrieval with a reranker, evaluated with retrieval metrics; version 2 adds these (R4.2 to R4.4). Where this document and the proposal differ, the proposal governs until the group agrees a change.
 
@@ -175,7 +175,7 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 
 | ID | Requirement | Priority | Phase |
 |---|---|---|---|
-| R7.1 | Training data generation: K candidate rollouts per training incident per fold, executed and labelled by the evaluator, and regenerated if gate G4 picks the template library. | Must | M2 |
+| R7.1 | Training data generation: K candidate rollouts per training incident per fold, executed and labelled by the evaluator, and regenerated if gate G4 picks the template library. Proposed 2026-11-08, pending group confirmation: the first training data reuses the oracle labels of baseline 3c's K candidates (R3.5) out of fold, with no new rollouts. Fold f's records hold the 12 problems outside fold f, retrieved records of fold-f problems are masked, a candidate that copies a fold-f recorded fix is not trained on, and the held-out text the masking cannot reach is counted per fold. This saves about 256 rollouts (384 per-fold rollouts at K = 8, about 33 hours serial, against the 128 already labelled). Limit: the candidates were sampled while fold-f records were retrievable, which masking cannot undo; it is disclosed beside the results. A per-pair rerun was rejected because most pairs retrieve a same-type fold-f record, so it saves at most about 30 percent of the per-fold cost. | Must | M2 |
 | R7.2 | LoRA fine-tuning of Qwen3.5-4B with decision tokens (fallback sizes 0.6B to 1.7B). | Must | M2 |
 | R7.3 | Platt calibration split at incident level, with the threshold reported per fold and swept. | Must | M2 |
 | R7.4 | Ablations: classification-head variant and a Gemma gate. | Should | M2 |
@@ -270,3 +270,4 @@ Priority: Must (P0 on the board), Should (P1), Could (P2). Phase: M1 is needed f
 | 1.8 | 2026-10-30 | Resolved the section 9 open question left to #50: harm is read after the settle window and before any restore, so R2.3 and R2.4 agree, and the execution record keeps the restore result. Proposed, pending group confirmation: an escalation is never recovered, also when nothing was restored. Updated section 9. |
 | 1.9 | 2026-10-31 | Updated the small dataset risk in section 9: "11 to 14 problems today" was the count at the proposal, and the pool reaches 16 once #24 lands. No requirement changed. |
 | 1.10 | 2026-11-05 | Proposed, pending group confirmation: oracle labelling (R3.5) retrieves with the planner's live first observation and no longer reuses the recorded pool queries, since a recorded observation names pods that a new injection replaces. The recorded queries stay the queries of the intrinsic retrieval metrics. Updated R3.7. |
+| 1.11 | 2026-11-08 | Proposed, pending group confirmation: the first training data (R7.1) reuses the oracle labels out of fold with masking instead of per-fold rollouts, which departs from proposal version 2 and from review point 5's count; the proposal governs until the group agrees. Updated R7.1. |

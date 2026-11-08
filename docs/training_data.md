@@ -5,6 +5,14 @@ fold from the oracle labels of baseline 3c's candidates ([oracle_labels.md](orac
 with no new rollouts. The builder is `src/remvalgate/harness/training_data.py`, the export
 `scripts/export_training_data.py`. No export has been made yet.
 
+Reusing the oracle labels departs from R7.1 and proposal version 2, which ask for K new rollouts
+per training problem per fold (384 at K = 8, about 33 hours serial). It is proposed, pending group
+confirmation, and the change is in the BRD change log (1.11). It saves about 256 rollouts. The
+limit it brings is under Limits; the masking, the copied-fix exclusion and the `held_out_text`
+count below bound it. A rerun of only the (problem, fold) pairs that retrieved a fold-f record was
+rejected: the folds spread each fault type, so most pairs retrieve a same-type fold-f record and
+the rerun would save at most about 30 percent of the per-fold cost.
+
 ## Rules
 
 - **Out of fold.** The folds are `assign_folds` of the 16 pool problems. Fold f's training set
@@ -93,6 +101,8 @@ each kind the maximum length, the 95th percentile and the ids over the budget.
 ## Limits
 
 - The held-out fold's records, which the gate scores, are not in these files.
-- The training candidates were sampled once, from the corpus of each problem's own fold. Masking
-  removes the held-out records from what the model is shown, not their influence on what the
-  planner wrote at sampling time. This is disclosed beside the results.
+- The training candidates were sampled once, from the corpus of each problem's own fold, and the
+  same candidates and labels serve the three folds in which a problem trains, so the three
+  training sets share their candidate text. Masking removes the held-out records from what the
+  model is shown, not their influence on what the planner wrote at sampling time. This is
+  disclosed beside the results.
