@@ -69,6 +69,7 @@ from run_planner_dev import MODEL, prometheus_port_forward, remove_workload, sta
 from summarize_oracle_labels import summarize
 
 from remvalgate.aiopslab_pin import pinned_commit
+from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check_chain, load_policy
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.execute import kubectl_rolled_out
@@ -315,6 +316,9 @@ def main() -> int:
         max_tokens=4096 if args.thinking else 1024,
     )
     namespaces = sorted({logged_namespace(i) for i in selected})
+    if credentials.AUTH_NAMESPACES & set(namespaces):
+        # a missing or unsafe password variable stops the run before anything is touched
+        credentials.values()
     SCRATCH.mkdir(parents=True, exist_ok=True)
     os.chdir(SCRATCH)
     for namespace in namespaces:

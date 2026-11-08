@@ -307,6 +307,32 @@ REJECTED = [
     ("kubectl get deploy,secrets -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get deploy/web secrets/x -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
+    # exec: a deployment target is admitted, any other kind is not
+    (
+        "kubectl exec svc/mongo -n sandbox-a -- mongo --eval 'db.getUsers()'",
+        Reason.RESOURCE_NOT_ALLOWED,
+    ),
+    # the login: a known user, a password token and the admin database, all three
+    (
+        "kubectl exec deploy/mongo -n sandbox-a -- mongo admin -u admin -p admin"
+        " --authenticationDatabase admin --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec deploy/mongo -n sandbox-a -- mongo admin -u eve -p ADMIN_PASSWORD_REF"
+        " --authenticationDatabase admin --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec deploy/mongo -n sandbox-a -- mongo admin -u admin -p ADMIN_PASSWORD_REF"
+        " --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
+    (
+        "kubectl exec deploy/mongo -n sandbox-a -- mongo admin -u admin -p ADMIN_PASSWORD_REF"
+        " --authenticationDatabase other --eval 'db.getUsers()'",
+        Reason.FLAG_DENIED,
+    ),
     # only the apps group resources are read without their group
     ("kubectl get secrets.v1 -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
     ("kubectl get pods.apps -n sandbox-a", Reason.RESOURCE_NOT_ALLOWED),
@@ -348,6 +374,11 @@ ADMITTED = [
     "kubectl scale deployments.v1.apps web --replicas=1 -n sandbox-a",
     "kubectl get deployment.apps,svc -n sandbox-a",
     "kubectl get replicasets.apps -n sandbox-a",
+    "kubectl exec deploy/mongo -n sandbox-a -- mongo --eval 'db.getUsers()'",
+    "kubectl exec deployment.apps/mongo -n sandbox-a -- mongo --eval 'db.getUsers()'",
+    "kubectl exec deploy/mongo -n sandbox-a -- mongo admin -u root -p ROOT_PASSWORD_REF"
+    " --authenticationDatabase admin"
+    """ --eval 'db.createUser({user: "admin", pwd: "ADMIN_PASSWORD_REF", roles: []})'""",
     "kubectl delete pod web-0 -n sandbox-a",
     "kubectl exec mongo-0 -n sandbox-a -- mongo db1"
     """ --eval 'db.createUser({user:"app",pwd:"pw",roles:["readWrite"]})'""",

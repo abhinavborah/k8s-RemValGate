@@ -160,6 +160,15 @@ record names that candidate's seed.
 uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>"
 ```
 
+The Hotel Reservation problems need `REMVALGATE_MONGO_ADMIN_PASSWORD` and
+`REMVALGATE_MONGO_ROOT_PASSWORD` set to the passwords of AIOpsLab's MongoDB setup scripts, letters
+and digits only; the run stops before any touch if one is missing. The planner is told the users
+and writes the passwords as `ADMIN_PASSWORD_REF` and `ROOT_PASSWORD_REF`, the allow-list admits
+only those tokens after `-p`, and they are filled in just before `exec_shell`
+(`src/remvalgate/harness/credentials.py`), so commands, transcripts and records keep the tokens.
+Never commit the values or print them in a recorded terminal. With 16 turns the conversation can
+outgrow a 16384 token context, so the model is served with at least 32768.
+
 It needs `aiopslab/config.yml`, the kind cluster with Social Network and Hotel Reservation deployed
 and Ready, Prometheus installed (README, Telemetry), the planner model served (default LM Studio on
 port 1234) and `uv sync --group retrieval`. Each pool problem is a pool run with a touch, so it

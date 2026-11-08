@@ -38,6 +38,7 @@ from remvalgate.baselines import BaselineAction
 from remvalgate.baselines.observe import observe
 from remvalgate.baselines.retrieval_only import retrieval_only
 from remvalgate.baselines.rule import fault_type_rule
+from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.allowlist import check_chain as admit
 from remvalgate.harness.cluster_state import changed, normalise
@@ -133,7 +134,8 @@ async def apply(
     planner's) is not strict: a command that cannot be sent unchanged raises CannotSend before
     anything runs, and an error response from kubectl is returned, since the command was applied.
     """
-    action = carried_action(command, orch.parser.parse, strict=strict)
+    # password tokens are filled in only here, so nothing stored holds a password
+    action = carried_action(credentials.fill(command), orch.parser.parse, strict=strict)
     orch.register_agent(ScriptedAgent([action]), name=AGENT)
     orch.session = Session(results_dir=results_dir)
     orch.session.set_problem(prob, pid=problem_id)
@@ -141,7 +143,7 @@ async def apply(
     orch.session.start()
     reply = await orch.ask_agent("Please take the next action")
     require(reply == action, f"the agent replied {reply!r}")
-    response = await orch.ask_env(reply)
+    response = credentials.redact(await orch.ask_env(reply))
     orch.session.end()
     if strict:
         require(not response.startswith(("[ERROR]", "Error", "Failed")), response)
