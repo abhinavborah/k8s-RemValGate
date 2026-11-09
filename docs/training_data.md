@@ -101,6 +101,9 @@ each kind the maximum length, the 95th percentile and the ids over the budget.
 ## Limits
 
 - The held-out fold's records, which the gate scores, are not in these files.
+- `k8s_target_port-misconfig-mitigation-3` and `pool-k8s_target_port-misconfig-mitigation-4` gave
+  no candidates, since the planner reached the 16 turn cap with no diagnosis, so they add no record
+  to any fold's training set.
 - The training candidates were sampled once, from the corpus of each problem's own fold, and the
   same candidates and labels serve the three folds in which a problem trains, so the three
   training sets share their candidate text. Masking removes the held-out records from what the
