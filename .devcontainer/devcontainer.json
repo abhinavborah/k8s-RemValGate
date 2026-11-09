@@ -1,0 +1,23 @@
+{
+  "name": "k8s-RemValGate backup host",
+  "image": "mcr.microsoft.com/devcontainers/base:2.0.5-ubuntu-24.04",
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "29.9.1",
+      "moby": false
+    }
+  },
+  "onCreateCommand": {
+    "kind": "sudo curl -fsSLo /usr/local/bin/kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64 && sudo chmod +x /usr/local/bin/kind",
+    "kubectl": "sudo curl -fsSLo /usr/local/bin/kubectl https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl && sudo chmod +x /usr/local/bin/kubectl",
+    "helm": "curl -fsSL https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz | sudo tar -xz -C /usr/local/bin --strip-components=1 linux-amd64/helm",
+    "asciinema": "sudo curl -fsSLo /usr/local/bin/asciinema https://github.com/asciinema/asciinema/releases/download/v3.2.1/asciinema-x86_64-unknown-linux-musl && sudo chmod +x /usr/local/bin/asciinema",
+    "uv": "curl -fsSL https://github.com/astral-sh/uv/releases/download/0.13.5/uv-x86_64-unknown-linux-gnu.tar.gz | sudo tar -xz -C /usr/local/bin --strip-components=1 uv-x86_64-unknown-linux-gnu/uv uv-x86_64-unknown-linux-gnu/uvx",
+    "submodules": "git submodule update --init --recursive"
+  },
+  "postStartCommand": "sudo mkdir -p /run/udev && sudo sysctl -w fs.inotify.max_user_watches=524288 fs.inotify.max_user_instances=512"
+}
