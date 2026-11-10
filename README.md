@@ -301,7 +301,8 @@ The model is any OpenAI-compatible server (default LM Studio on port 1234); the 
 sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other fields tried.
 `--model-version` is required and goes into the manifest with the thinking setting. `--model`
 names the served planner, `qwen/qwen3.5-4b` by default or `qwen/qwen3.5-9b` (#154), here and in
-`scripts/run_oracle_labels.py`. Run it with
+`scripts/run_oracle_labels.py` ([docs/larger_planner_check.md](docs/larger_planner_check.md)). Run
+it with
 Social Network deployed and Ready, Prometheus installed (below) and the model loaded; CI does not
 run it. Keep the laptop awake and plugged in: a sleep stalled the first attempt and left a fault
 injected.

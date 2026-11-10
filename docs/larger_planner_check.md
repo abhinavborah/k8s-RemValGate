@@ -10,13 +10,19 @@ see whether the larger planner gives candidates with mixed outcomes, which the g
 `scripts/run_oracle_labels.py` with `--model`, on 2026-11-10, commit `88f0b19` (clean manifests),
 seed 0, K = 8, context 32768, thinking on, temperature 0.7, lmstudio-community GGUF Q8_0 for both
 models, one model loaded at a time. Development problems use the synthetic stub corpus and log no
-touch. One run per model per problem. The rule was stated in #154 before the run.
+touch. One run per model per problem. The rule was stated in #154 before the run. A later commit
+changes only an import line of `scripts/run_planner_dev.py`, so that other scripts can still import
+the default model name.
+
+The manifests, labels, transcripts, terminal recordings and pod watch are on the shared drive under
+`k8s-RemValGate/run-logs/` as `model154-dev-20261110.tar.gz` (502729 bytes, SHA-256
+`5efb3f980577dcc4caad1b3f92a00c74eb580b2418546b67ffbb295ff710f74b`).
 
 ## Results
 
 | Problem | Model | Diagnosis | Admitted of K | Distinct executed | Worked of K | Mixed |
 |---|---|---|---|---|---|---|
-| TargetPortMisconfig | 4B | none (turn cap, 16 turns) | 0 of 0 | 0 | 0 | no |
+| TargetPortMisconfig | 4B | none (turn cap, 16 turns) | no candidates | 0 | 0 | no |
 | TargetPortMisconfig | 9B | type right, service wrong (`compose-post-service`) | 4 of 8 | 4 | 0 | no |
 | ScalePod | 4B | right | 8 of 8 | 1 | 8 | no |
 | ScalePod | 9B | right | 7 of 8 | 1 | 7 | no |
@@ -41,5 +47,5 @@ Three problems, one run each: a signal, not a test.
   changed the failure, and it did not fix it.
 - On the two problems the 4B solves, the 9B also solves them, in fewer turns (1 and 2, against 3
   and 16).
-- The 9B run took 34 minutes and the 4B run 16, with the cluster running. Swap reached about 5 GB
-  of 6 GB on this 24 GB host.
+- The 9B run took 34 minutes and the 4B run 16, with the cluster running. Swap was about 5 of 6 GB
+  just after the run, on this 24 GB host.

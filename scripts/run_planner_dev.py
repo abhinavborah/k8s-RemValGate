@@ -85,7 +85,9 @@ from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
 from remvalgate.planner.loop import draw_record, plan, resample_once, task_text
-from remvalgate.planner.models import add_model_argument
+
+# MODEL is not used here; other run scripts import the default from this module
+from remvalgate.planner.models import MODEL, add_model_argument  # noqa: F401
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever
 
