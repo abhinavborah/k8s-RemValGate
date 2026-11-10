@@ -387,6 +387,12 @@ problem's own namespace. Baseline 3c there is the rerun for the R check.
 headroom result, R and the minimum gain (`src/remvalgate/harness/g3.py`). The run and the rules
 are in [docs/baselines_pool.md](docs/baselines_pool.md).
 
+`scripts/summarize_rag_ablation.py` reads the result files of baselines 3a, 3b and 3c from the
+baseline-only run with no cluster and prints diagnosis accuracy and single-action recovery for
+each retrieval configuration, with paired comparisons (story E4-S4, #33,
+`src/remvalgate/harness/rag_ablation.py`). The rules and the results are in
+[docs/rag_ablation.md](docs/rag_ablation.md).
+
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
 slice, one model and one sampling setup, applies the allow-list again to every sampled candidate in
