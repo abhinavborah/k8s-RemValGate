@@ -387,6 +387,13 @@ problem's own namespace. Baseline 3c there is the rerun for the R check.
 headroom result, R and the minimum gain (`src/remvalgate/harness/g3.py`). The run and the rules
 are in [docs/baselines_pool.md](docs/baselines_pool.md).
 
+`scripts/export_training_data.py` builds the per-fold training data of the gate and of baseline 5
+from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster and no model: fold
+f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
+the retrieved past fixes. Reading the labels logs one touch per fold and training problem, so it
+needs gate G1 and a clean checkout. The rules and the file format are in
+[docs/training_data.md](docs/training_data.md).
+
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
 slice, one model and one sampling setup, applies the allow-list again to every sampled candidate in
