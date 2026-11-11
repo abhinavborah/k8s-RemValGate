@@ -45,7 +45,11 @@ A run finished in two parts is summarized with scripts/summarize_oracle_labels.p
 cluster.
 
     uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>" \
-        [--no-thinking] [--candidates K] [--seed S] [--base-url URL] [problem id ...]
+        [--model qwen/qwen3.5-4b|qwen/qwen3.5-9b] [--no-thinking] [--candidates K] [--seed S] \
+        [--base-url URL] [problem id ...]
+
+The 9B runs on development problems only: a run of it on the pool would log evaluation-set
+touches, and is a separate decision.
 """
 
 import argparse
@@ -65,7 +69,7 @@ from aiopslab.paths import config
 from aiopslab.session import Session
 from run_baselines_smoke import apply, fault_remains
 from run_dev_end_to_end import TOUCH_LOG, check, kubectl
-from run_planner_dev import MODEL, prometheus_port_forward, remove_workload, start_workload
+from run_planner_dev import prometheus_port_forward, remove_workload, start_workload
 from summarize_oracle_labels import summarize
 
 from remvalgate.aiopslab_pin import pinned_commit
@@ -98,6 +102,7 @@ from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import carried_action, exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
 from remvalgate.planner.loop import Draws, draw_record, plan, sample, task_text
+from remvalgate.planner.models import add_model_argument, check_pool_model
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever, pool_retriever
 
@@ -280,6 +285,7 @@ def execute(orch, prob, problem_id, command, clean, injected, results_dir, recor
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("problems", nargs="*", help="pool or development ids (default: the pool)")
+    add_model_argument(parser)
     parser.add_argument("--model-version", required=True, help="format and quantization served")
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=0)
@@ -296,6 +302,10 @@ def main() -> int:
         parser.error(f"not pool or development problems: {', '.join(others)}")
     if any(i in pool for i in selected) and any(i in development for i in selected):
         parser.error("pool and development problems run apart, so a summary is never mixed")
+    try:
+        check_pool_model(args.model, selected[0] in pool)
+    except ValueError as e:
+        parser.error(str(e))
     if args.candidates < 1:
         parser.error("--candidates must be at least 1")
     # AIOpsLab's injectors run kubectl in the current context, the checks here in kind-kind
@@ -309,7 +319,7 @@ def main() -> int:
     retriever = (pool_retriever if selected[0] in pool else development_retriever)(registry)
     # the settings of baseline 3c in scripts/run_planner_dev.py
     chat = OpenAIChat(
-        model=MODEL,
+        model=args.model,
         base_url=args.base_url,
         thinking=args.thinking,
         seed=args.seed,
@@ -367,7 +377,7 @@ def main() -> int:
                 slice=run.slice,
                 commit=run.commit,
                 dirty=run.dirty,
-                model_name=MODEL,
+                model_name=args.model,
                 model_version=f"{args.model_version}; thinking={'on' if args.thinking else 'off'}",
                 model_date=now.strftime("%Y-%m-%d"),
                 seed=args.seed,

@@ -36,7 +36,8 @@ compared with the clean state. A turn-capped plan or a rejected command is class
 applied.
 
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
-        [--no-thinking] [--problem ID ...] [--candidates K] [--base-url URL] \
+        [--model qwen/qwen3.5-4b|qwen/qwen3.5-9b] [--no-thinking] [--problem ID ...] \
+        [--candidates K] [--base-url URL] \
         [--escalate-when-unsure] [--judge] [--baseline 3a|3b|3c]
 """
 
@@ -85,13 +86,15 @@ from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
 from remvalgate.planner.loop import draw_record, plan, resample_once, task_text
+
+# MODEL is not used here; other run scripts import the default from this module
+from remvalgate.planner.models import MODEL, add_model_argument  # noqa: F401
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "manifests"
 SCRATCH = ROOT / "runs" / "planner_scratch"
-MODEL = "qwen/qwen3.5-4b"
 # the judge is the served planner model, one member's choice, so the families are the same
 FAMILY = "qwen3.5"
 PROBLEMS = (
@@ -308,6 +311,7 @@ async def run_problem(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    add_model_argument(parser)
     parser.add_argument("--model-version", required=True, help="format and quantization served")
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--problem", action="append", choices=PROBLEMS)
@@ -347,7 +351,7 @@ def main() -> int:
         retriever = development_retriever(registry)
     # thinking can use most of a turn's tokens before any content appears, so it gets more room
     chat = OpenAIChat(
-        model=MODEL,
+        model=args.model,
         base_url=args.base_url,
         thinking=args.thinking,
         seed=args.seed,
@@ -355,7 +359,7 @@ def main() -> int:
     )
     # the judge scores at temperature 0, so a candidate's score does not depend on a draw
     judge_chat = dataclasses.replace(chat, temperature=0.0) if args.judge else None
-    judge_model = JudgeModel(MODEL, args.model_version, FAMILY, FAMILY)
+    judge_model = JudgeModel(args.model, args.model_version, FAMILY, FAMILY)
     SCRATCH.mkdir(parents=True, exist_ok=True)
     os.chdir(SCRATCH)
     kubectl("-n", NS, "wait", "--for=condition=Ready", "pods", "--all", "--timeout=60s")
@@ -392,7 +396,7 @@ def main() -> int:
                 slice=run.slice,
                 commit=run.commit,
                 dirty=run.dirty,
-                model_name=MODEL,
+                model_name=args.model,
                 model_version=f"{args.model_version}; thinking={'on' if args.thinking else 'off'}",
                 model_date=now.strftime("%Y-%m-%d"),
                 seed=args.seed,
