@@ -65,9 +65,10 @@ _TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 
 def length_proxy(text: str) -> int:
     """A tokenizer-free length estimate: one token per digit, as the Qwen tokenizer splits numbers
-    into single digits (Qwen technical report, arXiv 2309.16609, section 2.2); not checked for the
-    Qwen3.5 tokenizer. One token per three other characters. Deterministic, and meant to
-    overestimate English and kubectl listings, but it is an estimate, not a bound."""
+    into single digits (Qwen technical report, arXiv 2309.16609, section 2.2), and as the
+    pre-tokenizer of Qwen3.5-4B at revision 851bf6e does. One token per three other characters.
+    Deterministic, and above the Qwen3.5-4B count on synthetic gate inputs, but an estimate, not a
+    bound: it is below that count on generated pod names (docs/training_data.md, Length check)."""
     digits = sum(c.isdigit() for c in text)
     return digits + math.ceil((len(text) - digits) / 3)
 

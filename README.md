@@ -384,7 +384,9 @@ from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster an
 f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
 the retrieved past fixes. Reading the labels logs one touch per fold and training problem, so it
 needs gate G1 and a clean checkout. The rules and the file format are in
-[docs/training_data.md](docs/training_data.md).
+[docs/training_data.md](docs/training_data.md). `scripts/check_length_proxy.py` compares the
+export's tokenizer-free length proxy with a saved tokenizer on synthetic text of the gate input's
+shape, with no pool data and no touch; the result is in the same file (Length check).
 
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one

@@ -44,8 +44,9 @@ the rerun would save at most about 30 percent of the per-fold cost.
   problem, namespaces left out, is stored with `train` false.
 - **Length.** The gate input is checked against 2,048 tokens: with the tokenizer saved at
   `--tokenizer` (local files only), or else with a tokenizer-free proxy, one token per digit and
-  one per three other characters. The proxy is meant to overestimate, but it is not a bound. Rows
-  over the budget are listed in the report, not cut. The count leaves out the chat template.
+  one per three other characters. The proxy is an estimate, not a bound; how far it is from the
+  Qwen3.5-4B count is under [Length check](#length-check). Rows over the budget are listed in the
+  report, not cut. The count leaves out the chat template.
 - **Touches.** Reading pool labels is an evaluation-set touch. Before any file is read the export
   appends one touch per fold and training problem through `start_run`, 48 in all, with run id
   `train-export-<fold>-<problem id>-<UTC time>`. The problem id is part of the run id because the
@@ -61,6 +62,19 @@ uv run python scripts/export_training_data.py [--tokenizer DIR] runs/oracle/<run
 Give the 16 labels files of the pool run. Each needs its `<run id>.json` and
 `<run id>.transcript.json` beside it. No cluster and no model are needed. The output goes to
 `runs/training_data/`, which git ignores, and to the shared drive. A file is never overwritten.
+
+For exact counts, save the Qwen3.5-4B tokenizer once (three files, about 13 MB, no weights) at the
+revision of the smoke run ([compute.md](compute.md)) and give its folder. transformers 5.22.1, the
+locked version, loads it without PyTorch. Name the folder after the model and the revision, since
+the files record the folder's name as `length_counter`:
+
+```
+uvx --from huggingface-hub==2.4.0 hf download Qwen/Qwen3.5-4B config.json tokenizer.json \
+    tokenizer_config.json --revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a \
+    --local-dir <DIR>/qwen3.5-4b-851bf6e
+uv run --with transformers==5.22.1 python scripts/export_training_data.py \
+    --tokenizer <DIR>/qwen3.5-4b-851bf6e runs/oracle/<run id>.labels.json ...
+```
 
 ## Format
 
@@ -98,12 +112,46 @@ by cause: `rejected`, `not_sendable`, `no_command`), `fix_match_excluded`, `mask
 `baseline5_train`), `held_out`, `token_budget`, and for
 each kind the maximum length, the 95th percentile and the ids over the budget.
 
+## Length check
+
+`scripts/check_length_proxy.py --tokenizer DIR` counts synthetic text of the gate input's shape
+with the tokenizer, as the export counts, and compares the count with the proxy
+(`src/remvalgate/harness/length_check.py`). The text holds no pool data, so the check makes no
+touch: the first observation is a `kubectl get deployments,pods` listing of one Ready pod per
+deployment of the application's chart, laid out and named as kubectl and Kubernetes v1.32.1 lay
+out and name them, and the retrieved past fixes are development corpus entries. It exits 1 when
+the tokenizer counts more than the proxy on a gate input.
+
+Run on 2026-11-09 with the tokenizer folder of [Running it](#running-it) (Qwen3.5-4B at revision
+`851bf6e`, transformers 5.22.1), 20 samples per application and text:
+
+| Application | Text | Proxy, largest | Count, largest | Over 2,048 by proxy, by count | Count / proxy |
+|---|---|---|---|---|---|
+| Social Network | gate input | 2251 | 1948 | 20, 0 | 0.859 to 0.874 |
+| Social Network | listing alone | 1806 | 1588 | 0, 0 | 0.872 to 0.886 |
+| Social Network | pod names alone | 493 | 541 | 0, 0 | 1.078 to 1.110 |
+| Hotel Reservation | gate input | 1724 | 1431 | 0, 0 | 0.826 to 0.834 |
+| Hotel Reservation | listing alone | 1291 | 1091 | 0, 0 | 0.841 to 0.855 |
+| Hotel Reservation | pod names alone | 312 | 364 | 0, 0 | 1.155 to 1.194 |
+
+- The tokenizer's pre-tokenizer splits every digit apart, so the proxy's digit rule holds for it.
+- On the gate inputs the proxy is 14 to 21 percent above the count, since a run of spaces that
+  pads a column is one token. It is below the count on generated pod names, whose suffixes mix
+  digits with single letters, so it is not a bound on all text.
+- Every synthetic Social Network gate input is over the budget by the proxy and under it by the
+  count; the largest count is 1,948, 100 under the budget. So the proxy's over-budget list of the
+  2026-11-08 export can hold rows that fit, and a row near the budget needs the tokenizer's count.
+
 ## Limits
 
 - The held-out fold's records, which the gate scores, are not in these files.
 - `k8s_target_port-misconfig-mitigation-3` and `pool-k8s_target_port-misconfig-mitigation-4` gave
   no candidates, since the planner reached the 16 turn cap with no diagnosis, so they add no record
   to any fold's training set.
+- The length check counts synthetic text, not the gate inputs. A real first observation after an
+  injection can hold other rows (a Pending pod, a deployment at 0/0, the pod of a second
+  ReplicaSet), and real diagnoses and retrieved entries differ in length. Baseline 5's prompts,
+  which hold the whole diagnosis conversation, are not checked.
 - The training candidates were sampled once, from the corpus of each problem's own fold, and the
   same candidates and labels serve the three folds in which a problem trains, so the three
   training sets share their candidate text. Masking removes the held-out records from what the
