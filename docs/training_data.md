@@ -3,7 +3,7 @@
 Story E7-S1 (#45), requirement R7.1. The training data of the gate and of baseline 5 is built per
 fold from the oracle labels of baseline 3c's candidates ([oracle_labels.md](oracle_labels.md)),
 with no new rollouts. The builder is `src/remvalgate/harness/training_data.py`, the export
-`scripts/export_training_data.py`. No export has been made yet.
+`scripts/export_training_data.py`. The export of 2026-11-08 is under [Results](#results).
 
 Reusing the oracle labels departs from R7.1 and proposal version 2, which ask for K new rollouts
 per training problem per fold (384 at K = 8, about 33 hours serial). The group confirmed it
@@ -111,6 +111,27 @@ by cause: `rejected`, `not_sendable`, `no_command`), `fix_match_excluded`, `mask
 `records_with_masked_entries`, `train_with_masked_entries`, `held_out_text` (`gate_train`,
 `baseline5_train`), `held_out`, `token_budget`, and for
 each kind the maximum length, the 95th percentile and the ids over the budget.
+
+## Results
+
+One export on 2026-11-08, at commit `4d83002` with `dirty: false`, from the 16 labels files of the
+second labelling run of the pool (commit `3d34cb4`, [oracle_labels.md](oracle_labels.md),
+Results), with the length proxy. Its 48 touches carry the time 2026-11-08T15:30:17Z in
+`runs/touch_log.jsonl`; the export appends them before it reads any labels file.
+
+| Fold | Records | Train | Train with label 1 |
+|---|---|---|---|
+| 0 | 42 | 8 | 7 |
+| 1 | 43 | 11 | 5 |
+| 2 | 55 | 13 | 6 |
+| 3 | 55 | 11 | 6 |
+
+The gate file and the baseline 5 file of a fold share one report, so their counts are the same,
+and each holds the 12 labels files and the 12 touches of its fold. The 8 files are on the shared
+drive under `k8s-RemValGate/run-logs/`, not in git: `training-data-20261108.tar.gz` (774809
+bytes, SHA-256 `bcd3cb7d5a0a58b2758b0a1a37077bace0dea680ff4c4454abff1e9575331146`). No stored
+file holds a MongoDB password. The report's lengths are proxy counts; [Length check](#length-check)
+gives the tokenizer's beside them.
 
 ## Length check
 
