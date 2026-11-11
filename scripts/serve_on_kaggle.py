@@ -191,7 +191,8 @@ def main() -> int:
     env = os.environ | {
         # the default split would spread the layers over both T4s
         "CUDA_VISIBLE_DEVICES": "0",
-        "LD_LIBRARY_PATH": f"{WORK}:{os.environ.get('LD_LIBRARY_PATH', '')}",
+        # an empty entry would make the loader search the current directory
+        "LD_LIBRARY_PATH": ":".join(filter(None, (str(WORK), os.environ.get("LD_LIBRARY_PATH")))),
     }
     devices = show([str(WORK / "llama-server"), "--list-devices"], env=env)
     if "CUDA0" not in devices.stdout + devices.stderr:

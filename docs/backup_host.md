@@ -6,9 +6,12 @@ Chosen by a group member on 2026-11-09, pending group confirmation.
 
 One development problem has been run on this host, on 2026-11-10 with the 9B, and it passed: run
 `planner-dev-scale_pod_zero_social_net-mitigation-1-think-20261110t063528z`, with its files under
-`k8s-RemValGate/run-logs/` on the shared drive. That is the only run here so far. On 2026-11-09 the
-script's server flags, its thinking check and `src/remvalgate/planner/chat.py` were also run against
-llama-server b12110 on a Mac with a tiny model.
+`k8s-RemValGate/run-logs/` on the shared drive. That is the only run here so far. The run's
+`host_checks.txt` there holds the output behind the memory, speed and digest figures here and in the
+README. The run script had no `--model` flag then, so the run's manifest and transcript name the
+model `qwen/qwen3.5-4b`, although the 9B served it; the manifest's `model_version` names the 9B. On
+2026-11-09 the script's server flags, its thinking check and `src/remvalgate/planner/chat.py` were
+also run against llama-server b12110 on a Mac with a tiny model.
 
 A result from this host is a separate configuration and is reported per host:
 
@@ -178,7 +181,7 @@ variable's name and not the URL.
 
 ```
 asciinema rec --return --title "backup host smoke <run name>" \
-  --command 'uv run python scripts/run_planner_dev.py --problem dev-scale_pod_zero_social_net-mitigation-1 --candidates 2 --model-version "<string below>" --base-url "$LLAMA_BASE_URL"' \
+  --command 'uv run python scripts/run_planner_dev.py --problem dev-scale_pod_zero_social_net-mitigation-1 --candidates 2 --model <name below> --model-version "<string below>" --base-url "$LLAMA_BASE_URL"' \
   runs/recordings/<run name>.cast
 ```
 
@@ -193,8 +196,9 @@ drive, next to the manifest and the transcript. Do not commit them. Delete the C
 
 ## Model version strings
 
-Pass one of these as `--model-version`. The run script appends `; thinking=on` or `; thinking=off`.
-The hashes are the Hugging Face commits pinned in `scripts/serve_on_kaggle.py`.
+Pass one of these as `--model-version`, and the same model's name, `qwen/qwen3.5-4b` or
+`qwen/qwen3.5-9b`, as `--model`. The run script appends `; thinking=on` or `; thinking=off`. The
+hashes are the Hugging Face commits pinned in `scripts/serve_on_kaggle.py`.
 
 ```
 qwen3.5-4b gguf q8_0 lmstudio-community/Qwen3.5-4B-GGUF@f9f88ac, context 32768, llama-server b12110, kaggle t4
