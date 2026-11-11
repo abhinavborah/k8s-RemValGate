@@ -379,6 +379,14 @@ Run it with both applications deployed and Ready, Prometheus installed and the m
 does not run it. `scripts/summarize_oracle_labels.py` summarizes labels files without a cluster.
 The method and the rules are in [docs/oracle_labels.md](docs/oracle_labels.md).
 
+`scripts/run_baselines_pool.py` is the baseline-only run on the pool (story E9-S2, #53, gate
+G3). It runs baselines 1, 2, 3a, 3b and 3c, chosen with `--baseline`, once per problem at a
+pre-stated seed (default 1000), each action executed with the labelling run's procedure in the
+problem's own namespace. Baseline 3c there is the rerun for the R check.
+`scripts/summarize_g3.py` reads the labels and the result files with no cluster and prints the
+headroom result, R and the minimum gain (`src/remvalgate/harness/g3.py`). The run and the rules
+are in [docs/baselines_pool.md](docs/baselines_pool.md).
+
 `scripts/export_training_data.py` builds the per-fold training data of the gate and of baseline 5
 from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster and no model: fold
 f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
