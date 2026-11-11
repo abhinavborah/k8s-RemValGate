@@ -126,8 +126,8 @@ The `media-frontend` init container clones a repository from GitHub on every sta
 cluster needs access to GitHub and the pod can take about 15 minutes to be Ready (measured once).
 Then wait for all pods Ready and compare the image digests below with the cluster again.
 
-Only the ARM config was run. Upstream also ships `kind/kind-config-x86.yaml`, which was not run
-here, and its node image digest is not recorded.
+The verified run used the ARM config. Upstream also ships `kind/kind-config-x86.yaml`, which was
+run once, on the backup host (`docs/backup_host.md`); its digests are below.
 
 `helm`, `kind` and `kubectl` must be installed. Versions of the verified run: kind v0.33.0,
 kubectl client v1.36.1, helm v4.3.1, Docker Desktop 4.96.0 (engine 29.9.1, aarch64). The cluster
@@ -153,6 +153,14 @@ memory figures below were measured under that emulation, so Docker Desktop's amd
 part of the cluster configuration. The Rosetta handler was registered in the Docker VM and in use,
 and no Rosetta key was set in Docker's `settings-store.json`, so the setting was at its default.
 Without amd64 emulation in Docker, these pods were not tried and are expected not to start.
+
+The x86 config ran on the backup host on 2026-11-10. Six of the container images above reported the
+same digests there: all but `media-frontend`, which AIOpsLab swaps only on ARM, and
+`alpine/git:latest`, whose tag had moved.
+
+- node image `jacksonarthurclark/aiopslab-kind-x86`: `sha256:d631857278d3f8ce5c36364c75ec25695ceb22e311ec6621a4ebf5506b86774d`
+- `yg397/media-frontend:xenial` (Social Network on x86): `sha256:272049995f2929435b91da34f20fc16216a7f974d1b8f9afa0ccbb529f1a9840`
+- `alpine/git:latest` (init container): `sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d`
 
 Regenerate the list after a redeploy with
 `kubectl --context kind-kind get pods -n test-social-network -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u`
