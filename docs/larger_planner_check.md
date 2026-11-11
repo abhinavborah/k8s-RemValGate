@@ -20,17 +20,17 @@ The manifests, labels, transcripts, terminal recordings and pod watch are on the
 
 ## Results
 
-| Problem | Model | Diagnosis | Admitted of K | Distinct executed | Worked of K | Mixed |
-|---|---|---|---|---|---|---|
-| TargetPortMisconfig | 4B | none (turn cap, 16 turns) | no candidates | 0 | 0 | no |
-| TargetPortMisconfig | 9B | type right, service wrong (`compose-post-service`) | 4 of 8 | 4 | 0 | no |
-| ScalePod | 4B | right | 8 of 8 | 1 | 8 | no |
-| ScalePod | 9B | right | 7 of 8 | 1 | 7 | no |
-| AssignNonExistentNode | 4B | right | 8 of 8 | 1 | 8 | no |
-| AssignNonExistentNode | 9B | right | 8 of 8 | 1 | 8 | no |
+| Problem | Model | Turns | Diagnosis | Admitted of K | Distinct executed | Worked of K | Mixed |
+|---|---|---|---|---|---|---|---|
+| TargetPortMisconfig | 4B | 16 | none (turn cap) | no candidates | 0 | 0 | no |
+| TargetPortMisconfig | 9B | 16 | type right, service wrong (`compose-post-service`) | 4 of 8 | 4 | 0 | no |
+| ScalePod | 4B | 3 | right | 8 of 8 | 1 | 8 | no |
+| ScalePod | 9B | 1 | right | 7 of 8 | 1 | 7 | no |
+| AssignNonExistentNode | 4B | 16 | right | 8 of 8 | 1 | 8 | no |
+| AssignNonExistentNode | 9B | 2 | right | 8 of 8 | 1 | 8 | no |
 
-A candidate refused by the allow-list has no outcome, so mixed is read over executed candidates
-only. The target of the TargetPortMisconfig problem is `user-mention-service`. The 9B's plan
+Turns are the planner's steps, read from each run's transcript; the cap is 16. A candidate
+refused by the allow-list has no outcome, so mixed is read over executed candidates only. The target of the TargetPortMisconfig problem is `user-mention-service`. The 9B's plan
 command there, a target port patch on `compose-post-service`, was applied and did not recover.
 
 ## Result against the rule
@@ -45,7 +45,7 @@ Three problems, one run each: a signal, not a test.
 - On the problem the 4B fails, the 9B reached a diagnosis within the turn cap and gave varied
   commands (4 distinct executed, against none), but on the wrong service, so none worked. It
   changed the failure, and it did not fix it.
-- On the two problems the 4B solves, the 9B also solves them, in fewer turns (1 and 2, against 3
-  and 16).
+- On the two problems the 4B solves, the 9B also solves them, in fewer turns (ScalePod 1
+  against 3, AssignNonExistentNode 2 against 16).
 - The 9B run took 34 minutes and the 4B run 16, with the cluster running. Swap was about 5 of 6 GB
   just after the run, on this 24 GB host.
