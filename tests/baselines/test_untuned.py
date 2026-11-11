@@ -1,9 +1,16 @@
 import pytest
 
-from remvalgate.baselines.untuned import CONFIGURATIONS, conflicting_flags, untuned_retriever
+from remvalgate.baselines.untuned import (
+    CONFIGURATIONS,
+    conflicting_flags,
+    pool_untuned_retriever,
+    untuned_retriever,
+)
+from remvalgate.harness.folds import fault_type, pool_folds, pool_ids
 from remvalgate.harness.manifest import Registry, Slice
-from remvalgate.retrieval import RetrieverRefused
+from remvalgate.retrieval import PastFix, RetrieverRefused, Source
 from remvalgate.retrieval.configs import Dense, NoRetrieval
+from remvalgate.retrieval.pool_corpus import RUNBOOK
 from remvalgate.retrieval.stub import STUB_CORPUS
 
 DEV, POOL = "p-synth-dev", "p-synth-pool"
@@ -84,3 +91,61 @@ def test_sampling_judging_and_escalation_flags_conflict(flags, expected):
 def test_an_unknown_baseline_is_refused():
     with pytest.raises(ValueError, match="expected one of"):
         untuned_retriever("3d", REGISTRY, models=MODELS)
+
+
+# synthetic ids that carry fault type stems, so no pool problem is read; two per fold, so a
+# retriever that held out only the problem itself would fail
+SYNTH_POOL = [f"synth-{stem}-{i}" for stem in ("revoke_auth", "scale_pod_zero") for i in range(4)]
+POOL_REGISTRY = Registry(
+    slices={DEV: Slice.DEVELOPMENT} | dict.fromkeys(SYNTH_POOL, Slice.POOL), placeholder=None
+)
+
+
+@pytest.fixture
+def synthetic_incidents(monkeypatch):
+    def incident(problem_id):
+        return PastFix(
+            entry_id=problem_id,
+            source=Source.INCIDENT,
+            fault_type=fault_type(problem_id),
+            target_service=f"demo-{problem_id}",
+            summary=f"incident {problem_id} of a synthetic fault",
+            fix_command=f"kubectl -n demo patch deployment demo-{problem_id} --type=json",
+        )
+
+    monkeypatch.setattr(
+        "remvalgate.retrieval.fixed.pool_incidents",
+        lambda registry: [incident(p) for p in pool_ids(registry)],
+    )
+
+
+def test_pool_3a_retrieves_nothing(synthetic_incidents):
+    retriever = pool_untuned_retriever("3a", POOL_REGISTRY)
+    assert type(retriever) is NoRetrieval
+    assert all(retriever.retrieve("pods pending", p, 3) == [] for p in SYNTH_POOL)
+
+
+@pytest.mark.parametrize("baseline", ["3b", "3c"])
+def test_pool_3b_and_3c_serve_each_problem_from_the_fold_that_holds_it_out(
+    synthetic_incidents, baseline
+):
+    retriever = pool_untuned_retriever(baseline, POOL_REGISTRY, models=MODELS)
+    assignment = pool_folds(POOL_REGISTRY)
+    runbook = {e.entry_id for e in RUNBOOK}
+    for problem_id, fold in assignment.items():
+        # a depth above the corpus size returns the whole corpus
+        hits = retriever.retrieve("pods pending", problem_id, 100)
+        training = {i for i, f in assignment.items() if f != fold}
+        assert {h.entry.entry_id for h in hits} == training | runbook
+
+
+@pytest.mark.parametrize("baseline", sorted(CONFIGURATIONS))
+def test_every_pool_baseline_refuses_a_development_problem(synthetic_incidents, baseline):
+    retriever = pool_untuned_retriever(baseline, POOL_REGISTRY, models=MODELS)
+    with pytest.raises(RetrieverRefused):
+        retriever.retrieve("pods pending", DEV, 3)
+
+
+def test_pool_untuned_retriever_refuses_an_unknown_baseline():
+    with pytest.raises(ValueError, match="baseline"):
+        pool_untuned_retriever("3d", POOL_REGISTRY, models=MODELS)
