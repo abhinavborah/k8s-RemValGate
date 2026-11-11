@@ -387,6 +387,12 @@ problem's own namespace. Baseline 3c there is the rerun for the R check.
 headroom result, R and the minimum gain (`src/remvalgate/harness/g3.py`). The run and the rules
 are in [docs/baselines_pool.md](docs/baselines_pool.md).
 
+`scripts/summarize_rag_ablation.py` reads the result files of baselines 3a, 3b and 3c from the
+baseline-only run with no cluster and prints diagnosis accuracy and single-action recovery for
+each retrieval configuration, with paired comparisons (story E4-S4, #33,
+`src/remvalgate/harness/rag_ablation.py`). The rules and the results are in
+[docs/rag_ablation.md](docs/rag_ablation.md).
+
 `scripts/export_training_data.py` builds the per-fold training data of the gate and of baseline 5
 from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster and no model: fold
 f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
