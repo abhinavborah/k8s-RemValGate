@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from remvalgate.planner.models import add_model_argument
+from remvalgate.planner.models import add_model_argument, check_pool_model
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
@@ -37,3 +37,14 @@ def test_each_script_uses_the_flag(script):
     assert "model=args.model" in text
     assert "model_name=args.model" in text
     assert "model=MODEL" not in text
+
+
+def test_the_9b_is_refused_on_the_pool():
+    # a pool run logs an evaluation-set touch, so another model there is a separate decision
+    with pytest.raises(ValueError):
+        check_pool_model("qwen/qwen3.5-9b", runs_pool=True)
+
+
+def test_the_default_runs_on_the_pool_and_the_9b_on_development():
+    check_pool_model("qwen/qwen3.5-4b", runs_pool=True)
+    check_pool_model("qwen/qwen3.5-9b", runs_pool=False)

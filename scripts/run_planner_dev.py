@@ -36,7 +36,8 @@ compared with the clean state. A turn-capped plan or a rejected command is class
 applied.
 
     uv run python scripts/run_planner_dev.py --model-version "<format and quantization>" \
-        [--no-thinking] [--problem ID ...] [--candidates K] [--base-url URL] \
+        [--model qwen/qwen3.5-4b|qwen/qwen3.5-9b] [--no-thinking] [--problem ID ...] \
+        [--candidates K] [--base-url URL] \
         [--escalate-when-unsure] [--judge] [--baseline 3a|3b|3c]
 """
 

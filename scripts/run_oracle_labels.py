@@ -45,7 +45,11 @@ A run finished in two parts is summarized with scripts/summarize_oracle_labels.p
 cluster.
 
     uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>" \
-        [--no-thinking] [--candidates K] [--seed S] [--base-url URL] [problem id ...]
+        [--model qwen/qwen3.5-4b|qwen/qwen3.5-9b] [--no-thinking] [--candidates K] [--seed S] \
+        [--base-url URL] [problem id ...]
+
+The 9B runs on development problems only: a run of it on the pool would log evaluation-set
+touches, and is a separate decision.
 """
 
 import argparse
@@ -98,7 +102,7 @@ from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import carried_action, exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
 from remvalgate.planner.loop import Draws, draw_record, plan, sample, task_text
-from remvalgate.planner.models import add_model_argument
+from remvalgate.planner.models import add_model_argument, check_pool_model
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever, pool_retriever
 
@@ -298,6 +302,10 @@ def main() -> int:
         parser.error(f"not pool or development problems: {', '.join(others)}")
     if any(i in pool for i in selected) and any(i in development for i in selected):
         parser.error("pool and development problems run apart, so a summary is never mixed")
+    try:
+        check_pool_model(args.model, selected[0] in pool)
+    except ValueError as e:
+        parser.error(str(e))
     if args.candidates < 1:
         parser.error("--candidates must be at least 1")
     # AIOpsLab's injectors run kubectl in the current context, the checks here in kind-kind
