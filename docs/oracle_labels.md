@@ -3,8 +3,8 @@
 Story E3-S5 (#27), requirement R3.5. Every candidate of baseline 3c is executed once on each pool
 problem, with a harness reset between candidates, so that each candidate has an outcome label and
 each problem a flag for whether any candidate worked. Gate G3 counts its headroom from these
-labels (R6.6, #53). This file states the method and the rules before any label is read. No oracle
-run has been made yet (see Results).
+labels (R6.6, #53). This file states the method and the rules before any label is read. The runs
+of 2026-11-08 and their labels are in Results.
 
 ## What is labelled
 
@@ -28,8 +28,8 @@ run has been made yet (see Results).
   observation of the live cluster, as 3c does in the baseline-only run. A recorded observation
   would name pods that no longer exist after a new injection. This departs from R3.7 as first
   written, and from a criterion of #29, which had oracle labelling reuse the recorded queries. R3.7
-  and pool_queries.md are updated to match (BRD version 1.10). Proposed by one group member, not
-  yet group-confirmed.
+  and pool_queries.md are updated to match (BRD version 1.10). Proposed by one group member and
+  confirmed by the group (BRD version 1.14).
 - **Touches.** Each problem is one run: `start_run` appends one touch (run id
   `oracle-<problem id>-<UTC time>`) and the run writes one manifest. Every execution of the problem
   is recorded in its labels file. A problem whose run stopped is run again from the start, with a
@@ -146,11 +146,16 @@ record names that candidate's seed.
   terminated with a reason other than Completed. So an execution record can show the fault
   remaining after a command that removed it but broke another workload. Its outcome is
   APPLIED_HARMFUL either way, since harm comes first.
-- For the database faults the reset is checked through pod health only (above). The allow-list's
-  exec shape leaves no room for `-u` and `-p`, so a MongoDB call in an admitted exec carries no
-  user, and it would be refused where authorization is enforced
-  (`src/remvalgate/retrieval/pool_corpus.py`). A RECOVERED label on a database problem should
-  therefore be read against its execution record before it is reported.
+- For the database faults the reset is checked through pod health only (above). Until 2026-11-08
+  the allow-list's exec shape left no room for `-u` and `-p`, so a MongoDB call in an admitted exec
+  carried no user and would be refused where authorization is enforced
+  (`src/remvalgate/retrieval/pool_corpus.py`). Since then it admits a login with password tokens
+  (Run). No database problem has a RECOVERED label in either run (Results).
+- The turn cap of 16 and the planner's login note for Hotel Reservation were set after run 1 of the
+  pool was seen (BRD 1.13). This departs from section 7.2 and R3.8 of the BRD, which keep prompt
+  iteration to development problems: no development problem runs on Hotel Reservation, so the note
+  was tried on the pool only. The labels of run 2 come from that prompt and turn cap. Proposed,
+  pending group confirmation.
 - Log-probabilities are recorded for each candidate only when the server returns them. LM Studio
   likely returns none (README), so these labels cannot rank the K by log-probability.
 
@@ -190,4 +195,43 @@ plan's own command adds at most 16 executions, and a merged candidate saves one.
 
 ## Results
 
-Not run yet.
+Two labelling runs of the 16 pool problems on 2026-11-08, with `qwen/qwen3.5-4b` (GGUF Q8_0,
+thinking on, temperature 0.7, top-p 0.8, top-k 20), K = 8, seeds 0 to 7, R = 1 and AIOpsLab at
+`576c3f0`. Every manifest is `dirty: false`, and neither run stopped: each problem has one touch
+and one labels file. Run 2 gives the labels. Run 1 came before the changes of BRD 1.13 and is kept
+for the record.
+
+**Run 2, the labels.** Commit `3d34cb4`, context 32768, touches 84 to 99.
+
+- 14 problems gave 112 candidates. `k8s_target_port-misconfig-mitigation-3` and
+  `pool-k8s_target_port-misconfig-mitigation-4` gave none: the planner reached the 16 turn cap.
+- 47 candidates were merged as near-identical. 50 have no outcome: 44 rejected by the allow-list
+  (SHELL_METACHAR 28, VERB_NOT_ALLOWED 12, PARSE_ERROR 3, FLAG_DENIED 1), 4 replies that were not
+  valid JSON and 2 replies with no command.
+- 7 of 16 problems have a working candidate. All 8 candidates worked on the three
+  AssignNonExistentNode and the three ScalePod problems, and 5 of 8 on
+  `pool-k8s_target_port-misconfig-mitigation-6`, the only problem with mixed outcomes. The 4
+  MongoDB problems and the other 5 TargetPortMisconfig problems have no working candidate.
+- Coverage, summed over the 16 problems: 6.625 at k = 1, 6.893 at k = 2, 6.982 at k = 3 and 7.0
+  from k = 4 to 8, so the smallest k is 4. The terminal recording runs from 13:28 to 15:29 UTC,
+  about two hours, against roughly 11 hours serial planned for this labelling (BRD section 9), so
+  the budget did not fail and K stays 8.
+
+**Run 1, kept for the record.** Commit `7205fdd`, context 16384, touches 68 to 83. 88 candidates,
+48 merged, 33 with no outcome (25 rejected by the allow-list, 8 replies that were not valid JSON).
+Five TargetPortMisconfig problems gave no candidates at the 8 turn cap. 7 of 16 problems have a
+working candidate, none with mixed outcomes, and the 4 MongoDB problems have none. Coverage is
+6.875 at k = 1 and 7.0 from k = 2, so the smallest k is 2.
+
+**Files.** On the shared drive under `k8s-RemValGate/run-logs/`, not in git:
+`oracle-pool-27-run2-20261108.tar.gz` (1486420 bytes, SHA-256
+`5cb752dfb0992677750eea9e15bbb065764fb549967c7a2b6fb419f09ff0af63`) and
+`oracle-pool-27-run1-20261108.tar.gz` (204359 bytes, SHA-256
+`213dd921c76b9a68b8892162ded32b828b86cfa26d8bde62460da09931ab224a`). Each holds the manifest,
+transcript and labels file of every problem, the run's summary, its stdout, the terminal recording
+and the pod watch. `scripts/summarize_oracle_labels.py` over a run's 16 labels files reproduces its
+summary. No stored file holds a MongoDB password. The terminal recording covers each whole run,
+but the pod watch stops after about 45 minutes in run 1 and 49 minutes in run 2, with no error
+line, consistent with the API server closing the watch (kube-apiserver `--min-request-timeout`: a
+randomized time above 1800 seconds by default), so the later problems of each run have no pod
+watch.
