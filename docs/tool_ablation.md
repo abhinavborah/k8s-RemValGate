@@ -72,7 +72,12 @@ The harness makes these calls once, in this order:
 3. `get_logs` of the 3 Deployments with the most error lines logged since the injection, ties by
    name, leaving out any with none (`ERROR_WORDS`, `error_lines`, `noisiest_services` and
    `LOG_SERVICES` in `src/remvalgate/harness/tool_ablation.py`). An error line holds error, fail,
-   refused or timeout, ignoring case. The lines since the injection are read with
+   refused, timeout, the zerolog level marks ERR or FTL, panic, fatal, not authorized,
+   unauthorized or denied, ignoring case and terminal colour codes. The level marks and "not
+   authorized" were added on 2026-11-12 after the first pool problem, `revoke_auth_mongodb-mitigation-1`:
+   its `geo` client logged only `FTL ... not authorized on geo-db ...`, which counted 0, so its log
+   was left out. That problem is run again with a new touch, and the first touch is reported as
+   spent on the earlier rule. The lines since the injection are read with
    `kubectl logs deploy/<name> --since-time=<injection>`, one pod per Deployment, and every
    Deployment's count is kept in the transcript as `bundle_error_lines`.
 

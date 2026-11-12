@@ -18,6 +18,21 @@ def test_error_lines_counts_lines_with_an_error_word_ignoring_case():
     assert error_lines("") == 0
 
 
+def test_error_lines_counts_zerolog_level_marks_and_auth_messages_through_colour_codes():
+    # zerolog's coloured console format, with a made-up service and database
+    fatal = (
+        "\x1b[90m2026-01-01T00:00:00Z\x1b[0m \x1b[31mFTL\x1b[0m \x1b[1mcmd/demo/db.go:35\x1b[0m"
+        "\x1b[36m >\x1b[0m \x1b[1mnot authorized on demo-db to execute command\x1b[0m"
+    )
+    err = "\x1b[90m2026-01-01T00:00:01Z\x1b[0m \x1b[31mERR\x1b[0m lookup demo-cache"
+    info = "\x1b[90m2026-01-01T00:00:02Z\x1b[0m \x1b[32mINF\x1b[0m Initializing DB connection..."
+    assert error_lines("\n".join([fatal, err, info])) == 2
+    for line in ("panic: runtime error", "permission denied", "401 Unauthorized", "fatal: x"):
+        assert error_lines(line) == 1
+    # a word that only contains ERR or FTL is not a level mark
+    assert error_lines("TERRA FTLX ready") == 0
+
+
 def test_noisiest_services_ranks_by_error_lines_and_leaves_out_quiet_ones():
     counts = {"user-service": 2, "text-service": 9, "geo": 0, "compose-post-service": 2}
     # ties by name; a Deployment with no error line is never chosen

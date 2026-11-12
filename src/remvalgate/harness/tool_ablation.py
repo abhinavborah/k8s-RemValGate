@@ -27,13 +27,20 @@ from collections.abc import Mapping
 
 # the most Deployments whose logs go into the bundle
 LOG_SERVICES = 3
-# matched anywhere in a line, so fail also matches failed and failure
-ERROR_WORDS = re.compile(r"error|fail|refused|timeout", re.IGNORECASE)
+# matched anywhere in a line, so fail also matches failed and failure; ERR and FTL are zerolog's
+# level marks and "not authorized" its MongoDB auth message, which the Hotel Reservation clients log
+# with no other error word (FTL ... not authorized on geo-db)
+ERROR_WORDS = re.compile(
+    r"error|fail|refused|timeout|\bERR\b|\bFTL\b|panic|fatal|not authorized|unauthorized|denied",
+    re.IGNORECASE,
+)
+# terminal colour codes, which zerolog writes around its level mark, hiding its word start from \b
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 def error_lines(text: str) -> int:
-    """The number of lines of text that hold an error word."""
-    return sum(1 for line in text.splitlines() if ERROR_WORDS.search(line))
+    """The number of lines of text that hold an error word, colour codes removed."""
+    return sum(1 for line in text.splitlines() if ERROR_WORDS.search(_ANSI.sub("", line)))
 
 
 def noisiest_services(counts: Mapping[str, int], limit: int = LOG_SERVICES) -> list[str]:
