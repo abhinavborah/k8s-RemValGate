@@ -221,7 +221,7 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
         first = await orch.ask_env(exec_shell(f"kubectl -n {namespace} get deployments,pods"))
         result = await asyncio.to_thread(
             plan,
-            task_text(prob.app.name, namespace),
+            task_text(prob.app.name, namespace, injected_at),
             first,
             problem_id,
             namespace,
