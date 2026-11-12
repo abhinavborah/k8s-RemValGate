@@ -55,6 +55,7 @@ SETUP = {
         "temperature": 0.7,
         "top_p": 0.8,
         "top_k": 20,
+        "presence_penalty": 1.5,
         "max_tokens": 2048,
         "thinking": True,
     },
@@ -423,6 +424,7 @@ def test_rebuilt_sampling_messages_equal_what_the_draws_of_sample_saw():
         ({"k": 4}, "k"),
         ({"seed": 1000}, "seed"),
         ({"sampling": {**SETUP["sampling"], "thinking": False}}, "sampling.thinking"),
+        ({"sampling": {**SETUP["sampling"], "presence_penalty": 0.0}}, "sampling.presence_penalty"),
     ],
 )
 def test_labelling_runs_of_another_setup_are_not_pooled(change, field):

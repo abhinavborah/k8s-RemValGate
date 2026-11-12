@@ -160,9 +160,16 @@ From #161, for every run after this date:
   model, quantization, context length, parallel slots, the GGUF file's SHA-256 and the server's
   sampling defaults (the hub `model.yaml` config fields and any per-model override). GPU offload is
   not reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
-- `planner/chat.py` sends temperature, top-p and top-k only. If LM Studio applies the hub's defaults
-  to the other parameters of an API request, the presence penalty of 1.5 (enabled in the hub file)
-  applied to every planner run on this host, in every arm alike. Whether it does is not verified.
+- `planner/chat.py` sent temperature, top-p and top-k only. Two sources say the presence penalty of
+  the LM Studio runs on the run host was 1.5: the hub `model.yaml` of `qwen/qwen3.5-4b` there has
+  `presencePenalty` 1.5 enabled (the `server_defaults` field of `model_build` records it for new
+  runs), and on 2026-11-12 one prompt at temperature 0 with no presence penalty gave the same output
+  as with 1.5 and a different one from 0. One prompt cannot tell 1.5 from another non-zero value
+  with the same output, and only the presence penalty was checked, not the hub's other fields. On
+  this evidence the penalty was 1.5 for the 4B on LM Studio on this host, in every arm alike; the
+  run on the backup host (llama-server, `docs/backup_host.md`) is not covered. `planner/chat.py` now
+  sends `presence_penalty: 1.5` explicitly to every server and the manifests record it, so the runs
+  no longer depend on the server's default. The reruns of #165 are compared with each other only.
 - The summaries refuse runs of one comparison served by different builds, including a mix of runs
   with a recorded build and runs from before this date.
 - Runs made before this date (3a, 3b and 3c, results in `docs/rag_ablation.md`, and the oracle

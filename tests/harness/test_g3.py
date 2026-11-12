@@ -156,7 +156,14 @@ def test_g3_bundles_the_three_values():
     assert result["min_gain"]["wins_needed_by_losses"] == MIN_GAIN
 
 
-SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "max_tokens": 2048, "thinking": True}
+SAMPLING = {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "presence_penalty": 1.5,
+    "max_tokens": 2048,
+    "thinking": True,
+}
 
 
 def _manifest(seed: int, version: str = "gguf q8_0; thinking=on", **sampling) -> dict:
@@ -182,6 +189,8 @@ def test_rerun_settings_pass_with_one_or_two_new_seeds_and_the_same_build():
         ([_manifest(1000, "gguf q8_0; thinking=off")], "differ in model_version"),
         ([_manifest(1000, temperature=1.0)], "differ in sampling temperature"),
         ([_manifest(1000, max_tokens=4096)], "differ in sampling max_tokens"),
+        # a run from before the penalty was sent records none (#161)
+        ([_manifest(1000, presence_penalty=None)], "differ in sampling presence_penalty"),
     ],
 )
 def test_rerun_settings_refuse_a_repeated_seed_or_another_build(rerun, match):

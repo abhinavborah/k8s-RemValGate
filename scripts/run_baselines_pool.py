@@ -346,7 +346,14 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             {
                 **{
                     n: getattr(chat, n)
-                    for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+                    for n in (
+                        "temperature",
+                        "top_p",
+                        "top_k",
+                        "presence_penalty",
+                        "max_tokens",
+                        "thinking",
+                    )
                 },
                 "baseline": baseline,
             }

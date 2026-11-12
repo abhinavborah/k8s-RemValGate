@@ -76,3 +76,33 @@ def test_logprobs_are_asked_for_only_when_a_call_wants_them(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
     OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
     assert "logprobs" not in sent[0]
+
+
+def test_the_presence_penalty_is_sent_so_the_server_default_never_decides_it(monkeypatch):
+    # LM Studio applies the model's hub default (1.5) to a request that leaves it out (#161)
+    sent = []
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
+    OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+    assert sent[0]["presence_penalty"] == 1.5
+    assert {"temperature", "top_p", "top_k", "presence_penalty"} <= sent[0].keys()
+
+
+@pytest.mark.parametrize(
+    "script", ["run_baselines_pool.py", "run_oracle_labels.py", "run_planner_dev.py"]
+)
+def test_every_runner_records_the_presence_penalty_with_the_sampling(script):
+    # read as a syntax tree: the scripts need an AIOpsLab config file to import
+    import ast
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / script
+    names = [
+        {e.value for e in n.elts}
+        for n in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(n, ast.Tuple)
+        and n.elts
+        and all(isinstance(e, ast.Constant) for e in n.elts)
+        and "temperature" in {e.value for e in n.elts}
+    ]
+    assert names, f"{script} records no sampling settings"
+    assert all("presence_penalty" in n for n in names)

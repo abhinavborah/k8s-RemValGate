@@ -59,7 +59,7 @@ _PAST = "\n\nPast fixes that may be similar:\n"
 _NAMESPACE_FLAG = re.compile(r"\s(?:-n|--namespace)(?:=|\s+)\S+")
 # what every labelling run must share, so one training set pools one setup
 SETUP_FIELDS = ("model_name", "model_version", "k", "seed")
-SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "presence_penalty", "max_tokens", "thinking")
 _TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 
 

@@ -395,7 +395,14 @@ def main() -> int:
                 sampling={
                     **{
                         n: getattr(chat, n)
-                        for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+                        for n in (
+                            "temperature",
+                            "top_p",
+                            "top_k",
+                            "presence_penalty",
+                            "max_tokens",
+                            "thinking",
+                        )
                     },
                     "seeds": [c.seed for c in candidates],
                     "baseline": "3c",
