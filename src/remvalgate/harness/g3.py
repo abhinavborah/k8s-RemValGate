@@ -141,7 +141,8 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
 
     labelling and rerun hold the manifests of the labelling run and of 3c's rerun. Both runs must
     name one model and one model version (format, quantization and thinking setting) and the same
-    sampling settings, the same in both, and the rerun one seed that the labelling run did not use.
+    sampling settings, the same in both, and the rerun seeds that the labelling run did not use
+    (one, or the 2 of #161, whose rows combine_seeds turns into one row per problem).
     Raises ValueError otherwise.
     """
     for name in ("model_name", "model_version"):
@@ -154,10 +155,9 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
             raise ValueError(f"the two runs differ in sampling {name}: {sorted(values)}")
     check_one_build([*labelling, *rerun], "the two runs")
     seeds = {m["seed"] for m in rerun}
-    if len(seeds) != 1:
-        raise ValueError(f"the rerun has more than one seed: {sorted(seeds)}")
-    if seeds & {m["seed"] for m in labelling}:
-        raise ValueError(f"the rerun repeats the labelling run's seed {seeds.pop()}")
+    used = seeds & {m["seed"] for m in labelling}
+    if used:
+        raise ValueError(f"the rerun repeats the labelling run's seeds {sorted(used)}")
 
 
 def combine_seeds(rows: Sequence[Mapping]) -> list[dict]:

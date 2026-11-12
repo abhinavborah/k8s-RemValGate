@@ -17,11 +17,11 @@ Not reported by `lms ps`: GPU offload. It is left out rather than guessed.
 import hashlib
 import json
 import re
+import socket
 import subprocess
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-
-import yaml
+from urllib.parse import urlsplit
 
 APP_PLIST = "/Applications/LM Studio.app/Contents/Info"
 # fields that differ between runs of one build, so they do not take part in build_key
@@ -77,40 +77,91 @@ def _model_file(loaded: Mapping, models: Path, hub: Path) -> Path:
     return found[0]
 
 
+_FIELD = re.compile(r"^\s*- key: (\S+)\s*$")
+_VALUE = re.compile(r"^\s*(value|checked): ?(.*)$")
+
+
+def _scalar(text: str):
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text.strip().strip('"')
+
+
+def _config_fields(text: str) -> dict:
+    """The key: value pairs of the `config` section of a hub model.yaml, read without a YAML
+    library. A value is a scalar on its own line, or a block of checked and value lines below
+    it."""
+    fields, key, block, inside = {}, None, None, False
+    for line in text.splitlines():
+        if not line.startswith(" ") and line.strip():
+            inside = line.startswith("config:")
+            continue
+        if not inside:
+            continue
+        if field := _FIELD.match(line):
+            key, block = field.group(1), None
+            continue
+        value = _VALUE.match(line)
+        if key is None or value is None:
+            continue
+        name, rest = value.groups()
+        if name == "value" and block is None and rest.strip():
+            fields[key] = _scalar(rest)
+        elif name == "value" and block is None:
+            block = fields[key] = {}
+        elif block is not None:
+            block[name] = _scalar(rest)
+    return fields
+
+
 def _server_defaults(model_key: str, home: Path) -> dict:
     """The hub model.yaml's config fields as key: value, and LM Studio's per-model override."""
     hub = home / ".lmstudio" / "hub" / "models" / model_key / "model.yaml"
-    fields = {}
-    if hub.exists():
-        config = (yaml.safe_load(hub.read_text(encoding="utf-8")) or {}).get("config") or {}
-        for part in config.values():
-            for field in (part or {}).get("fields") or []:
-                fields[field["key"]] = field["value"]
+    fields = _config_fields(hub.read_text(encoding="utf-8")) if hub.exists() else {}
     override = (
-        home
-        / ".lmstudio"
-        / ".internal"
-        / "user-concrete-model-default-config"
-        / f"{model_key}.json"
-    )
+        home / ".lmstudio" / ".internal" / "user-concrete-model-default-config"
+    ) / f"{model_key}.json"
     return {
         "hub": fields,
         "override": json.loads(override.read_text(encoding="utf-8")) if override.exists() else {},
     }
 
 
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def _check_local_server(base_url: str, home: Path) -> None:
+    """Refuse a base URL that is not this host's LM Studio server, so the build read here is the
+    one that answers the requests."""
+    config = home / ".lmstudio" / ".internal" / "http-server-config.json"
+    if not config.exists():
+        raise RuntimeError(f"cannot read the LM Studio server port from {config}")
+    port = json.loads(config.read_text(encoding="utf-8")).get("port")
+    url = urlsplit(base_url)
+    if url.hostname not in LOCAL_HOSTS or url.port != port:
+        raise RuntimeError(
+            f"{base_url} is not this host's LM Studio server (localhost port {port}); a run on "
+            "another server is a separate configuration (#161)"
+        )
+
+
 def read_build(
     model_key: str,
+    base_url: str,
     run: Callable[..., str] = _run,
     home: Path | None = None,
 ) -> dict:
     """The build of the loaded model model_key, as the host reports it.
 
-    Raises RuntimeError when the model is not loaded, its file cannot be found, or the app
-    version, CLI commit or selected GGUF engine cannot be read, so a run never starts without a
-    full build record.
+    base_url is the server the run sends its requests to; it must be this host's LM Studio server.
+    The base URL and the host name are part of the record, so builds on two hosts stay apart.
+    Raises RuntimeError for any other server, when the model is not loaded, its file cannot be
+    found, or the app version, CLI commit or selected GGUF engine cannot be read, so a run never
+    starts without a full build record.
     """
     home = home or Path.home()
+    _check_local_server(base_url, home)
     loaded = [m for m in json.loads(run("lms", "ps", "--json")) if m.get("modelKey") == model_key]
     if len(loaded) != 1:
         raise RuntimeError(f"{model_key} is not loaded once in LM Studio (lms ps)")
@@ -132,6 +183,8 @@ def read_build(
     path = _model_file(model, home / ".lmstudio" / "models", home / ".lmstudio" / "hub" / "models")
     return {
         "server": "lmstudio",
+        "base_url": base_url,
+        "host": socket.gethostname(),
         "app_version": app,
         "cli_commit": commit.group(1),
         "gguf_engine": engines[0],

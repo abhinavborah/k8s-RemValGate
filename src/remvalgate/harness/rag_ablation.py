@@ -15,7 +15,7 @@ These rules were fixed before the diagnoses of the runs were tabulated; one diag
 only to learn the shape of the record.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from remvalgate.harness.outcome import Outcome
@@ -109,3 +109,25 @@ def paired(first: Sequence[Row], second: Sequence[Row], field: str) -> dict:
         "difference_bonett_price95": list(bonett_price(n12, n21, len(shared))),
         "not_shared": sorted(a.keys() ^ b.keys()),
     }
+
+
+def split_by_seed(runs: Mapping[str, tuple], arms: Iterable[str]) -> dict[int, dict]:
+    """The runs by seed (#161): {seed: {run id: run}}, where each run is a tuple whose first item is
+    its result row (with "seed" and "baseline"). Raises ValueError when the arms that ran did not
+    run the same seeds, so a comparison at one seed never pairs an arm with a missing one."""
+    by_seed: dict[int, dict] = {}
+    for run_id, run in runs.items():
+        by_seed.setdefault(run[0]["seed"], {})[run_id] = run
+    ran = {
+        arm: frozenset(
+            seed
+            for seed, part in by_seed.items()
+            if any(r[0]["baseline"] == arm for r in part.values())
+        )
+        for arm in arms
+    }
+    if len({seeds for seeds in ran.values() if seeds}) > 1:
+        raise ValueError(
+            f"the arms ran different seeds: { {a: sorted(v) for a, v in ran.items() if v} }"
+        )
+    return dict(sorted(by_seed.items()))

@@ -30,7 +30,14 @@ from remvalgate.harness.folds import fault_type
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
 from remvalgate.harness.model_build import check_one_build
 from remvalgate.harness.outcome import Outcome
-from remvalgate.harness.rag_ablation import CONFIGURATIONS, FIELDS, paired, score, summary
+from remvalgate.harness.rag_ablation import (
+    CONFIGURATIONS,
+    FIELDS,
+    paired,
+    score,
+    split_by_seed,
+    summary,
+)
 from remvalgate.retrieval.pool_corpus import incident
 
 
@@ -65,20 +72,11 @@ def main() -> int:
         check_one_build((m for _, m, _ in runs.values()), "the configurations")
     except ValueError as error:
         parser.error(str(error))
-    by_seed: dict[int, dict] = {}
-    for run_id, run in runs.items():
-        by_seed.setdefault(run[0]["seed"], {})[run_id] = run
-    ran = {
-        b: {
-            seed
-            for seed, part in by_seed.items()
-            if any(r["baseline"] == b for r, _, _ in part.values())
-        }
-        for b in CONFIGURATIONS
-    }
-    if len({frozenset(v) for v in ran.values() if v}) > 1:
-        parser.error(f"the configurations ran different seeds: {ran}")
-    outs = {seed: _summarise(part, pool, parser) for seed, part in sorted(by_seed.items())}
+    try:
+        by_seed = split_by_seed(runs, CONFIGURATIONS)
+    except ValueError as error:
+        parser.error(str(error))
+    outs = {seed: _summarise(part, pool, parser) for seed, part in by_seed.items()}
     out = next(iter(outs.values())) if len(outs) == 1 else {"seeds": outs}
     print(json.dumps(out, indent=2, sort_keys=True))
     return 0

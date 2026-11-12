@@ -53,7 +53,9 @@ _HEX64 = re.compile(r"[0-9a-f]{64}")
 # (problem id, AIOpsLab commit) -> sha256 of the problem's definition
 Checksum = Callable[[str, str], str]
 # BRD terms: R is 1 unless baseline outcomes vary, at most 3
-_MAX_R = 3
+# the most repeats (seeds) a run may record
+MAX_R = 3
+_MAX_R = MAX_R
 
 
 class Slice(StrEnum):

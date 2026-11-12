@@ -1,5 +1,6 @@
 import hashlib
 import json
+import pathlib
 
 import pytest
 
@@ -15,6 +16,7 @@ PS = [
         "parallel": 4,
     }
 ]
+URL = "http://localhost:1234/v1"
 RUNTIME = (
     "LLM ENGINE    SELECTED    MODEL FORMAT\n"
     "llama.cpp-mac-arm64-apple-metal-advsimd@2.73.0       ✓            GGUF\n"
@@ -39,6 +41,9 @@ def _host(
         "      - key: llm.prediction.llama.presencePenalty\n"
         "        value:\n          checked: true\n          value: 1.5\n"
     )
+    internal = tmp_path / ".lmstudio" / ".internal"
+    internal.mkdir(parents=True)
+    (internal / "http-server-config.json").write_text('{"port": 1234}')
     folder = tmp_path / ".lmstudio" / "models" / "lmstudio-community" / "Qwen3.5-4B-GGUF"
     folder.mkdir(parents=True)
     (folder / "Qwen3.5-4B-Q8_0.gguf").write_bytes(b"weights")
@@ -55,7 +60,7 @@ def _host(
 
 
 def test_the_build_is_read_from_the_host_with_the_gguf_files_hash(tmp_path):
-    build = read_build("qwen/qwen3.5-4b", run=_host(tmp_path), home=tmp_path)
+    build = read_build("qwen/qwen3.5-4b", URL, run=_host(tmp_path), home=tmp_path)
     assert build["app_version"] == "0.4.27+2"
     assert build["cli_commit"] == "43d4b26"
     # the selected GGUF engine, not the selected MLX one or an older llama.cpp
@@ -76,7 +81,7 @@ def test_the_build_is_read_from_the_host_with_the_gguf_files_hash(tmp_path):
 
 def test_a_model_that_is_not_loaded_stops_the_run(tmp_path):
     with pytest.raises(RuntimeError, match="not loaded"):
-        read_build("qwen/qwen3.5-4b", run=_host(tmp_path, ps=[]), home=tmp_path)
+        read_build("qwen/qwen3.5-4b", URL, run=_host(tmp_path, ps=[]), home=tmp_path)
 
 
 def test_runs_with_different_builds_are_refused_and_the_file_path_does_not_count():
@@ -109,4 +114,28 @@ def test_runs_with_different_builds_are_refused_and_the_file_path_does_not_count
 def test_a_field_the_host_does_not_report_stops_the_run(tmp_path, kwargs, match):
     # two builds that both read as unknown would otherwise pass check_one_build
     with pytest.raises(RuntimeError, match=match):
-        read_build("qwen/qwen3.5-4b", run=_host(tmp_path, **kwargs), home=tmp_path)
+        read_build("qwen/qwen3.5-4b", URL, run=_host(tmp_path, **kwargs), home=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "url", ["http://10.0.0.5:1234/v1", "http://localhost:8080/v1", "https://example.org/v1"]
+)
+def test_a_server_other_than_this_hosts_lm_studio_is_refused(tmp_path, url):
+    with pytest.raises(RuntimeError, match="not this host's LM Studio server"):
+        read_build("qwen/qwen3.5-4b", url, run=_host(tmp_path), home=tmp_path)
+
+
+def test_the_build_names_its_base_url_and_host_so_two_hosts_stay_apart(tmp_path):
+    build = read_build("qwen/qwen3.5-4b", URL, run=_host(tmp_path), home=tmp_path)
+    assert build["base_url"] == URL and build["host"]
+    other = {"model_name": "m", "model_build": {**build, "host": "another-host"}}
+    with pytest.raises(ValueError, match="more than one model build"):
+        check_one_build([{"model_name": "m", "model_build": build}, other])
+
+
+def test_the_build_is_read_before_the_touch_in_both_run_scripts():
+    # a model that is not loaded must stop a run before start_run appends its touch (#161)
+    scripts = pathlib.Path(__file__).resolve().parents[2] / "scripts"
+    for name in ("run_baselines_pool.py", "run_oracle_labels.py"):
+        text = (scripts / name).read_text(encoding="utf-8")
+        assert 0 < text.index("read_build(") < text.index("start_run(\n"), name

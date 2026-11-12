@@ -168,15 +168,17 @@ def _manifest(seed: int, version: str = "gguf q8_0; thinking=on", **sampling) ->
     }
 
 
-def test_rerun_settings_pass_with_one_new_seed_and_the_same_build():
+def test_rerun_settings_pass_with_one_or_two_new_seeds_and_the_same_build():
     check_rerun_settings([_manifest(0)] * 16, [_manifest(1000)] * 16)
+    # the 2 seeds of #161
+    check_rerun_settings([_manifest(0)] * 16, [_manifest(1000), _manifest(1001)] * 16)
 
 
 @pytest.mark.parametrize(
     "rerun, match",
     [
-        ([_manifest(0)], "repeats the labelling run's seed 0"),
-        ([_manifest(1000), _manifest(1001)], "more than one seed"),
+        ([_manifest(0)], "repeats the labelling run's seeds"),
+        ([_manifest(1000), _manifest(0)], "repeats the labelling run's seeds"),
         ([_manifest(1000, "gguf q8_0; thinking=off")], "differ in model_version"),
         ([_manifest(1000, temperature=1.0)], "differ in sampling temperature"),
         ([_manifest(1000, max_tokens=4096)], "differ in sampling max_tokens"),

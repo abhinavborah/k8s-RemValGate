@@ -142,4 +142,7 @@ From #161, for every run after this date:
   applied to every planner run on this host, in every arm alike. Whether it does is not verified.
 - The summaries refuse runs of one comparison served by different builds, including a mix of runs
   with a recorded build and runs from before this date.
-- The runs above have no `model_build`, so they are not compared with the reruns.
+- Runs made before this date (3a, 3b and 3c, results in `docs/rag_ablation.md`, and the oracle
+  labels, `docs/oracle_labels.md`) have no `model_build`, so they are not compared with the reruns.
+- The build names the base URL and the host, and `read_build` refuses a base URL that is not this
+  host's LM Studio server. Manifests record `r` as the number of seeds of the run.

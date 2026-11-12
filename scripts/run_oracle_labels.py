@@ -343,7 +343,7 @@ def main() -> int:
     try:
         for problem_id in selected:
             # read before start_run, so a model that is not loaded stops with no touch (#161)
-            build = read_build(args.model)
+            build = read_build(args.model, args.base_url)
             now = datetime.now(UTC)
             run_id = f"oracle-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
             namespace = logged_namespace(problem_id)

@@ -120,6 +120,7 @@ from remvalgate.harness.cluster_state import changed
 from remvalgate.harness.folds import fault_type
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
+    MAX_R,
     Manifest,
     Slice,
     load_registry,
@@ -200,6 +201,9 @@ def main() -> int:
     args = parser.parse_args()
     baselines = list(dict.fromkeys(args.baseline))
     seeds = list(dict.fromkeys(args.seed or [SEED, SEED + 1]))
+    if len(seeds) > MAX_R:
+        parser.error(f"at most {MAX_R} seeds, the most a manifest records")
+    args.seeds = seeds
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for 3a, 3b and 3c")
@@ -269,7 +273,7 @@ def main() -> int:
 
 def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes) -> dict:
     # read before start_run, so a model that is not loaded stops the run before its touch (#161)
-    build = read_build(MODEL) if baseline in PLANNER else {}
+    build = read_build(MODEL, args.base_url) if baseline in PLANNER else {}
     now = datetime.now(UTC)
     run_id = f"baseline{baseline}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
     namespace = logged_namespace(problem_id)
@@ -333,7 +337,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
         model_date=now.strftime("%Y-%m-%d"),
         seed=chat.seed,
         k=1,
-        r=1,
+        r=len(args.seeds),
         aiopslab_commit=run.aiopslab_commit,
         cluster={"context": CONTEXT, "namespace": namespace, "nodes": nodes},
         timestamp=run.timestamp,

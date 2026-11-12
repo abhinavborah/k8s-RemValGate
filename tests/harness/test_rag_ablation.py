@@ -80,3 +80,25 @@ def test_paired_refuses_bad_input():
         paired(rows, [Row("b", True, True, True, True)], "recovered")
     with pytest.raises(ValueError):
         paired(rows * 2, rows, "recovered")
+
+
+def test_runs_split_by_seed_and_arms_must_share_their_seeds():
+    from remvalgate.harness.rag_ablation import split_by_seed
+
+    def run(arm, seed):
+        return ({"baseline": arm, "seed": seed},)
+
+    runs = {
+        "a1": run("3a", 1000),
+        "a2": run("3a", 1001),
+        "c1": run("3c", 1000),
+        "c2": run("3c", 1001),
+    }
+    assert {s: sorted(p) for s, p in split_by_seed(runs, ["3a", "3c"]).items()} == {
+        1000: ["a1", "c1"],
+        1001: ["a2", "c2"],
+    }
+    # an arm absent from the runs takes no part
+    assert list(split_by_seed(runs, ["3a", "3b", "3c"])) == [1000, 1001]
+    with pytest.raises(ValueError, match="different seeds"):
+        split_by_seed({"a1": run("3a", 1000), "c2": run("3c", 1001)}, ["3a", "3c"])
