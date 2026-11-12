@@ -186,6 +186,8 @@ def observe_fault(prob, problem_id: str, clean) -> tuple[list, dict]:
     Returns the observations and the objects as the injection left them.
     """
     namespace = prob.namespace
+    if fault_type(problem_id) in DATABASE_TYPES:
+        wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the database faults change MongoDB users, which these objects do not record

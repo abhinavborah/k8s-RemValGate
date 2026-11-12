@@ -255,8 +255,9 @@ touch log. The 12 problems that are not MongoDB problems ran before the wait was
 
 Changed on 2026-11-13: the wait moved into `diagnose` and `execute` of
 `scripts/run_oracle_labels.py`, so every arm of the #165 batch (3a, 3b, 3c and 7 as well as the
-ablation arms) and the oracle labels wait before each injection of a MongoDB problem, and the arms
-of one batch run the same steps. 3b's stop on `revoke_auth_mongodb-mitigation-1` on 2026-11-08 (the
+ablation arms), baselines 1 and 2 (`observe_fault`) and the oracle labels wait before each
+injection of a MongoDB problem, and the arms of one batch run the same steps. A test
+(`tests/test_mongod_wait.py`) checks that every injecting function of the two scripts waits first. 3b's stop on `revoke_auth_mongodb-mitigation-1` on 2026-11-08 (the
 fault did not show in time, `docs/rag_ablation.md`) was probably the same race on the tool path.
 The wait is still not exercised by a development dry run: no development problem is a MongoDB fault.
 
