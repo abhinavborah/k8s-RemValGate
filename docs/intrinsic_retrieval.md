@@ -124,3 +124,37 @@ truncation applies there. No query instruction is added to the dense model
   query cannot tell RevokeAuth from UserUnregistered, so a hit across the two counts as a miss.
 - Configuration (iii) stays fixed. These results are reported and are not used to change it
   (BRD 7.1).
+
+## Added on 2026-11-12: the query form (#164)
+
+The query is the first observation, whose AGE and RESTARTS columns and pod name ids change from run
+to run of one problem. Configuration (iii) retrieved the same hits for baseline 3c and the notools
+arm on only 3 of 16 problems, though both use it. `scripts/compare_query_forms.py` compared 4 forms
+(`src/remvalgate/retrieval/query_form.py`) under a rule fixed in #164 before it ran: keep the forms
+whose Hit@3 (fault-type label, all 16) is at most 1 below the raw form's, pick the most stable, and
+on a tie the form that changes the query least. Stability counts the past pool runs of 3a, 3b, 3c
+and notools (66 runs) whose first observation retrieves the same top 3 as the recorded query.
+
+| Form | Hit@3 of (iii) | Same top 3 as the recorded query |
+|---|---|---|
+| raw | 7 / 16 | 32 / 66 |
+| without AGE | 7 / 16 | 44 / 66 |
+| without AGE and RESTARTS | 6 / 16 | 57 / 66 |
+| also without pod ids | 6 / 16 | 63 / 66 |
+
+The rule chose the last form, and retrieval now uses it in the planner and in these metrics
+(`retrieval_query`). The model still sees the observation as it is. Output:
+`runs/query_forms/query_forms-20261112t145249z.json`; 16 touches.
+
+Recomputed with that form (`intrinsic-20261112t145605z.json`, 16 touches), fault-type label, all 16:
+
+| Configuration | Hit@1 | Hit@3 | MRR | Recall@3 |
+|---|---|---|---|---|
+| (ii) dense | 3 | 5 | 0.354 | 0.156 |
+| (iii) dense + reranker | 3 | 6 | 0.359 | 0.187 |
+| (iv) hybrid + reranker | 3 | 5 | 0.363 | 0.167 |
+
+(iii) was fixed before any query was scored (gate G5, #35), not chosen by these metrics, so the
+choice stands; under this form it also has the highest Hit@3. The change to the retrieval query
+after the gate is recorded here with its reason, as #35 asks. The query lengths in that file are of
+the raw queries; the chosen form is shorter, so the 512-token window holds more of each query.
