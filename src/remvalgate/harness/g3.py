@@ -31,7 +31,7 @@ from remvalgate.harness.oracle import ProblemLabels
 from remvalgate.harness.outcome import Outcome
 
 # the sampling settings both runs' manifests record, compared by check_rerun_settings
-SAMPLING_KEYS = ("temperature", "top_p", "top_k", "max_tokens")
+SAMPLING_KEYS = ("temperature", "top_p", "top_k", "presence_penalty", "max_tokens")
 
 # the project stops when 3c's top pick solves at least this many pool problems
 HEADROOM_STOP = 12

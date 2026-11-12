@@ -53,11 +53,15 @@ class OpenAIChat:
     # reasoning_effort none
     thinking: bool = True
     # the Qwen3.5 card's non-thinking settings, used in both modes so the modes differ in one
-    # thing, except presence_penalty: the card advises 1.5 against repetition, but repeated JSON
-    # keys and tool names are legitimate here
+    # thing
     temperature: float = 0.7
     top_p: float = 0.8
     top_k: int = 20
+    # sent explicitly (#161): the requests used to leave it out, meant as no penalty since repeated
+    # JSON keys and tool names are legitimate here, but LM Studio then applies the model's hub
+    # default, 1.5 (enabled in its model.yaml), checked on the run host on 2026-11-12 at
+    # temperature 0. Every planner run so far ran with 1.5, so it is now stated and recorded.
+    presence_penalty: float = 1.5
     seed: int = 0
     # a thinking turn can use most of this before any content appears
     max_tokens: int = 4096
@@ -72,6 +76,7 @@ class OpenAIChat:
             "temperature": self.temperature,
             "top_p": self.top_p,
             "top_k": self.top_k,
+            "presence_penalty": self.presence_penalty,
             "seed": self.seed if seed is None else seed,
             "max_tokens": self.max_tokens,
         }

@@ -160,9 +160,12 @@ From #161, for every run after this date:
   model, quantization, context length, parallel slots, the GGUF file's SHA-256 and the server's
   sampling defaults (the hub `model.yaml` config fields and any per-model override). GPU offload is
   not reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
-- `planner/chat.py` sends temperature, top-p and top-k only. If LM Studio applies the hub's defaults
-  to the other parameters of an API request, the presence penalty of 1.5 (enabled in the hub file)
-  applied to every planner run on this host, in every arm alike. Whether it does is not verified.
+- `planner/chat.py` sent temperature, top-p and top-k only. LM Studio applies the hub's defaults to
+  the other parameters of an API request: checked on the run host at temperature 0, a request with
+  no presence penalty gives the same output as one with 1.5 and a different one from 0 (one prompt).
+  So the presence penalty of 1.5 (enabled in the hub file) applied to every planner run on this
+  host, in every arm alike. `planner/chat.py` now sends `presence_penalty: 1.5` explicitly and the
+  manifests record it, so the runs no longer depend on the server's default.
 - The summaries refuse runs of one comparison served by different builds, including a mix of runs
   with a recorded build and runs from before this date.
 - Runs made before this date (3a, 3b and 3c, results in `docs/rag_ablation.md`, and the oracle
