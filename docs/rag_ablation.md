@@ -130,8 +130,11 @@ found in two folders is read once.
 
 ## Added on 2026-11-12: fault-type text defect
 
-The planner prompt of these runs described RevokeAuth as "revoked authentication causes database
-connection failures". The injector removes the readWrite role of the database user, so the user
-can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
-The text is corrected in #162. The results here stay as they were run and are superseded by the
+The planner prompt of these runs used fault-type descriptions adapted from the AIOpsLab paper. #162 rewrites
+all five from the change each injector in the pinned AIOpsLab makes, so every fault-type line of
+the planner prompt differs from the one these runs used. The defect that led to it was found after the
+pool runs, in the review of the tool ablation run on the pool (#160): RevokeAuth read "revoked
+authentication causes database connection failures", while the injector removes the database
+user's readWrite role, so the user can still log in and its queries are refused; a failed login is
+the effect of UserUnregistered. The results here stay as they were run and are superseded by the
 rerun of #165.
