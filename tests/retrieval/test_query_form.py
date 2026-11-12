@@ -63,3 +63,18 @@ def test_retrieval_uses_the_chosen_form():
 
     assert QUERY_FORM == "no_age_restarts_pod_ids"
     assert retrieval_query(OBSERVATION) == query_in_form(OBSERVATION, QUERY_FORM)
+
+
+def test_pod_ids_are_cut_at_the_end_of_the_name_only():
+    # a 6 to 10 character segment followed by a 5 character one inside the service name
+    lines = [
+        "NAME                                          READY   STATUS    RESTARTS   AGE",
+        "pod/home-timeline-redis-ff9499c5c-tzptg       1/1     Running   0          2d",
+        "pod/user-timeline-redis-cbd5f6645-jw4dx       1/1     Running   0          2d",
+        "pod/demo-db-0                                 1/1     Running   0          2d",
+    ]
+    out = query_in_form("\n".join(lines), "no_age_restarts_pod_ids").splitlines()
+    assert out[1].startswith("pod/home-timeline-redis ") and "ff9499c5c" not in out[1]
+    assert out[2].startswith("pod/user-timeline-redis ") and "jw4dx" not in out[2]
+    # a StatefulSet pod has no random ids
+    assert out[3].startswith("pod/demo-db-0 ")

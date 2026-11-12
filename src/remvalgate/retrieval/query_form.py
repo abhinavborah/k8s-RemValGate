@@ -18,7 +18,9 @@ FORMS = {
     "no_age_restarts_pod_ids": ("AGE", "RESTARTS"),
 }
 _COLUMN = re.compile(r"\S+")
-_POD_IDS = re.compile(r"^(pod/[a-z0-9-]+?)-[a-z0-9]{6,10}-[a-z0-9]{5}\b", re.MULTILINE)
+# the two ids end the pod name: anchored to the whitespace after the name, so a name segment of 6
+# to 10 characters followed by one of 5 (home-timeline-redis) is never taken for them
+_POD_IDS = re.compile(r"^(pod/\S+)-[a-z0-9]{6,10}-[a-z0-9]{5}(?=\s|$)", re.MULTILINE)
 
 
 def strip_columns(text: str, columns: tuple[str, ...]) -> str:

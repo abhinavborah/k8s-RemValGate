@@ -5,8 +5,9 @@ them; they live on the shared drive) and the first observations of past pool run
 transcripts given with --transcripts. For each form in src/remvalgate/retrieval/query_form.py it
 reports:
 - quality: the intrinsic metrics of #32 on the recorded queries in that form;
-- stability: over every past run of a pool problem, whether configuration (iii) retrieves the same
-  top 3 for that run's first observation as for the problem's recorded query, both in that form.
+- stability: for each pool problem, the share of its past runs whose first observation retrieves,
+  with configuration (iii), the same top 3 as the problem's recorded query, both in that form; the
+  rule uses the mean of these shares over the problems.
 
 The decision rule, fixed in #164 before this ran: keep the forms whose Hit@3 (fault-type label, all
 16 queries) is at most 1 query below the raw form's; among those, pick the most stable; on a tie,
@@ -121,12 +122,18 @@ def main() -> int:
             )
             for run_id, problem_id, first in past
         ]
+        per_problem = {}
+        for _, problem_id, stable in same:
+            per_problem.setdefault(problem_id, []).append(stable)
+        shares = {p: sum(v) / len(v) for p, v in sorted(per_problem.items())}
         report[form] = {
             "hit_at_3": metrics[LABEL][GROUP]["hit_at_3"]["count"],
             "metrics": metrics,
             "stable_runs": sum(s for _, _, s in same),
             "past_runs": len(same),
-            "stability": sum(s for _, _, s in same) / len(same),
+            # the rule's stability: #164 defines it per pool problem, so problems weigh the same
+            "stability": sum(shares.values()) / len(shares),
+            "stability_by_problem": shares,
             "unstable": sorted(f"{p} {r}" for r, p, s in same if not s),
         }
     chosen = choose(
@@ -166,7 +173,7 @@ def main() -> int:
     for form, r in report.items():
         print(
             f"{form}: Hit@3 {r['hit_at_3']}/16, stable {r['stable_runs']}/{r['past_runs']} "
-            f"past runs ({r['stability']:.3f})"
+            f"past runs, mean per-problem share {r['stability']:.3f}"
         )
     print(f"chosen: {chosen}\nwritten: {path}")
     return 0
