@@ -63,6 +63,7 @@ FIELDS = {
     "cluster",
     "timestamp",
     "sampling",
+    "model_build",
 }
 
 

@@ -88,6 +88,7 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
+from remvalgate.harness.model_build import read_build
 from remvalgate.harness.oracle import (
     DATABASE_TYPES,
     Clean,
@@ -341,6 +342,8 @@ def main() -> int:
     forward = prometheus_port_forward()
     try:
         for problem_id in selected:
+            # read before start_run, so a model that is not loaded stops with no touch (#161)
+            build = read_build(args.model, args.base_url)
             now = datetime.now(UTC)
             run_id = f"oracle-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
             namespace = logged_namespace(problem_id)
@@ -386,6 +389,7 @@ def main() -> int:
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": CONTEXT, "namespace": namespace, "nodes": nodes},
                 timestamp=run.timestamp,
+                model_build=build,
                 # the seeds of the draws, empty when the plan had no diagnosis; the diagnosis
                 # turns use seed
                 sampling={

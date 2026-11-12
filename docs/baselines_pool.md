@@ -128,7 +128,6 @@ Every pool run is recorded with a terminal capture and a timestamped pod watch, 
 shared drive beside its manifests. The steps are in the docstring of
 `scripts/run_baselines_pool.py`.
 
-
 ## Added on 2026-11-12: fault-type text defect
 
 The planner prompt of the 3a, 3b and 3c pool runs (results in `docs/rag_ablation.md`) and of
@@ -148,3 +147,25 @@ the oracle labelling run (`docs/oracle_labels.md`) told the planner that logs, m
 kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
 so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
 (the injection time) into every task. Those results stay as they were run and are superseded by the rerun of #165.
+
+
+## Added on 2026-11-12: run protocol for the reruns
+
+From #161, for every run after this date:
+- `--seed` is repeatable and defaults to 1000 and 1001, the seeds of the reruns.
+- The arms run interleaved: seed by seed, every arm on one problem before the next problem, with the
+  first arm rotated (`src/remvalgate/harness/protocol.py`).
+- Each manifest of a planner run records `model_build`, read from the LM Studio host at run start
+  (`src/remvalgate/harness/model_build.py`): app version, CLI commit, selected GGUF engine, loaded
+  model, quantization, context length, parallel slots, the GGUF file's SHA-256 and the server's
+  sampling defaults (the hub `model.yaml` config fields and any per-model override). GPU offload is
+  not reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
+- `planner/chat.py` sends temperature, top-p and top-k only. If LM Studio applies the hub's defaults
+  to the other parameters of an API request, the presence penalty of 1.5 (enabled in the hub file)
+  applied to every planner run on this host, in every arm alike. Whether it does is not verified.
+- The summaries refuse runs of one comparison served by different builds, including a mix of runs
+  with a recorded build and runs from before this date.
+- Runs made before this date (3a, 3b and 3c, results in `docs/rag_ablation.md`, and the oracle
+  labels, `docs/oracle_labels.md`) have no `model_build`, so they are not compared with the reruns.
+- The build names the base URL and the host, and `read_build` refuses a base URL that is not this
+  host's LM Studio server. Manifests record `r` as the number of seeds of the run.

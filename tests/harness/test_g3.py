@@ -168,15 +168,17 @@ def _manifest(seed: int, version: str = "gguf q8_0; thinking=on", **sampling) ->
     }
 
 
-def test_rerun_settings_pass_with_one_new_seed_and_the_same_build():
+def test_rerun_settings_pass_with_one_or_two_new_seeds_and_the_same_build():
     check_rerun_settings([_manifest(0)] * 16, [_manifest(1000)] * 16)
+    # the 2 seeds of #161
+    check_rerun_settings([_manifest(0)] * 16, [_manifest(1000), _manifest(1001)] * 16)
 
 
 @pytest.mark.parametrize(
     "rerun, match",
     [
-        ([_manifest(0)], "repeats the labelling run's seed 0"),
-        ([_manifest(1000), _manifest(1001)], "more than one seed"),
+        ([_manifest(0)], "repeats the labelling run's seeds"),
+        ([_manifest(1000), _manifest(0)], "repeats the labelling run's seeds"),
         ([_manifest(1000, "gguf q8_0; thinking=off")], "differ in model_version"),
         ([_manifest(1000, temperature=1.0)], "differ in sampling temperature"),
         ([_manifest(1000, max_tokens=4096)], "differ in sampling max_tokens"),
@@ -214,3 +216,25 @@ def test_solved_by_baseline_counts_recovered_rows_per_baseline():
 def test_solved_by_baseline_refuses_a_partial_or_repeated_run(rows, match):
     with pytest.raises(ValueError, match=match):
         solved_by_baseline(rows, POOL)
+
+
+def test_seeds_combine_to_recovered_only_when_every_seed_recovered():
+    from remvalgate.harness.g3 import combine_seeds
+
+    def row(problem, seed, outcome):
+        return {"baseline": "3c", "problem_id": problem, "seed": seed, "outcome": outcome}
+
+    rec, fail = Outcome.RECOVERED.value, Outcome.APPLIED_INEFFECTIVE.value
+    out = combine_seeds(
+        [row("p1", 1000, rec), row("p1", 1001, rec), row("p2", 1001, fail), row("p2", 1000, rec)]
+    )
+    assert [(r["problem_id"], r["outcome"], r["seeds"]) for r in out] == [
+        ("p1", rec, [1000, 1001]),
+        ("p2", fail, [1000, 1001]),
+    ]
+    # one seed passes through unchanged apart from the seed list
+    assert combine_seeds([row("p1", 1000, fail)])[0]["outcome"] == fail
+    with pytest.raises(ValueError, match="two rows at one seed"):
+        combine_seeds([row("p1", 1000, rec), row("p1", 1000, rec)])
+    with pytest.raises(ValueError, match="different seeds"):
+        combine_seeds([row("p1", 1000, rec), row("p1", 1001, rec), row("p2", 1000, rec)])
