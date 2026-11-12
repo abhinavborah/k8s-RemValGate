@@ -64,6 +64,13 @@ def test_the_oracle_labels_never_escalate():
     labels = _function(LABELS, "diagnose")
     assert labels.args.args[-1].arg == "escalate_when_unsure"
     assert ast.literal_eval(labels.args.defaults[-1]) is False
+    calls = [
+        n
+        for n in ast.walk(_function(LABELS, "main"))
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "diagnose"
+    ]
+    assert len(calls) == 1
+    assert "escalate_when_unsure" not in {k.arg for k in calls[0].keywords}
 
 
 def test_a_pool_result_records_the_flag_and_why_a_plan_has_no_command():
