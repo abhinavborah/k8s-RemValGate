@@ -71,3 +71,11 @@ user's readWrite role, so the user can still log in and its queries are refused;
 the effect of UserUnregistered. This check ran on three development problems (TargetPortMisconfig, ScalePod and
 AssignNonExistentNode), none of them RevokeAuth, and #165 does not rerun it, so its result holds
 for the old fault-type texts only.
+
+
+## Added on 2026-11-12: telemetry advice and ticket time
+
+The planner prompt of this check told the planner that logs, metrics and traces "are noisy and slow, so use them after
+kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
+so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
+(the injection time) into every task. #165 does not rerun this check, so its result holds for the old prompt only.

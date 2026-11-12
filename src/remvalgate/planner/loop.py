@@ -21,6 +21,7 @@ import dataclasses
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from remvalgate.harness import credentials
@@ -221,9 +222,10 @@ def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
         "Each turn, reply with exactly one JSON object and nothing else.\n"
         f"Tools:\n{tool_lines}\n"
         f"Fault types:\n{fault_lines}\n"
+        # no advice on when to read logs, metrics or traces, so arms differ only in their tools
+        # (#163; until 2026-11-12 the prompt called them noisy and slow, to be used after kubectl)
         "Start with kubectl get deployments and pods to find a workload that is missing, not "
-        "ready or Pending, then describe it. Logs, metrics and traces are noisy and slow, so use "
-        "them after kubectl, and read logs for one service at a time.\n"
+        "ready or Pending, then describe it.\n"
         "To finish, reply with "
         '{"final": {"fault_type": F, "service": S, "reason": R, "command": C}} where F is one of '
         "the fault types above, S is the exact name of the faulty service, R is one sentence, "
@@ -234,14 +236,23 @@ def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
     )
 
 
-def task_text(app_name: str, namespace: str) -> str:
+def task_text(app_name: str, namespace: str, opened_at: int) -> str:
     """The task a planner gets: the symptom, not the fault, as an incident ticket would give it.
 
     Pass the problem's own application name and namespace (prob.app.name, prob.namespace), since
     the 4 database pool problems run on Hotel Reservation and the rest on Social Network.
+    opened_at is when the ticket opened, in microseconds since the epoch: the injection time, so
+    every arm knows the time a bundle collected since the injection uses (#163). A real ticket
+    opens some time after the fault starts; here the delay is zero. Raises ValueError for a value
+    that is not an int in microseconds (a bool, or below 10**15, which is 2001 in microseconds), so
+    a time in seconds or milliseconds never gives an arm a 1970 ticket.
     """
+    if type(opened_at) is not int or opened_at < 10**15:
+        raise ValueError(f"opened_at: expected microseconds since the epoch, got {opened_at!r}")
+    opened = datetime.fromtimestamp(opened_at / 1e6, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return (
         f"Users report errors from the {app_name.lower()} application in namespace {namespace}. "
+        f"The ticket opened at {opened}. "
         "Find the faulty service and give one command that fixes it."
     )
 

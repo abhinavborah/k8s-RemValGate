@@ -139,3 +139,12 @@ pool runs, in the review of the tool ablation run on the pool (#160): RevokeAuth
 authentication causes database connection failures", while the injector removes the database
 user's readWrite role, so the user can still log in and its queries are refused; a failed login is
 the effect of UserUnregistered. Those results stay as they were run and are superseded by the rerun of #165.
+
+
+## Added on 2026-11-12: telemetry advice and ticket time
+
+The planner prompt of the 3a, 3b and 3c pool runs (results in `docs/rag_ablation.md`) and of
+the oracle labelling run (`docs/oracle_labels.md`) told the planner that logs, metrics and traces "are noisy and slow, so use them after
+kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
+so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
+(the injection time) into every task. Those results stay as they were run and are superseded by the rerun of #165.

@@ -247,3 +247,11 @@ authentication causes database connection failures", while the injector removes 
 user's readWrite role, so the user can still log in and its queries are refused; a failed login is
 the effect of UserUnregistered. The results here stay as they were run and are superseded by the
 rerun of #165.
+
+
+## Added on 2026-11-12: telemetry advice and ticket time
+
+The planner prompt of these runs told the planner that logs, metrics and traces "are noisy and slow, so use them after
+kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
+so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
+(the injection time) into every task. The results here stay as they were run and are superseded by the rerun of #165.
