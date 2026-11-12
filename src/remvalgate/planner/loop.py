@@ -21,6 +21,7 @@ import dataclasses
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from remvalgate.harness import credentials
@@ -37,15 +38,31 @@ from remvalgate.planner.chat import Chat, Message
 from remvalgate.retrieval import Retriever
 from remvalgate.retrieval.query_form import retrieval_query
 
-# the fault types of the pool, with descriptions adapted from the AIOpsLab paper, Table 2. The
-# TargetPortMisconfig text names a mechanism (targetPort against the container port) that the
-# paper does not state; the other four follow the paper.
+# the fault types of the pool, each described by the change its injector in the pinned AIOpsLab
+# makes (aiopslab/generators/fault/), at the same level of detail for all five, naming no service:
+# TargetPortMisconfig inject_virtual.py inject_misconfig_k8s, ScalePod inject_virtual.py
+# (kubectl scale to 0), AssignNonExistentNode inject_virtual.py inject_assign_to_non_existent_node,
+# RevokeAuth script/revoke-admin-*-mongo.sh (revokeRolesFromUser readWrite), UserUnregistered
+# script/remove-admin-mongo.sh (dropUser). Until 2026-11-12 RevokeAuth read "revoked
+# authentication causes database connection failures", which describes a failed login, the effect
+# of UserUnregistered (#162).
 FAULT_TYPES = {
-    "TargetPortMisconfig": "a service targetPort does not match the container port",
-    "ScalePod": "a deployment was scaled to zero pods",
-    "AssignNonExistentNode": "a pod stays Pending, assigned to a node that does not exist",
-    "RevokeAuth": "revoked authentication causes database connection failures",
-    "UserUnregistered": "the database user was unregistered, so access fails",
+    "TargetPortMisconfig": (
+        "a Service's targetPort was changed so it no longer matches the port its pods listen on: "
+        "the Service forwards no traffic to its pods while they stay Running"
+    ),
+    "ScalePod": "a Deployment was scaled to zero replicas, so it has no pods",
+    "AssignNonExistentNode": (
+        "a Deployment's pods were given a nodeSelector for a node that does not exist, so they "
+        "stay Pending"
+    ),
+    "RevokeAuth": (
+        "the database user lost its readWrite role on a database: it can still log in, but its "
+        "queries on that database are refused as not authorized"
+    ),
+    "UserUnregistered": (
+        "the database user was deleted: logging in as that user fails authentication"
+    ),
 }
 READ_ONLY_VERBS = frozenset({"get", "describe"})
 DEFAULT_TOOLS = frozenset({"exec_shell", "get_logs", "get_metrics", "get_traces"})
@@ -206,9 +223,10 @@ def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
         "Each turn, reply with exactly one JSON object and nothing else.\n"
         f"Tools:\n{tool_lines}\n"
         f"Fault types:\n{fault_lines}\n"
+        # no advice on when to read logs, metrics or traces, so arms differ only in their tools
+        # (#163; until 2026-11-12 the prompt called them noisy and slow, to be used after kubectl)
         "Start with kubectl get deployments and pods to find a workload that is missing, not "
-        "ready or Pending, then describe it. Logs, metrics and traces are noisy and slow, so use "
-        "them after kubectl, and read logs for one service at a time.\n"
+        "ready or Pending, then describe it.\n"
         "To finish, reply with "
         '{"final": {"fault_type": F, "service": S, "reason": R, "command": C}} where F is one of '
         "the fault types above, S is the exact name of the faulty service, R is one sentence, "
@@ -219,14 +237,23 @@ def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
     )
 
 
-def task_text(app_name: str, namespace: str) -> str:
+def task_text(app_name: str, namespace: str, opened_at: int) -> str:
     """The task a planner gets: the symptom, not the fault, as an incident ticket would give it.
 
     Pass the problem's own application name and namespace (prob.app.name, prob.namespace), since
     the 4 database pool problems run on Hotel Reservation and the rest on Social Network.
+    opened_at is when the ticket opened, in microseconds since the epoch: the injection time, so
+    every arm knows the time a bundle collected since the injection uses (#163). A real ticket
+    opens some time after the fault starts; here the delay is zero. Raises ValueError for a value
+    that is not an int in microseconds (a bool, or below 10**15, which is 2001 in microseconds), so
+    a time in seconds or milliseconds never gives an arm a 1970 ticket.
     """
+    if type(opened_at) is not int or opened_at < 10**15:
+        raise ValueError(f"opened_at: expected microseconds since the epoch, got {opened_at!r}")
+    opened = datetime.fromtimestamp(opened_at / 1e6, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return (
         f"Users report errors from the {app_name.lower()} application in namespace {namespace}. "
+        f"The ticket opened at {opened}. "
         "Find the faulty service and give one command that fixes it."
     )
 

@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -160,6 +161,30 @@ def test_the_prompt_carries_the_namespace_the_fault_types_and_retrieved_fixes():
     system, user = chat.seen[0][0]["content"], chat.seen[0][1]["content"]
     assert NS in system and all(t in system for t in FAULT_TYPES)
     assert "Fix: kubectl" in user and "media-service has no pods" in user
+
+
+def test_the_fault_type_descriptions_state_what_each_injector_changes():
+    # each text is checked against the pinned AIOpsLab injector named above FAULT_TYPES (#162)
+    assert FAULT_TYPES["TargetPortMisconfig"].startswith("a Service's targetPort was changed")
+    assert "scaled to zero replicas" in FAULT_TYPES["ScalePod"]
+    assert "nodeSelector for a node that does not exist" in FAULT_TYPES["AssignNonExistentNode"]
+    # revokeRolesFromUser: the login works and the queries are refused
+    assert "lost its readWrite role" in FAULT_TYPES["RevokeAuth"]
+    assert "can still log in" in FAULT_TYPES["RevokeAuth"]
+    # dropUser: the login itself fails
+    assert "was deleted" in FAULT_TYPES["UserUnregistered"]
+    assert "fails authentication" in FAULT_TYPES["UserUnregistered"]
+    # no service, database, port or node of a pool problem is named, as a whole word
+    names = (
+        "mongodb-geo mongodb-rate geo rate geo-db rate-db user-service text-service "
+        "post-storage-service compose-post-service home-timeline-service user-timeline-service "
+        "nginx-thrift media-service 9090 9999 extra-node"
+    ).split()
+    for text in FAULT_TYPES.values():
+        assert not [n for n in names if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text)]
+    # each effect clause separates its type: only TargetPortMisconfig keeps its pods Running
+    assert "stay Running" in FAULT_TYPES["TargetPortMisconfig"]
+    assert "refused" not in FAULT_TYPES["TargetPortMisconfig"]
 
 
 def test_the_task_prompt_lists_the_retrieved_fixes_after_the_cluster_state():
@@ -435,13 +460,15 @@ def test_a_plan_without_a_diagnosis_or_a_k_below_one_is_refused_before_any_model
         draw([], k=0)
 
 
-def test_the_task_names_the_problems_own_application_and_namespace():
-    # the text the development runs used, from AIOpsLab's metadata name for Social Network
-    assert task_text("Social Network", "test-social-network") == (
+def test_the_task_names_the_problems_own_application_and_namespace_and_the_ticket_time():
+    # AIOpsLab's metadata name for Social Network; the ticket time is the injection time (#163)
+    opened = 1_794_475_589_000_000  # 2026-11-12T09:26:29Z
+    assert task_text("Social Network", "test-social-network", opened) == (
         "Users report errors from the social network application in namespace "
-        "test-social-network. Find the faulty service and give one command that fixes it."
+        "test-social-network. The ticket opened at 2026-11-12T09:26:29Z. Find the faulty service "
+        "and give one command that fixes it."
     )
-    hotel = task_text("Hotel Reservation", "test-hotel-reservation")
+    hotel = task_text("Hotel Reservation", "test-hotel-reservation", opened)
     assert "hotel reservation application in namespace test-hotel-reservation" in hotel
     assert "social" not in hotel
 
@@ -501,15 +528,46 @@ def escalate(reason="the evidence does not single out one service"):
     return json.dumps({"escalate": {"reason": reason}})
 
 
+# the fault-type texts the runs before #162 used
+FAULT_TYPES_BEFORE_162 = {
+    "TargetPortMisconfig": "a service targetPort does not match the container port",
+    "ScalePod": "a deployment was scaled to zero pods",
+    "AssignNonExistentNode": "a pod stays Pending, assigned to a node that does not exist",
+    "RevokeAuth": "revoked authentication causes database connection failures",
+    "UserUnregistered": "the database user was unregistered, so access fails",
+}
+
+
 def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7():
     # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt;
-    # updated once for the turn cap of 16 (from 8), the only change, as the second hash shows
+    # updated for the turn cap of 16 (from 8), the fault-type texts of #162 and the telemetry advice
+    # removed by #163, the only
+    # changes, as the older hashes show
     import hashlib
 
     result, _, _ = run([final()])
     digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
-    assert digest == "ca0c96959d3505bf4c75f69387b14c086391dfa442b04568313947494bffea04"
-    old = result.system_prompt.replace("at most 16 turns", "at most 8 turns")
+    assert digest == "494dab2abe3e69e8b98f64d3d9ba2e46c0a9745f3db778387d6739cfa3fbec9e"
+    # the telemetry advice that #163 removed, put back where it stood
+    before_163 = result.system_prompt.replace(
+        "then describe it.\n",
+        "then describe it. Logs, metrics and traces are noisy and slow, so use them after "
+        "kubectl, and read logs for one service at a time.\n",
+    )
+    assert (
+        hashlib.sha256(before_163.encode()).hexdigest()
+        == "2661acd2927641094ce4b11940457ca467fdc6865a9fb292bcd63f8116f8b94e"
+    )
+    before_162 = before_163
+    for name, text in FAULT_TYPES.items():
+        before_162 = before_162.replace(
+            f"- {name}: {text}", f"- {name}: {FAULT_TYPES_BEFORE_162[name]}"
+        )
+    assert (
+        hashlib.sha256(before_162.encode()).hexdigest()
+        == "ca0c96959d3505bf4c75f69387b14c086391dfa442b04568313947494bffea04"
+    )
+    old = before_162.replace("at most 16 turns", "at most 8 turns")
     assert (
         hashlib.sha256(old.encode()).hexdigest()
         == "f29dd9d78018b6f948f3999453567ef01d317bdf0729f14d9df6702d5438d288"
@@ -559,6 +617,45 @@ def test_only_a_namespace_whose_mongodb_enforces_login_gets_the_login_note():
     hotel = _base_prompt("test-hotel-reservation", DEFAULT_TOOLS, 16)
     assert "ROOT_PASSWORD_REF" in hotel and "-n test-hotel-reservation exec deploy/" in hotel
     assert "PASSWORD_REF" not in _base_prompt("test-social-network", DEFAULT_TOOLS, 16)
+
+
+def test_the_prompts_of_two_arms_differ_only_in_their_tool_lines():
+    # no advice on telemetry, so an arm without the telemetry tools gets the same text (#163)
+    full = _base_prompt(NS, DEFAULT_TOOLS, 16).splitlines()
+    shell = _base_prompt(NS, frozenset({"exec_shell"}), 16).splitlines()
+    dropped = [line for line in full if line not in shell]
+    assert dropped and all(line.startswith('- {"tool": "get_') for line in dropped)
+    # the same shared lines in the same order and number
+    assert [line for line in full if line not in dropped] == shell
+    assert not any(w in "\n".join(full) for w in ("noisy", "slow", "after kubectl"))
+
+
+@pytest.mark.parametrize("opened_at", [0, 1_794_475_589, 1_794_475_589_000, -5, True, 1.79e15])
+def test_a_ticket_time_not_in_microseconds_is_refused(opened_at):
+    with pytest.raises(ValueError, match="microseconds"):
+        task_text("Social Network", NS, opened_at)
+
+
+def test_every_script_passes_the_injection_time_to_task_text():
+    # the scripts have no tests of their own, so a call with two arguments would fail only at run
+    # time, after its touch (#163)
+    import pathlib
+    import re
+
+    scripts = pathlib.Path(__file__).resolve().parents[2] / "scripts"
+    calls = []
+    for path in sorted(scripts.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"\btask_text\(", text):
+            depth, i = 1, match.end()
+            while depth:
+                depth += {"(": 1, ")": -1}.get(text[i], 0)
+                i += 1
+            calls.append((path.name, text[match.end() : i - 1]))
+    assert calls
+    for name, args in calls:
+        parts = [a.strip() for a in args.split(",") if a.strip()]
+        assert len(parts) == 3 and parts[2] == "injected_at", (name, args)
 
 
 def test_retrieval_gets_the_stable_form_and_the_model_the_observation_as_it_is():
