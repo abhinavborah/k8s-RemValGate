@@ -3,7 +3,8 @@
 Story E7-S1 (#45), requirement R7.1. The training data of the gate and of baseline 5 is built per
 fold from the oracle labels of baseline 3c's candidates ([oracle_labels.md](oracle_labels.md)),
 with no new rollouts. The builder is `src/remvalgate/harness/training_data.py`, the export
-`scripts/export_training_data.py`. The export of 2026-11-08 is under [Results](#results).
+`scripts/export_training_data.py`. The export of 2026-11-08, now superseded, is under
+[Results](#results).
 
 Reusing the oracle labels departs from R7.1 and proposal version 2, which ask for K new rollouts
 per training problem per fold (384 at K = 8, about 33 hours serial). The group confirmed it
@@ -114,6 +115,11 @@ each kind the maximum length, the 95th percentile and the ids over the budget.
 
 ## Results
 
+**Superseded.** On 2026-11-12 three defects were found in code that every planner run shares
+(#162, #163, #164). Step 2 of #165 runs the oracle labelling again with the fixed planner, and its
+step 3 makes this export again from the new labels and runs the [Length check](#length-check)
+again. The export below stays as the record of the 2026-11-08 run.
+
 One export on 2026-11-08, at commit `4d83002` with `dirty: false`, from the 16 labels files of the
 second labelling run of the pool (commit `3d34cb4`, [oracle_labels.md](oracle_labels.md),
 Results), with the length proxy. Its 48 touches carry the time 2026-11-08T15:30:17Z in
@@ -162,6 +168,8 @@ Run on 2026-11-09 with the tokenizer folder of [Running it](#running-it) (Qwen3.
 - Every synthetic Social Network gate input is over the budget by the proxy and under it by the
   count; the largest count is 1,948, 100 under the budget. So the proxy's over-budget list of the
   2026-11-08 export can hold rows that fit, and a row near the budget needs the tokenizer's count.
+
+Step 3 of #165 runs this check again ([Results](#results)).
 
 ## Limits
 
