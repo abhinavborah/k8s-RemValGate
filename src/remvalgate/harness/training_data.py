@@ -421,6 +421,47 @@ def _problem_of(run_id: str, registry: Registry) -> str:
     return pid
 
 
+def read_run(path: Path, problem_id: str) -> tuple[Run, dict]:
+    """Read one labels file, with the manifest and transcript beside it, and its file record.
+
+    Raises ValueError when the manifest is of another run or problem. The file record names the
+    labelling run, the files' SHA-256 and its whole manifest (model name, version, date, seed).
+    """
+    run_id = _labels_run_id(path)
+    raw = path.read_bytes()
+    folder = path.parent
+    manifest = json.loads((folder / f"{run_id}.json").read_text(encoding="utf-8"))
+    text = (folder / f"{run_id}.transcript.json").read_bytes()
+    run = Run(manifest, json.loads(text), json.loads(raw), hashlib.sha256(raw).hexdigest())
+    if run.problem_id != problem_id or run.run_id != run_id:
+        raise ValueError(f"{path}: the manifest is of another run")
+    record = {
+        "run_id": run_id,
+        "file": path.name,
+        "sha256": run.labels_sha256,
+        "transcript_sha256": hashlib.sha256(text).hexdigest(),
+        "manifest": manifest,
+    }
+    return run, record
+
+
+def labels_by_problem(labels_paths: Sequence[str | Path], registry: Registry) -> dict[str, Path]:
+    """Each pool problem's labels file, checked from the file names alone, before any is read:
+    pool problems only, each once, and the whole pool. Raises ValueError otherwise."""
+    by_problem: dict[str, Path] = {}
+    for path in map(Path, labels_paths):
+        pid = _problem_of(_labels_run_id(path), registry)
+        if registry.slices[pid] is not Slice.POOL:
+            raise ValueError(f"{pid}: a {registry.slices[pid]} problem is never trained on")
+        if pid in by_problem:
+            raise ValueError(f"{pid}: more than one labels file")
+        by_problem[pid] = path
+    assignment = pool_folds(registry)
+    if set(by_problem) != set(assignment):
+        raise ValueError(f"no labels file for {sorted(set(assignment) - set(by_problem))}")
+    return by_problem
+
+
 def export(
     labels_paths: Sequence[str | Path],
     out_dir: str | Path,
@@ -447,18 +488,8 @@ def export(
     files are then read, checked and written; an existing output is never overwritten.
     """
     now = (now or datetime.now(UTC)).astimezone(UTC)
-    paths = [Path(p) for p in labels_paths]
-    by_problem: dict[str, Path] = {}
-    for path in paths:
-        pid = _problem_of(_labels_run_id(path), registry)
-        if registry.slices[pid] is not Slice.POOL:
-            raise ValueError(f"{pid}: a {registry.slices[pid]} problem is never trained on")
-        if pid in by_problem:
-            raise ValueError(f"{pid}: more than one labels file")
-        by_problem[pid] = path
+    by_problem = labels_by_problem(labels_paths, registry)
     assignment = pool_folds(registry)
-    if set(by_problem) != set(assignment):
-        raise ValueError(f"no labels file for {sorted(set(assignment) - set(by_problem))}")
     stamp = now.strftime("%Y%m%dt%H%M%Sz")
     touches, start = [], None
     for fold in sorted(set(assignment.values())):
@@ -478,23 +509,7 @@ def export(
             touches.append({"fold": fold, "problem_id": pid, "run_id": run_id})
     runs, files = {}, {}
     for pid, path in sorted(by_problem.items()):
-        run_id = _labels_run_id(path)
-        raw = path.read_bytes()
-        folder = path.parent
-        manifest = json.loads((folder / f"{run_id}.json").read_text(encoding="utf-8"))
-        text = (folder / f"{run_id}.transcript.json").read_bytes()
-        run = Run(manifest, json.loads(text), json.loads(raw), hashlib.sha256(raw).hexdigest())
-        if run.problem_id != pid or run.run_id != run_id:
-            raise ValueError(f"{path}: the manifest is of another run")
-        runs[pid] = run
-        # the labelling run's manifest names the model, its version and date, and the seed
-        files[pid] = {
-            "run_id": run_id,
-            "file": path.name,
-            "sha256": run.labels_sha256,
-            "transcript_sha256": hashlib.sha256(text).hexdigest(),
-            "manifest": manifest,
-        }
+        runs[pid], files[pid] = read_run(path, pid)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
