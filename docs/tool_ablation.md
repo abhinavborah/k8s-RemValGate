@@ -253,6 +253,13 @@ touches, so it is disclosed here. `revoke_auth_mongodb-mitigation-1` took 3 touc
 completed run: 1 with the earlier log rule and 2 that stopped at the injection check, all in the
 touch log. The 12 problems that are not MongoDB problems ran before the wait was added.
 
+Changed on 2026-11-13: the wait moved into `diagnose` and `execute` of
+`scripts/run_oracle_labels.py`, so every arm of the #165 batch (3a, 3b, 3c and 7 as well as the
+ablation arms) and the oracle labels wait before each injection of a MongoDB problem, and the arms
+of one batch run the same steps. 3b's stop on `revoke_auth_mongodb-mitigation-1` on 2026-11-08 (the
+fault did not show in time, `docs/rag_ablation.md`) was probably the same race on the tool path.
+The wait is still not exercised by a development dry run: no development problem is a MongoDB fault.
+
 The run is recorded with a terminal capture and a timestamped pod watch, following the steps in the
 docstring of `scripts/run_baselines_pool.py`, with the title `E5-S3 <run name>`. Both files go to
 `k8s-RemValGate/run-logs/<run name>/` on the shared drive, beside the run's manifests, never to git.

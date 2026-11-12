@@ -255,3 +255,13 @@ The planner prompt of these runs told the planner that logs, metrics and traces 
 kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
 so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
 (the injection time) into every task. The results here stay as they were run and are superseded by the rerun of #165.
+
+## Added on 2026-11-13: wait for mongod before each injection
+
+On the 4 MongoDB problems, `diagnose` and `execute` in `scripts/run_oracle_labels.py` now wait until
+every MongoDB Deployment of the namespace answers a ping before each injection (`wait_for_mongod`).
+The reset waits until the pods run, but those Deployments have no readiness probe, so an injection
+could reach a new MongoDB pod before mongod listened and leave no fault. It changes no injection,
+candidate or outcome step. The labels here were taken without it; the labels of the #165 rerun are
+taken with it. The development problems have no MongoDB fault, so a development dry run does not
+exercise it.
