@@ -242,6 +242,17 @@ With no problem id it runs the 16 pool problems, in about 2 to 3 hours (an estim
 `runs/baselines_pool/`, which git ignores: per problem the manifest, the transcript, which holds the
 bundle, and the result file.
 
+Added on 2026-11-12, during the run: on the 4 MongoDB problems the arm waits until every MongoDB
+Deployment of the namespace answers a ping before each injection (`wait_for_mongod` in
+`scripts/run_baselines_pool.py`). The reset deletes the MongoDB pod and waits until the pods run, but
+those Deployments have no readiness probe, so the execution's injection reached the new pod before
+mongod listened, failed with "Connection refused", and the harness stopped because the fault did not
+show. This happened twice on `revoke_auth_mongodb-mitigation-1`. The wait changes no injection,
+planner, bundle or outcome step, and 3c's shared code is unchanged; it is a code change after
+touches, so it is disclosed here. `revoke_auth_mongodb-mitigation-1` took 3 touches before its
+completed run: 1 with the earlier log rule and 2 that stopped at the injection check, all in the
+touch log. The 12 problems that are not MongoDB problems ran before the wait was added.
+
 The run is recorded with a terminal capture and a timestamped pod watch, following the steps in the
 docstring of `scripts/run_baselines_pool.py`, with the title `E5-S3 <run name>`. Both files go to
 `k8s-RemValGate/run-logs/<run name>/` on the shared drive, beside the run's manifests, never to git.
