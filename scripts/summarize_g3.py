@@ -18,7 +18,13 @@ import json
 import sys
 from pathlib import Path
 
-from remvalgate.harness.g3 import check_rerun_settings, g3, headroom, solved_by_baseline
+from remvalgate.harness.g3 import (
+    check_rerun_settings,
+    combine_seeds,
+    g3,
+    headroom,
+    solved_by_baseline,
+)
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
 from remvalgate.harness.oracle import read_labels
 from remvalgate.harness.outcome import Outcome
@@ -54,7 +60,13 @@ def main() -> int:
         [_manifest(p, ".labels.json") for p in args.labels],
         [_manifest(p, ".result.json") for p, _ in rerun],
     )
-    outcomes = [(r["problem_id"], Outcome(r["outcome"])) for _, r in rerun]
+    try:
+        # 2 seeds per problem become one row per problem, by the rule of #56 (#161)
+        combined = combine_seeds([r for _, r in rerun])
+        rows = combine_seeds(rows)
+    except ValueError as error:
+        parser.error(str(error))
+    outcomes = [(r["problem_id"], Outcome(r["outcome"])) for r in combined]
     if len(dict(outcomes)) != len(outcomes):
         parser.error("3c: a problem has more than one result")
     result = g3(labels, dict(outcomes), pool)

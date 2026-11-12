@@ -219,3 +219,35 @@ def test_special_tokens_take_part_of_the_limit():
 def test_special_tokens_cannot_fill_the_limit():
     with pytest.raises(ValueError, match="no query token"):
         query_lengths({"p": "a"}, {"p": "a"}, str.split, " ".join, limit=2, special=2)
+
+
+def test_evaluate_ranks_queries_that_differ_only_in_age_and_pod_ids_the_same():
+    # #164: evaluate applies the chosen form, so per-run columns do not change a ranking
+    records = pool_incidents(REGISTRY)
+    header = "NAME                                READY   STATUS    RESTARTS   AGE"
+
+    def query(record, age, pod_id):
+        row = f"pod/{record.target_service}-{pod_id}   0/1     Pending   0          {age}"
+        return f"{record.fault_type} {record.summary}\n{header}\n{row}"
+
+    young = evaluate(
+        {r.entry_id: query(r, "5m", "6f9c7d9b4-abcde") for r in records}, REGISTRY, MODELS
+    )
+    old = evaluate(
+        {r.entry_id: query(r, "4d12h", "7c8d5f6c9-fghij") for r in records}, REGISTRY, MODELS
+    )
+    assert young["per_query"] == old["per_query"]
+    # with the raw form the two differ, so the test would catch a missing call
+    raw_young = evaluate(
+        {r.entry_id: query(r, "5m", "6f9c7d9b4-abcde") for r in records},
+        REGISTRY,
+        MODELS,
+        form="raw",
+    )
+    raw_old = evaluate(
+        {r.entry_id: query(r, "4d12h", "7c8d5f6c9-fghij") for r in records},
+        REGISTRY,
+        MODELS,
+        form="raw",
+    )
+    assert raw_young["per_query"] != raw_old["per_query"]

@@ -64,7 +64,7 @@ Once the 3c rerun and the oracle labels exist, scripts/summarize_g3.py prints th
 R and the minimum gain with no cluster.
 
     uv run python scripts/run_baselines_pool.py --baseline 3c --model-version "<format and \
-        quantization>" [--baseline 1 ...] [--no-thinking] [--seed S] [--base-url URL] \
+        quantization>" [--baseline 1 ...] [--no-thinking] [--seed S ...] [--base-url URL] \
         [problem id ...]
 
 Recording for the replay (issue #53): record every pool run with a terminal capture and a
@@ -135,6 +135,7 @@ from remvalgate.harness.cluster_state import changed
 from remvalgate.harness.folds import fault_type
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
+    MAX_R,
     Manifest,
     Slice,
     load_registry,
@@ -142,8 +143,10 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
+from remvalgate.harness.model_build import read_build
 from remvalgate.harness.oracle import DATABASE_TYPES
 from remvalgate.harness.outcome import classify, single_action_result
+from remvalgate.harness.protocol import interleaved
 from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest_services
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
@@ -326,7 +329,7 @@ async def diagnose_without_tools(
         )
         result = await asyncio.to_thread(
             plan,
-            task_text(prob.app.name, namespace),
+            task_text(prob.app.name, namespace, injected_at),
             first,
             problem_id,
             namespace,
@@ -368,10 +371,16 @@ def main() -> int:
     )
     parser.add_argument("--model-version", help="format and quantization served (planner arms)")
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--seed", type=int, action="append", help="repeatable (default 1000 and 1001, #161)"
+    )
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
     args = parser.parse_args()
     baselines = list(dict.fromkeys(args.baseline))
+    seeds = list(dict.fromkeys(args.seed or [SEED, SEED + 1]))
+    if len(seeds) > MAX_R:
+        parser.error(f"at most {MAX_R} seeds, the most a manifest records")
+    args.seeds = seeds
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for the planner arms")
@@ -397,7 +406,7 @@ def main() -> int:
         model=MODEL,
         base_url=args.base_url,
         thinking=args.thinking,
-        seed=args.seed,
+        seed=seeds[0],
         max_tokens=4096 if args.thinking else 1024,
     )
     namespaces = sorted({logged_namespace(i) for i in selected})
@@ -415,15 +424,23 @@ def main() -> int:
     print(f"cluster {CONTEXT}: {nodes} nodes, {len(selected)} problems, baselines {baselines}")
     forward = prometheus_port_forward() if uses_model else None
     try:
-        for baseline in baselines:
-            for problem_id in selected:
-                row = run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
-                # printed as it returns, so a later stop keeps the rows already classified
-                print(json.dumps(row, sort_keys=True), flush=True)
-                # every namespace of the run must be as it was before the run
-                for ns in namespaces:
-                    left = changed(clean[ns].objects, objects(ns))
-                    check(not left, f"{problem_id}: {ns} changed: {left}")
+        for seed, problem_id, baseline in interleaved(seeds, selected, baselines):
+            row = run_one(
+                baseline,
+                problem_id,
+                registry,
+                clean,
+                dataclasses.replace(chat, seed=seed),
+                retriever,
+                args,
+                nodes,
+            )
+            # printed as it returns, so a later stop keeps the rows already classified
+            print(json.dumps(row, sort_keys=True), flush=True)
+            # every namespace of the run must be as it was before the run
+            for ns in namespaces:
+                left = changed(clean[ns].objects, objects(ns))
+                check(not left, f"{problem_id}: {ns} changed: {left}")
     finally:
         if forward is not None:
             forward.terminate()
@@ -432,6 +449,8 @@ def main() -> int:
 
 
 def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes) -> dict:
+    # read before start_run, so a model that is not loaded stops the run before its touch (#161)
+    build = read_build(MODEL, args.base_url) if baseline in PLANNER else {}
     now = datetime.now(UTC)
     prefix = baseline if baseline in ABLATION else f"baseline{baseline}"
     run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
@@ -472,7 +491,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                     chat,
                     retriever[baseline],
                     0,
-                    args.seed,
+                    chat.seed,
                     results_dir,
                 )
             )
@@ -523,12 +542,13 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             else "no language model"
         ),
         model_date=now.strftime("%Y-%m-%d"),
-        seed=args.seed,
+        seed=chat.seed,
         k=1,
-        r=1,
+        r=len(args.seeds),
         aiopslab_commit=run.aiopslab_commit,
         cluster={"context": CONTEXT, "namespace": namespace, "nodes": nodes},
         timestamp=run.timestamp,
+        model_build=build if baseline in PLANNER else {},
         sampling=(
             {
                 **{
@@ -564,7 +584,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
         "run_id": run_id,
         "problem_id": problem_id,
         "baseline": baseline,
-        "seed": args.seed,
+        "seed": chat.seed,
         "command": command,
         "reason": reason,
         "allow_list": None if verdict is None else (verdict.reason or "admitted"),
