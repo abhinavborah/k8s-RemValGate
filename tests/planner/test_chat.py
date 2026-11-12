@@ -7,12 +7,12 @@ import pytest
 from remvalgate.planner.chat import OpenAIChat
 
 
-def fake_urlopen(captured, content, **choice):
+def fake_urlopen(captured, content, usage=None, **choice):
     def urlopen(request, timeout):
         captured.append(json.loads(request.data))
         body = {
             "choices": [{"message": {"content": content}, **choice}],
-            "usage": {"completion_tokens": 7},
+            "usage": usage or {"completion_tokens": 7},
         }
         return io.BytesIO(json.dumps(body).encode())
 
@@ -27,6 +27,14 @@ def test_thinking_off_sends_reasoning_effort_none_and_think_blocks_are_stripped(
     completion = OpenAIChat(model="m", thinking=False).complete([{"role": "user", "content": "hi"}])
     assert sent[0]["reasoning_effort"] == "none" and sent[0]["seed"] == 0
     assert completion.text == '{"a": 1}' and completion.completion_tokens == 7
+
+
+def test_the_prompt_tokens_the_server_counted_are_kept_and_none_when_absent(monkeypatch):
+    counted = {"completion_tokens": 7, "prompt_tokens": 1234}
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen([], "x", usage=counted))
+    assert OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}]).prompt_tokens == 1234
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen([], "x"))
+    assert OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}]).prompt_tokens is None
 
 
 def test_thinking_is_on_by_default_and_leaves_reasoning_effort_out(monkeypatch):

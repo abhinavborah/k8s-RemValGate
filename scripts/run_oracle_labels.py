@@ -155,6 +155,43 @@ def wait_until_healthy(namespace: str, workloads: frozenset[str]) -> None:
         time.sleep(2)
 
 
+MONGOD_WAIT_S = 180
+
+
+def wait_for_mongod(namespace: str) -> None:
+    """Wait until every MongoDB Deployment of the namespace answers a ping, before an injection.
+
+    The reset deletes the MongoDB pod and waits until the pods run, but the MongoDB Deployments have
+    no readiness probe, so the next injection could reach the new pod before mongod listened, fail
+    with "Connection refused" and leave no fault (2026-11-12, revoke_auth_mongodb-mitigation-1,
+    twice, notools arm; probably also 2026-11-08, the same problem in 3b, where the fault did not
+    show in time). This only
+    waits; it changes no injection, planner, bundle or outcome step, and a ping needs no login.
+    Called before every injection of a database fault only: a fault of another type may leave a
+    MongoDB Deployment with no pod to ping.
+    """
+    names = [
+        n
+        for n in kubectl(
+            "-n", namespace, "get", "deploy", "-o", "jsonpath={.items[*].metadata.name}"
+        ).stdout.split()
+        if n.startswith("mongodb-")
+    ]
+    deadline = time.monotonic() + MONGOD_WAIT_S
+    for name in names:
+        while True:
+            done = subprocess.run(
+                ["kubectl", "--context", CONTEXT, "-n", namespace, "exec", f"deploy/{name}", "--"]
+                + ["mongo", "--quiet", "--eval", "db.runCommand({ping: 1}).ok"],
+                capture_output=True,
+                text=True,
+            )
+            if done.returncode == 0 and done.stdout.strip().endswith("1"):
+                break
+            check(time.monotonic() < deadline, f"{namespace}/{name}: mongod did not answer a ping")
+            time.sleep(2)
+
+
 def wait_for_fault(prob, problem_id: str) -> dict:
     """The pod status once the fault shows in it. The same reading is the status before the
     action, so a workload that recovers for a moment between two readings is not taken as
@@ -196,6 +233,8 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
+    if fault_type(problem_id) in DATABASE_TYPES:
+        wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
@@ -252,6 +291,9 @@ def execute(orch, prob, problem_id, command, clean, injected, results_dir, recor
     namespace = prob.namespace
     # raises CannotSend before anything is injected
     carried_action(command, orch.parser.parse, strict=False)
+    # the reset after the diagnosis or the last candidate restarted the MongoDB pod
+    if fault_type(problem_id) in DATABASE_TYPES:
+        wait_for_mongod(namespace)
     start = time.perf_counter()
     try:
         prob.inject_fault()
