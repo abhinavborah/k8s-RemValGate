@@ -18,6 +18,8 @@ on one procedure:
      until the fault shows, run the untuned planner with retrieval configuration (i), (ii) or
      (iii) and the settings of the labelling run, check the diagnosis changed nothing (diagnose
      with no candidates);
+   - 7: as 3c, with the planner told to escalate when unsure (baseline 7, #44); an escalation
+     applies nothing;
    - notools: as 3c, with the telemetry tools replaced by a bundle collected once at injection
      (diagnose_without_tools, below);
    - 1 and 2: inject, save the objects, wait until the fault shows, read the state with observe in
@@ -159,8 +161,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
 CONTEXT = "kind-kind"
-BASELINES = ("1", "2", "3a", "3b", "3c", "notools", "toolsbundle", "kubectlonly")
-PLANNER = ("3a", "3b", "3c", "notools", "toolsbundle", "kubectlonly")
+BASELINES = ("1", "2", "3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly")
+PLANNER = ("3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly")
 # the ablation without interactive tools keeps read-only exec_shell (proposal version 2, VI)
 NOTOOLS_TOOLS = frozenset({"exec_shell"})
 # the arms of the 2 by 2 tool ablation besides 3c (tools, no bundle): their tools and whether the
@@ -355,7 +357,7 @@ def retrievers(baselines: list[str], pool: bool, registry) -> dict:
     iii = None
     chosen = {}
     for b in baselines:
-        if b in ("2", "3c", *ABLATION):
+        if b in ("2", "3c", "7", *ABLATION):
             iii = iii or (pool_retriever if pool else development_retriever)(registry)
             chosen[b] = iii
         elif b in ("3a", "3b"):
@@ -493,6 +495,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                     0,
                     chat.seed,
                     results_dir,
+                    # baseline 7: 3c told to escalate when unsure (#44), paired with 3a to 3c
+                    escalate_when_unsure=baseline == "7",
                 )
             )
         command = result.command
@@ -503,6 +507,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
             "retrieval_k": defaults["k"].default,
             "baseline": baseline,
+            "escalate_when_unsure": baseline == "7",
         }
         if bundle is not None:
             # the outputs as the planner got them, since Plan.context is empty at the turn cap
