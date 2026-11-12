@@ -126,3 +126,12 @@ uv run python scripts/summarize_rag_ablation.py --results \
 
 Each result file must sit next to its manifest and transcript, as in the tarballs. A run id
 found in two folders is read once.
+
+
+## Added on 2026-11-12: fault-type text defect
+
+The planner prompt of these runs described RevokeAuth as "revoked authentication causes database
+connection failures". The injector removes the readWrite role of the database user, so the user
+can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
+The text is corrected in #162. The results here stay as they were run and are superseded by the
+rerun of #165.

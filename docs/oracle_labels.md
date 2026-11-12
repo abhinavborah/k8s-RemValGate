@@ -235,3 +235,12 @@ but the pod watch stops after about 45 minutes in run 1 and 49 minutes in run 2,
 line, consistent with the API server closing the watch (kube-apiserver `--min-request-timeout`: a
 randomized time above 1800 seconds by default), so the later problems of each run have no pod
 watch.
+
+
+## Added on 2026-11-12: fault-type text defect
+
+The planner prompt of these runs described RevokeAuth as "revoked authentication causes database
+connection failures". The injector removes the readWrite role of the database user, so the user
+can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
+The text is corrected in #162. The results here stay as they were run and are superseded by the
+rerun of #165.

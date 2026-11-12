@@ -58,3 +58,12 @@ Three problems, one run each: a signal, not a test.
   against 3, AssignNonExistentNode 2 against 16).
 - The 9B run took 34 minutes and the 4B run 16, with the cluster running. Swap was about 5 of 6 GB
   just after the run, on this 24 GB host.
+
+
+## Added on 2026-11-12: fault-type text defect
+
+The planner prompt of these runs described RevokeAuth as "revoked authentication causes database
+connection failures". The injector removes the readWrite role of the database user, so the user
+can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
+The text is corrected in #162. The results here stay as they were run and are superseded by the
+rerun of #165.

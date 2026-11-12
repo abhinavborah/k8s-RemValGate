@@ -125,3 +125,12 @@ slice.
 Every pool run is recorded with a terminal capture and a timestamped pod watch, uploaded to the
 shared drive beside its manifests. The steps are in the docstring of
 `scripts/run_baselines_pool.py`.
+
+
+## Added on 2026-11-12: fault-type text defect
+
+The planner prompt of these runs described RevokeAuth as "revoked authentication causes database
+connection failures". The injector removes the readWrite role of the database user, so the user
+can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
+The text is corrected in #162. The results here stay as they were run and are superseded by the
+rerun of #165.
