@@ -432,7 +432,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     orch = new_orchestrator(results_dir=results_dir)
     prob = orch.probs.get_problem_instance(problem_id)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
-    reason = None
+    reason = stop = escalation = None
     if baseline in PLANNER:
         bundle = counts = None
         if baseline in ABLATION:
@@ -467,6 +467,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                 )
             )
         command = result.command
+        # kept in the row: an escalation, a turn cap and an unparsed reply all leave no command
+        stop, escalation = str(result.stop), result.escalation
         defaults = inspect.signature(plan).parameters
         transcript = dataclasses.asdict(result) | {"first_observation": first}
         transcript["config"] = {
@@ -528,6 +530,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                     for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
                 },
                 "baseline": baseline,
+                # the key run_planner_dev.py records for baseline 7
+                "escalate_when_unsure": baseline == "7",
             }
             if baseline in PLANNER
             else {"baseline": baseline}
@@ -556,6 +560,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
         "seed": chat.seed,
         "command": command,
         "reason": reason,
+        "stop": stop,
+        "escalation": escalation,
         "allow_list": None if verdict is None else (verdict.reason or "admitted"),
         "note": note,
         "sent": bool(records),
