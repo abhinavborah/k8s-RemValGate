@@ -656,3 +656,30 @@ def test_every_script_passes_the_injection_time_to_task_text():
     for name, args in calls:
         parts = [a.strip() for a in args.split(",") if a.strip()]
         assert len(parts) == 3 and parts[2] == "injected_at", (name, args)
+
+
+def test_retrieval_gets_the_stable_form_and_the_model_the_observation_as_it_is():
+    # #164: one place applies the query form, the planner's retrieval
+    from remvalgate.retrieval.query_form import retrieval_query
+
+    observation = "\n".join(
+        [
+            "NAME                                     READY   STATUS    RESTARTS      AGE",
+            "pod/media-service-6d5985bd55-wslks       0/1     Pending   3 (37s ago)   5m",
+        ]
+    )
+
+    class Recording:
+        def __init__(self):
+            self.queries = []
+
+        def retrieve(self, query, problem_id, k):
+            self.queries.append(query)
+            return RETRIEVER.retrieve(query, problem_id, k)
+
+    recording = Recording()
+    _, _, chat = run([final()], observation=observation, retriever=recording)
+    assert recording.queries == [retrieval_query(observation)]
+    assert recording.queries[0] != observation and "wslks" not in recording.queries[0]
+    # the model sees the observation unchanged
+    assert observation in chat.seen[0][1]["content"]

@@ -36,6 +36,7 @@ from remvalgate.harness.allowlist import (
 from remvalgate.harness.toolcall import Schemas
 from remvalgate.planner.chat import Chat, Message
 from remvalgate.retrieval import Retriever
+from remvalgate.retrieval.query_form import retrieval_query
 
 # the fault types of the pool, each described by the change its injector in the pinned AIOpsLab
 # makes (aiopslab/generators/fault/), at the same level of detail for all five, naming no service:
@@ -357,7 +358,8 @@ def plan(
     unsupported = (tools - _TOOL_HELP.keys()) | (tools - schemas.tools.keys())
     if unsupported:
         raise ValueError(f"no help text or no schema for tools {sorted(unsupported)}")
-    hits = retriever.retrieve(observation, problem_id, k)
+    # the observation is shown to the model as it is; retrieval uses its stable form (#164)
+    hits = retriever.retrieve(retrieval_query(observation), problem_id, k)
     past = "\n".join(
         f"- {h.entry.fault_type} on {h.entry.target_service}: {h.entry.summary}. "
         f"Fix: {h.entry.fix_command}"
