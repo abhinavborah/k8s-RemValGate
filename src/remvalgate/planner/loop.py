@@ -243,8 +243,12 @@ def task_text(app_name: str, namespace: str, opened_at: int) -> str:
     the 4 database pool problems run on Hotel Reservation and the rest on Social Network.
     opened_at is when the ticket opened, in microseconds since the epoch: the injection time, so
     every arm knows the time a bundle collected since the injection uses (#163). A real ticket
-    opens some time after the fault starts; here the delay is zero.
+    opens some time after the fault starts; here the delay is zero. Raises ValueError for a value
+    that is not an int in microseconds (a bool, or below 10**15, which is 2001 in microseconds), so
+    a time in seconds or milliseconds never gives an arm a 1970 ticket.
     """
+    if type(opened_at) is not int or opened_at < 10**15:
+        raise ValueError(f"opened_at: expected microseconds since the epoch, got {opened_at!r}")
     opened = datetime.fromtimestamp(opened_at / 1e6, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return (
         f"Users report errors from the {app_name.lower()} application in namespace {namespace}. "

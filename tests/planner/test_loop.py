@@ -625,5 +625,34 @@ def test_the_prompts_of_two_arms_differ_only_in_their_tool_lines():
     shell = _base_prompt(NS, frozenset({"exec_shell"}), 16).splitlines()
     dropped = [line for line in full if line not in shell]
     assert dropped and all(line.startswith('- {"tool": "get_') for line in dropped)
-    assert [line for line in shell if line not in full] == []
+    # the same shared lines in the same order and number
+    assert [line for line in full if line not in dropped] == shell
     assert not any(w in "\n".join(full) for w in ("noisy", "slow", "after kubectl"))
+
+
+@pytest.mark.parametrize("opened_at", [0, 1_794_475_589, 1_794_475_589_000, -5, True, 1.79e15])
+def test_a_ticket_time_not_in_microseconds_is_refused(opened_at):
+    with pytest.raises(ValueError, match="microseconds"):
+        task_text("Social Network", NS, opened_at)
+
+
+def test_every_script_passes_the_injection_time_to_task_text():
+    # the scripts have no tests of their own, so a call with two arguments would fail only at run
+    # time, after its touch (#163)
+    import pathlib
+    import re
+
+    scripts = pathlib.Path(__file__).resolve().parents[2] / "scripts"
+    calls = []
+    for path in sorted(scripts.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"\btask_text\(", text):
+            depth, i = 1, match.end()
+            while depth:
+                depth += {"(": 1, ")": -1}.get(text[i], 0)
+                i += 1
+            calls.append((path.name, text[match.end() : i - 1]))
+    assert calls
+    for name, args in calls:
+        parts = [a.strip() for a in args.split(",") if a.strip()]
+        assert len(parts) == 3 and parts[2] == "injected_at", (name, args)
