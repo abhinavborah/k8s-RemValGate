@@ -1,41 +1,35 @@
-from remvalgate.harness.harm import Reason, Status
-from remvalgate.harness.tool_ablation import diagnostics, unready_services
+from remvalgate.harness.tool_ablation import diagnostics, error_lines, noisiest_services
 
-# synthetic workloads and transcripts only: no pool problem is read
-
-
-def _status(key: str, healthy: bool) -> Status:
-    # Status needs a reason and a detail exactly when unhealthy
-    if healthy:
-        return Status("ns", key, True, None, "")
-    return Status("ns", key, False, Reason.NOT_READY, f"{key}: not ready")
+# synthetic log lines and transcripts only: no pool problem is read
 
 
-def _vector(*entries: tuple[str, bool]) -> dict[str, Status]:
-    return {key: _status(key, healthy) for key, healthy in entries}
-
-
-def test_unready_services_lists_unhealthy_deployments_only_sorted():
-    status = _vector(
-        ("Deployment/user-service", False),
-        ("Deployment/geo", False),
-        ("Deployment/text-service", True),
-        ("StatefulSet/mongodb", False),
-        ("Job/wrk2-job", False),
-        ("Pod/debug", False),
+def test_error_lines_counts_lines_with_an_error_word_ignoring_case():
+    log = "\n".join(
+        [
+            "Failed to connect user-mention-service",
+            "connect: Connection refused (user-mention-service:9090)",
+            "rpc TIMEOUT after 5s",
+            "ERROR: auth failed for user admin",
+            "got 3 posts",
+            "",
+        ]
     )
-    assert unready_services(status) == ["geo", "user-service"]
+    assert error_lines(log) == 4
+    assert error_lines("") == 0
 
 
-def test_unready_services_keeps_the_first_names_up_to_the_cap():
-    status = _vector(*((f"Deployment/svc-{c}", False) for c in "edcba"))
-    assert unready_services(status) == ["svc-a", "svc-b", "svc-c"]
-    assert unready_services(status, limit=1) == ["svc-a"]
+def test_noisiest_services_ranks_by_error_lines_and_leaves_out_quiet_ones():
+    counts = {"user-service": 2, "text-service": 9, "geo": 0, "compose-post-service": 2}
+    # ties by name; a Deployment with no error line is never chosen
+    assert noisiest_services(counts) == ["text-service", "compose-post-service", "user-service"]
+    assert noisiest_services(counts, limit=1) == ["text-service"]
+    assert noisiest_services({"geo": 0, "rate": 0}) == []
+    assert noisiest_services({}) == []
 
 
-def test_unready_services_is_empty_when_every_workload_is_healthy():
-    assert unready_services(_vector(("Deployment/geo", True), ("Deployment/rate", True))) == []
-    assert unready_services({}) == []
+def test_noisiest_services_keeps_at_most_the_cap():
+    counts = {f"svc-{c}": 1 for c in "edcba"}
+    assert noisiest_services(counts) == ["svc-a", "svc-b", "svc-c"]
 
 
 def _step(turn: int, tool: object, observation: str, tokens: int, seconds: float) -> dict:

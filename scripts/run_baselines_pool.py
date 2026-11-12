@@ -44,7 +44,7 @@ The arm notools is the ablation without interactive tools (story E5-S3, #38, BRD
 planner, retrieval path, seed and settings, with get_logs, get_metrics and get_traces removed and
 read-only exec_shell kept. Right after the first observation the harness collects a fixed bundle
 once: the metrics and traces of the namespace, summarised as the tools summarise them for 3c, and
-the logs of up to LOG_SERVICES Deployments whose pods are not healthy
+the logs of the LOG_SERVICES Deployments with the most error lines logged since the injection
 (src/remvalgate/harness/tool_ablation.py). The planner gets the bundle with the task, and its
 command is executed as 3c's is. Its run ids start with notools-; the rules and the comparison
 with 3c are in docs/tool_ablation.md.
@@ -119,7 +119,6 @@ from run_oracle_labels import (
     diagnose,
     execute,
     objects,
-    pods,
     reset,
     wait_for_fault,
 )
@@ -145,7 +144,7 @@ from remvalgate.harness.manifest import (
 )
 from remvalgate.harness.oracle import DATABASE_TYPES
 from remvalgate.harness.outcome import classify, single_action_result
-from remvalgate.harness.tool_ablation import LOG_SERVICES, unready_services
+from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest_services
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
@@ -192,30 +191,62 @@ def observe_fault(prob, problem_id: str, clean) -> tuple[list, dict]:
     return found, injected
 
 
-async def collect_bundle(orch, namespace: str, injected_at: int) -> list[tuple[str, dict, str]]:
-    """The fixed telemetry bundle of the notools arm, taken once right after the first observation.
+def logs_since(namespace: str, deployment: str, since: str) -> str:
+    """What a pod of the Deployment logged since the given time, or "" when kubectl reads none, as
+    for a Deployment scaled to zero or a pod that never started."""
+    done = subprocess.run(
+        [
+            "kubectl",
+            "--context",
+            CONTEXT,
+            "-n",
+            namespace,
+            "logs",
+            f"deploy/{deployment}",
+            f"--since-time={since}",
+            # kubectl waits 20 s by default for a pod to run, which a Pending pod never does
+            "--pod-running-timeout=5s",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return done.stdout if done.returncode == 0 else ""
+
+
+async def collect_bundle(orch, namespace: str, injected_at: int):
+    """The fixed telemetry bundle of the notools arm, taken once right after the first observation,
+    and the error lines each Deployment logged since the injection, which chose its logs.
 
     The metrics and traces of the namespace, summarised as run_tool summarises them for 3c, and the
-    logs of up to LOG_SERVICES Deployments whose pods are not healthy now. Nothing here reads the
-    problem's fault or target. The planner cuts each output as it cuts a tool's output.
+    get_logs output of the LOG_SERVICES Deployments with the most error lines since the injection
+    (noisiest_services). Nothing here reads the problem's fault or target. The planner cuts each
+    output as it cuts a tool's output.
     """
+    since = datetime.fromtimestamp(injected_at / 1e6, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    names = kubectl(
+        "-n", namespace, "get", "deploy", "-o", "jsonpath={.items[*].metadata.name}"
+    ).stdout.split()
+    counts = {name: error_lines(logs_since(namespace, name, since)) for name in names}
     calls = [("get_metrics", {"namespace": namespace}), ("get_traces", {"namespace": namespace})]
     calls += [
         ("get_logs", {"namespace": namespace, "service": service})
-        for service in unready_services(pods(namespace), LOG_SERVICES)
+        for service in noisiest_services(counts, LOG_SERVICES)
     ]
     bundle = []
     for tool, arguments in calls:
         output = await orch.ask_env(tool_call(tool, arguments))
         bundle.append((tool, arguments, preview(tool, output, PREVIEW_CHARS, since=injected_at)))
-    return bundle
+    return bundle, counts
 
 
+# a copy of diagnose kept apart on purpose, so that 3c's code path stays byte-identical to the run
+# this arm is compared with; a fix to one belongs in both
 async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever, results_dir):
     """diagnose of scripts/run_oracle_labels.py with no candidates and the telemetry tools replaced
     by the bundle: the same injection, workload, wait, first observation, check and reset.
 
-    Returns the plan, the first observation, the bundle and the objects as the injection left them.
+    Returns the plan, the first observation, the bundle, the error lines that chose its logs and the
+    objects as the injection left them.
     """
     namespace = prob.namespace
     orch.session = Session(results_dir=results_dir)
@@ -245,7 +276,7 @@ async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever,
             return preview(tool, future.result(), PREVIEW_CHARS, since=injected_at)
 
         first = await orch.ask_env(exec_shell(f"kubectl -n {namespace} get deployments,pods"))
-        bundle = await collect_bundle(orch, namespace, injected_at)
+        bundle, counts = await collect_bundle(orch, namespace, injected_at)
         result = await asyncio.to_thread(
             plan,
             task_text(prob.app.name, namespace),
@@ -266,7 +297,7 @@ async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever,
     finally:
         remove_workload()
         reset(prob, problem_id, clean)
-    return result, first, bundle, injected
+    return result, first, bundle, counts, injected
 
 
 def retrievers(baselines: list[str], pool: bool, registry) -> dict:
@@ -370,9 +401,9 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
     reason = None
     if baseline in PLANNER:
-        bundle = None
+        bundle = counts = None
         if baseline == "notools":
-            result, first, bundle, injected = asyncio.run(
+            result, first, bundle, counts, injected = asyncio.run(
                 diagnose_without_tools(
                     orch, prob, problem_id, clean[namespace], chat, retriever[baseline], results_dir
                 )
@@ -406,6 +437,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                 {"tool": tool, "arguments": arguments, "output": output}
                 for tool, arguments, output in bundle
             ]
+            # the logs change, so the counts that chose them are kept for the audit
+            transcript["bundle_error_lines"] = counts
             transcript["config"] |= {
                 "tools": sorted(NOTOOLS_TOOLS),
                 "bundle_log_services": LOG_SERVICES,

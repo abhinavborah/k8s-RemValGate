@@ -4,13 +4,16 @@ bundle, and the diagnostics of a run read from its transcript.
 The arm notools runs the untuned planner with retrieval configuration (iii), as baseline 3c does,
 with get_logs, get_metrics and get_traces removed and read-only exec_shell (kubectl get and
 describe) kept. In their place the harness collects a fixed bundle once, right after the first
-observation: get_metrics and get_traces of the namespace, and get_logs of each Deployment whose
-pods are not healthy then, sorted by name, at most LOG_SERVICES. Other kinds are left out, because
-AIOpsLab's get_logs finds a pod by a label holding the service name (app in Social Network,
-io.kompose.service in Hotel Reservation), which equals the Deployment's name in both applications
-at the pinned aiopslab-applications commit (8038be6: Social Network's base Deployment template, and
-the geo and rate manifests of Hotel Reservation). The rule reads only the pod status the planner
-could also see, and never the problem's fault type or target.
+observation: get_metrics and get_traces of the namespace, and get_logs of the LOG_SERVICES
+Deployments with the most error lines logged since the injection, ties by name, leaving out any
+with none. A line is an error line when it holds one of ERROR_WORDS, ignoring case. Only lines
+since the injection count, since a reset does not restart the services that called the faulty one,
+so the errors an earlier problem made them log stay in their logs. Only Deployments are read,
+because AIOpsLab's get_logs finds a pod by a label holding the service name (app in Social
+Network, io.kompose.service in Hotel Reservation), which equals the Deployment's name in both
+applications at the pinned aiopslab-applications commit (8038be6: Social Network's base Deployment
+template, and the geo and rate manifests of Hotel Reservation). The rule reads only logs the
+planner could also read, and never the problem's fault type or target.
 
 diagnostics describes one run of either arm: how its loop stopped, its turns and refused turns, its
 tool calls by name (a call to a removed tool is counted, and was refused), its completion tokens
@@ -18,25 +21,29 @@ and model time, its largest prompt in tokens as the server counted it (None in t
 predate the count), and the size of its bundle.
 """
 
+import re
 from collections import Counter
 from collections.abc import Mapping
 
-from remvalgate.harness.harm import Status
-
 # the most Deployments whose logs go into the bundle
 LOG_SERVICES = 3
+# matched anywhere in a line, so fail also matches failed and failure
+ERROR_WORDS = re.compile(r"error|fail|refused|timeout", re.IGNORECASE)
 
 
-def unready_services(status: Mapping[str, Status], limit: int = LOG_SERVICES) -> list[str]:
-    """The names of the Deployments whose workload is unhealthy, sorted, at most limit.
+def error_lines(text: str) -> int:
+    """The number of lines of text that hold an error word."""
+    return sum(1 for line in text.splitlines() if ERROR_WORDS.search(line))
 
-    status is parse_pods of the namespace, keyed as harm keys a workload.
+
+def noisiest_services(counts: Mapping[str, int], limit: int = LOG_SERVICES) -> list[str]:
+    """The Deployments with the most error lines, at most limit, ties by name.
+
+    counts maps a Deployment's name to its error lines since the injection; one with none is left
+    out, so a quiet namespace gives no logs.
     """
-    return sorted(
-        key.removeprefix("Deployment/")
-        for key, s in status.items()
-        if key.startswith("Deployment/") and not s.healthy
-    )[:limit]
+    noisy = [name for name, count in counts.items() if count > 0]
+    return sorted(noisy, key=lambda name: (-counts[name], name))[:limit]
 
 
 def diagnostics(transcript: Mapping) -> dict:

@@ -6,6 +6,9 @@ retrieval configuration (iii) but receives a fixed telemetry bundle collected at
 proposes an action without calling get_logs, get_metrics or get_traces; it is compared with
 baseline 3c on diagnosis accuracy and single-action recovery."
 
+The planner keeps read-only `kubectl`, so this is an ablation of the interactive telemetry tools,
+not of tool calling as a whole (see What is removed).
+
 This file fixes the rules before the first touch. Slice: the primary pool. Threshold: none, the
 results are descriptive. Each run on a pool problem logs a touch. Unlike the retrieval ablation
 (R4.4, [rag_ablation.md](rag_ablation.md)), this one needs new runs.
@@ -34,7 +37,10 @@ single-action execution path. Only the tools and the bundle differ. It is the ar
 `get_logs`, `get_metrics` and `get_traces` are removed. `exec_shell` stays, read only as in 3c:
 during diagnosis it runs `kubectl get` and `kubectl describe` only. The proposal names the three
 telemetry tools, while the issue's first text said "no tool calls". Where the two differ, the
-proposal governs ([brd.md](brd.md)). Chosen 2026-11-12, not yet group-confirmed.
+proposal governs ([brd.md](brd.md)). Chosen 2026-11-12, not yet group-confirmed. A run with no
+tools at all, one model call over a fixed bundle, would also take away `kubectl get` and
+`describe`, which is how the planner finds the faulty object, so it would change two things at
+once. It is a different comparison and would be a separate arm, not this one.
 
 The system prompt changes in two places. Its tool list holds `exec_shell` only, and one sentence
 changes:
@@ -63,9 +69,17 @@ The harness makes these calls once, in this order:
 
 1. `get_metrics` of the namespace;
 2. `get_traces` of the namespace;
-3. `get_logs` of each Deployment whose pods are not healthy at that point, by the harness pod
-   status, sorted by name, at most 3 (`unready_services` and `LOG_SERVICES` in
-   `src/remvalgate/harness/tool_ablation.py`).
+3. `get_logs` of the 3 Deployments with the most error lines logged since the injection, ties by
+   name, leaving out any with none (`ERROR_WORDS`, `error_lines`, `noisiest_services` and
+   `LOG_SERVICES` in `src/remvalgate/harness/tool_ablation.py`). An error line holds error, fail,
+   refused or timeout, ignoring case. The lines since the injection are read with
+   `kubectl logs deploy/<name> --since-time=<injection>`, one pod per Deployment, and every
+   Deployment's count is kept in the transcript as `bundle_error_lines`.
+
+Only the lines since the injection count, because a reset does not restart the services that
+called the faulty one, so the errors an earlier problem of the run made them log stay in their
+logs. The bundle then shows each chosen Deployment's `get_logs` output as the tool returns it, the
+whole log, and the cut below keeps its end, the most recent lines.
 
 Metrics and traces get the summaries the tools give the planner in 3c (`preview` in
 `src/remvalgate/planner/telemetry.py`), and the trace summary keeps only spans that started after
@@ -78,30 +92,35 @@ under the heading "Telemetry collected at injection:". Each part is the call in 
 form, then its output, cut at 4000 characters as the loop cuts a tool's output: the end of a log is
 kept, the start of the others. The retrieval query is still the first observation only.
 
-The log rule was chosen on 2026-11-12 and is not yet group-confirmed. Considered and not chosen:
-the logs of each application's entry service (`nginx-thrift`, `frontend`), and no logs at all.
+The log rule was set in review on 2026-11-12, before any run, and is not yet group-confirmed. It
+replaced a first rule, the logs of the Deployments whose pods were not healthy, which gave the
+TargetPortMisconfig problems no logs, although a caller's error log is the deciding evidence there:
+in the larger planner check the 9B read `text-service` logs reporting "Failed to connect
+user-mention-service" ([larger_planner_check.md](larger_planner_check.md)). Counting the lines since
+the injection follows evidence packages that rank entities by what changed during the fault (Bi et
+al., arXiv 2610.35767, read in part). Considered and not chosen: the count over the whole log,
+which old errors from earlier problems can lead; the logs of each application's entry service
+(`nginx-thrift`, `frontend`); and no logs at all.
 
 ### Known gaps, stated in advance
 
-From how each fault shows in pod status (`fault_shows` in `src/remvalgate/harness/oracle.py`):
+What each fault is expected to leave in the logs, from how it shows in pod status (`fault_shows` in
+`src/remvalgate/harness/oracle.py`). The transcripts record the real bundle and every count.
 
-- TargetPortMisconfig changes a Service only and leaves every pod healthy, so its bundle holds no
-  logs (6 problems).
-- A ScalePod Deployment scaled to zero has no pod. The pod status does not list it, so the bundle
-  holds no logs of it (3 problems).
-- An AssignNonExistentNode pod is Pending, with no running container to read logs from. `get_logs`
-  is expected to fail on it and return AIOpsLab's error text, `Error: Your service/namespace does
-  not exist. Use kubectl to check.`, which the bundle keeps as the tool returned it (3 problems).
-  The dry run's AssignNonExistentNode problem shows what it returns.
-- In the 4 MongoDB problems the harness waits until the failing geo or rate client is not ready, so
-  that Deployment is expected among the unready ones and its logs in the bundle. That is evidence
-  3c could fetch with one call. `get_logs` finds the pod by the label `io.kompose.service`, which
-  equals the Deployment's name in the geo and rate manifests at the pinned aiopslab-applications
-  commit `8038be6` (Social Network's base Deployment template sets `app` the same way). No
-  development problem runs in `test-hotel-reservation`, so no dry run sees these logs (see the dry
-  run).
-
-So on this rule the bundle is expected to hold logs on the 4 MongoDB problems only.
+- TargetPortMisconfig changes a Service only, so its pods stay healthy and log nothing about it. The
+  services that call it are expected to log failed connections, and their logs to be chosen (6
+  problems).
+- ScalePod leaves the scaled Deployment with no pod to read. Its callers are expected to log failed
+  connections (3 problems).
+- An AssignNonExistentNode pod is Pending, so `kubectl logs` reads nothing from it and it counts no
+  error line. Callers that log failures are chosen instead (3 problems).
+- In the 4 MongoDB problems the geo or rate client cannot log in to its database and is expected to
+  log that. That is evidence 3c could fetch with one call. `get_logs` finds the pod by the label
+  `io.kompose.service`, which equals the Deployment's name in the geo and rate manifests at the
+  pinned aiopslab-applications commit `8038be6` (Social Network's base Deployment template sets
+  `app` the same way).
+- A service that logs error words in normal operation can take one of the 3 places, and where no
+  caller logs a failure the bundle holds no logs.
 
 ## Rules
 
@@ -190,6 +209,9 @@ The 3 development problems use the synthetic stub corpus and take no touch. The 
 that:
 
 - the bundle holds metrics and trace summaries, not errors;
+- the counts in `bundle_error_lines` look sound, and on the TargetPortMisconfig problem a caller of
+  the misconfigured service is among the chosen logs, with its log and not
+  `Error: Your service/namespace does not exist. Use kubectl to check.`;
 - the planner answers;
 - the cluster is unchanged after each problem;
 - the largest prompt of any turn, `max_prompt_tokens` in the diagnostics (the server's own count),
@@ -197,14 +219,11 @@ that:
   checked ([backup_host.md](backup_host.md)), so a prompt near the limit stops the run for a look
   before any touch.
 
-It cannot check the logs. The 3 problems all run in `test-social-network`, and none puts a running
-container's logs in the bundle: TargetPortMisconfig and ScalePod leave no unhealthy Deployment,
-and the AssignNonExistentNode pod is Pending, so its `get_logs` is expected to return the error
-text above.
-AIOpsLab returns the same text when no pod matches the name (`aiopslab/orchestrator/actions/base.py`
-at `576c3f0`), so the dry run cannot tell the two apart. The label lookup is checked before the
-first touch instead (above). The bundle's logs are first collected on a MongoDB pool problem, with
-a touch, and so is any bundle in `test-hotel-reservation`.
+AIOpsLab's `get_logs` returns that error text whenever it cannot read a log, also when no pod
+matches the name (`aiopslab/orchestrator/actions/base.py` at `576c3f0`). The 3 problems all run in
+`test-social-network`, so no dry run reads a log in `test-hotel-reservation`. The label lookup
+there is checked before the first touch instead (above), and its first logs come from a MongoDB
+pool problem, with a touch.
 
 ## The run
 
@@ -261,9 +280,9 @@ Not run yet.
 - 3c ran on 2026-11-08 on its own injections. notools runs later on new ones, so the two arms differ
   in date and injection as well as in the tools.
 - The comparison needs the host and model server of the 3c run.
-- The bundle rule is one choice. On it, the bundle is expected to hold logs on the 4 MongoDB
-  problems only. On the other 12 it holds the metrics and trace summaries and at most AIOpsLab's
-  error text.
+- The bundle rule is one choice, set in review before the run. A service that logs error words in
+  normal operation can take a place, and a fault whose callers log nothing leaves the bundle with no
+  logs.
 - The bundle adds up to about 20 thousand characters, five parts of at most 4000, to the prompt of
   every turn. The notools run records its prompt tokens, and 3c's run did not, so the two arms'
   context use is not compared.
