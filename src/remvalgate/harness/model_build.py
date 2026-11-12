@@ -8,7 +8,8 @@ including a mix of runs with a recorded build and runs without one (written befo
 existed).
 
 It also records the server's sampling defaults, which apply to every parameter a request does not
-send (chat.py sends temperature, top-p and top-k only): the `config` fields of the model's hub
+send (chat.py sends temperature, top-p, top-k and, since #161, the presence penalty, so
+the hub's presencePenalty is recorded but no longer applied): the `config` fields of the model's hub
 `model.yaml`, and the per-model override LM Studio keeps, if any.
 
 Not reported by `lms ps`: GPU offload. It is left out rather than guessed.
