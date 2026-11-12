@@ -121,6 +121,7 @@ from run_oracle_labels import (
     objects,
     reset,
     wait_for_fault,
+    wait_for_mongod,
 )
 from run_planner_dev import MODEL, prometheus_port_forward, remove_workload, start_workload
 
@@ -223,40 +224,6 @@ def logs_since(namespace: str, deployment: str, since: str) -> str:
     return done.stdout if done.returncode == 0 else ""
 
 
-MONGOD_WAIT_S = 180
-
-
-def wait_for_mongod(namespace: str) -> None:
-    """Wait until every MongoDB Deployment of the namespace answers a ping, before an injection.
-
-    The reset deletes the MongoDB pod and waits until the pods run, but the MongoDB Deployments have
-    no readiness probe, so the next injection could reach the new pod before mongod listened, fail
-    with "Connection refused" and leave no fault (2026-11-12, revoke_auth_mongodb-mitigation-1,
-    twice). This only waits; it changes no injection, planner, bundle or outcome step, and a ping
-    needs no login. Used by the notools arm on the database faults only.
-    """
-    names = [
-        n
-        for n in kubectl(
-            "-n", namespace, "get", "deploy", "-o", "jsonpath={.items[*].metadata.name}"
-        ).stdout.split()
-        if n.startswith("mongodb-")
-    ]
-    deadline = time.monotonic() + MONGOD_WAIT_S
-    for name in names:
-        while True:
-            done = subprocess.run(
-                ["kubectl", "--context", CONTEXT, "-n", namespace, "exec", f"deploy/{name}", "--"]
-                + ["mongo", "--quiet", "--eval", "db.runCommand({ping: 1}).ok"],
-                capture_output=True,
-                text=True,
-            )
-            if done.returncode == 0 and done.stdout.strip().endswith("1"):
-                break
-            check(time.monotonic() < deadline, f"{namespace}/{name}: mongod did not answer a ping")
-            time.sleep(2)
-
-
 async def collect_bundle(orch, namespace: str, injected_at: int):
     """The fixed telemetry bundle of the notools arm, taken once right after the first observation,
     and the error lines each Deployment logged since the injection, which chose its logs.
@@ -283,8 +250,8 @@ async def collect_bundle(orch, namespace: str, injected_at: int):
     return bundle, counts
 
 
-# a copy of diagnose kept apart on purpose, so that 3c's code path stays byte-identical to the run
-# this arm is compared with; a fix to one belongs in both
+# a copy of diagnose kept apart, so that diagnose, which the oracle labels also run, gains no
+# parameter for these arms; a fix to one belongs in both (#165 reruns 3c with this code)
 async def diagnose_without_tools(
     orch, prob, problem_id, clean, chat, retriever, results_dir, tools, with_bundle
 ):
@@ -568,9 +535,6 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     verdict = check_chain(command, POLICY, namespace) if command else None
     records, outcome, note = [], None, None
     if verdict is not None and verdict.admitted:
-        # the reset after the diagnosis restarted the MongoDB pod; the execution injects again
-        if baseline in ABLATION and fault_type(problem_id) in DATABASE_TYPES:
-            wait_for_mongod(namespace)
         try:
             outcome = execute(
                 orch, prob, problem_id, command, clean[namespace], injected, results_dir, records

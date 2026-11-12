@@ -89,9 +89,13 @@ def main() -> int:
     pool = {i for i, s in registry.slices.items() if s is Slice.POOL}
 
     runs: dict[str, tuple[dict, dict, dict]] = {}
+    skipped = Counter()
     for path in args.results:
         result = _read(path)
-        if result["baseline"] not in ARMS or result["run_id"] in runs:
+        if result["baseline"] not in ARMS:
+            skipped[result["baseline"]] += 1
+            continue
+        if result["run_id"] in runs:
             continue
         runs[result["run_id"]] = (
             result,
@@ -99,6 +103,9 @@ def main() -> int:
             _read(_beside(path, ".transcript.json")),
         )
 
+    if skipped:
+        # said aloud, so a run of another arm is never taken as read (#165 step 0)
+        print(f"skipped, not compared here: {dict(sorted(skipped.items()))}", file=sys.stderr)
     try:
         check_one_build((m for _, m, _ in runs.values()), "the arms")
         by_seed = split_by_seed(runs, ARMS)
