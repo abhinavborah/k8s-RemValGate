@@ -302,3 +302,28 @@ Not run yet.
 - The bundle adds up to about 20 thousand characters, five parts of at most 4000, to the prompt of
   every turn. The notools run records its prompt tokens, and 3c's run did not, so the two arms'
   context use is not compared.
+
+## Added on 2026-11-12: the 2 by 2
+
+The run above changed two things at once: it removed the telemetry tools and added the bundle. Its
+diagnosis gain sits on the 6 TargetPort problems, where the bundle's top log names the faulty
+service and 3c never read that log (0 of 6 runs). So it cannot tell whether the tools hurt or the
+bundle helps. Two arms are added so each factor is varied alone:
+
+| | no bundle | bundle |
+|---|---|---|
+| telemetry tools | 3c | `toolsbundle` (new) |
+| read-only kubectl only | `kubectlonly` (new) | `notools` |
+
+- `scripts/run_baselines_pool.py`: `--baseline toolsbundle` keeps 3c's tools and adds the bundle;
+  `--baseline kubectlonly` keeps `exec_shell` only, with no bundle. Both use the notools path
+  (injection, wait, first observation, reset, and the MongoDB wait on the database faults).
+- `src/remvalgate/planner/loop.py`: a bundle may now come with the telemetry tools; the prompt then
+  says the tools can fetch more, instead of that no tool fetches telemetry.
+- `scripts/summarize_tool_ablation.py`: reads any of the 4 arms (3c and at least one other) and
+  compares each pair that differs in one factor: the tools with and without the bundle, the bundle
+  with and without the tools, and both together. On the runs above it gives the same numbers.
+
+All 4 arms run in the interleaved batch of #165, at 2 seeds, with the fixes of #162, #163 and #164
+and the protocol of #161. The run above stays as the first run and is superseded by that batch; the
+log rule of the bundle stays as it is, chosen after the dry run, as disclosed above.

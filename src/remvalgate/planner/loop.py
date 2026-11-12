@@ -209,6 +209,15 @@ _BUNDLE_NOTE = (
     "Logs, metrics and traces were collected once at injection and are given with the task; no "
     "tool fetches them."
 )
+# the same note for an arm that keeps the telemetry tools (toolsbundle, #38)
+_BUNDLE_NOTE_WITH_TOOLS = (
+    "Logs, metrics and traces were collected once at injection and are given with the task; the "
+    "telemetry tools can fetch more."
+)
+
+
+def _bundle_note(tools: frozenset[str]) -> str:
+    return _BUNDLE_NOTE_WITH_TOOLS if tools & TELEMETRY_TOOLS else _BUNDLE_NOTE
 
 
 def _system_prompt(
@@ -227,13 +236,14 @@ def _base_prompt(
 ) -> str:
     tool_lines = "\n".join(f"- {_TOOL_HELP[t].replace('NS', namespace)}" for t in sorted(tools))
     fault_lines = "\n".join(f"- {name}: {text}" for name, text in FAULT_TYPES.items())
+    note = _bundle_note(tools) if bundled else _TELEMETRY_ADVICE
     return (
         f"You are an on-call engineer diagnosing a fault in the Kubernetes namespace {namespace}.\n"
         "Each turn, reply with exactly one JSON object and nothing else.\n"
         f"Tools:\n{tool_lines}\n"
         f"Fault types:\n{fault_lines}\n"
         "Start with kubectl get deployments and pods to find a workload that is missing, not "
-        f"ready or Pending, then describe it. {_BUNDLE_NOTE if bundled else _TELEMETRY_ADVICE}\n"
+        f"ready or Pending, then describe it. {note}\n"
         "To finish, reply with "
         '{"final": {"fault_type": F, "service": S, "reason": R, "command": C}} where F is one of '
         "the fault types above, S is the exact name of the faulty service, R is one sentence, "
@@ -348,7 +358,7 @@ def plan(
 ) -> Plan:
     """Run the loop. Raises RetrieverRefused for a problem the retriever does not serve, and
     ValueError for a tool that has no help text here or no schema, or for a bundle that holds a
-    call of another tool or comes with a telemetry tool still in tools.
+    call of another tool.
 
     observation is one read-only look at the cluster after the injection, taken by the caller.
     The model is shown it, and it is the retrieval query, so retrieval depends on the problem.
@@ -359,15 +369,13 @@ def plan(
 
     bundle holds the (tool, arguments, output) calls of get_logs, get_metrics and get_traces that
     the harness made once at injection. Each is shown in the task prompt after the cluster state,
-    as the call and then its output cut as a tool's output is, and the system prompt says no tool
-    fetches telemetry. A bundle replaces those tools, so tools must not hold them, and it is never
-    part of the retrieval query.
+    as the call and then its output cut as a tool's output is. With no telemetry tool in tools
+    (notools) the system prompt says no tool fetches telemetry; with them (toolsbundle, the 2 by 2
+    of #38) it says the tools can fetch more. A bundle is never part of the retrieval query.
     """
     unsupported = (tools - _TOOL_HELP.keys()) | (tools - schemas.tools.keys())
     if unsupported:
         raise ValueError(f"no help text or no schema for tools {sorted(unsupported)}")
-    if bundle and tools & TELEMETRY_TOOLS:
-        raise ValueError(f"a bundle replaces the tools {sorted(tools & TELEMETRY_TOOLS)}")
     foreign = {tool for tool, _, _ in bundle} - TELEMETRY_TOOLS
     if foreign:
         raise ValueError(f"a bundle holds telemetry calls only, not {sorted(foreign)}")

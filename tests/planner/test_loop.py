@@ -671,8 +671,6 @@ def test_the_bundle_is_never_part_of_the_retrieval_query():
 @pytest.mark.parametrize(
     ("tools", "item", "match"),
     [
-        # a bundle replaces the telemetry tools, so it cannot come with the default tool set
-        (DEFAULT_TOOLS, BUNDLE[0], "a bundle replaces"),
         (
             EXEC_ONLY,
             ("exec_shell", {"command": f"kubectl -n {NS} get pods"}, "x"),
@@ -700,3 +698,13 @@ def test_with_a_bundle_a_telemetry_call_is_refused_and_the_prompt_says_none_is_f
     assert not any(name in system for name in TELEMETRY_TOOLS)
     plain, _, _ = run([final()], tools=EXEC_ONLY)
     assert system == plain.system_prompt.replace(ADVICE, NOTE)
+
+
+def test_a_bundle_can_come_with_the_telemetry_tools_and_the_prompt_says_they_fetch_more():
+    # the toolsbundle arm of the 2 by 2 (#38): tools kept, bundle added
+    result, _, chat = run([final()], tools=DEFAULT_TOOLS, bundle=BUNDLE)
+    system = chat.seen[0][0]["content"]
+    assert "the telemetry tools can fetch more" in system
+    assert "no tool fetches them" not in system
+    _, _, chat = run([final()], tools=EXEC_ONLY, bundle=BUNDLE)
+    assert "no tool fetches them" in chat.seen[0][0]["content"]

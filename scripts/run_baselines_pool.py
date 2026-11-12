@@ -148,7 +148,7 @@ from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan, task_text
+from remvalgate.planner.loop import DEFAULT_TOOLS, plan, task_text
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever, pool_retriever
 
@@ -156,10 +156,17 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
 CONTEXT = "kind-kind"
-BASELINES = ("1", "2", "3a", "3b", "3c", "notools")
-PLANNER = ("3a", "3b", "3c", "notools")
+BASELINES = ("1", "2", "3a", "3b", "3c", "notools", "toolsbundle", "kubectlonly")
+PLANNER = ("3a", "3b", "3c", "notools", "toolsbundle", "kubectlonly")
 # the ablation without interactive tools keeps read-only exec_shell (proposal version 2, VI)
 NOTOOLS_TOOLS = frozenset({"exec_shell"})
+# the arms of the 2 by 2 tool ablation besides 3c (tools, no bundle): their tools and whether the
+# harness collects the bundle (#38, #165)
+ABLATION = {
+    "notools": (NOTOOLS_TOOLS, True),
+    "toolsbundle": (DEFAULT_TOOLS, True),
+    "kubectlonly": (NOTOOLS_TOOLS, False),
+}
 # the summary limit the tool outputs of 3c's run get (run_tool in scripts/run_oracle_labels.py)
 PREVIEW_CHARS = 4000
 # pre-stated before the run: differs from the labelling run's seed 0, so the R check compares two
@@ -275,7 +282,9 @@ async def collect_bundle(orch, namespace: str, injected_at: int):
 
 # a copy of diagnose kept apart on purpose, so that 3c's code path stays byte-identical to the run
 # this arm is compared with; a fix to one belongs in both
-async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever, results_dir):
+async def diagnose_without_tools(
+    orch, prob, problem_id, clean, chat, retriever, results_dir, tools, with_bundle
+):
     """diagnose of scripts/run_oracle_labels.py with no candidates and the telemetry tools replaced
     by the bundle: the same injection, workload, wait, first observation, check and reset.
 
@@ -312,7 +321,9 @@ async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever,
             return preview(tool, future.result(), PREVIEW_CHARS, since=injected_at)
 
         first = await orch.ask_env(exec_shell(f"kubectl -n {namespace} get deployments,pods"))
-        bundle, counts = await collect_bundle(orch, namespace, injected_at)
+        bundle, counts = (
+            await collect_bundle(orch, namespace, injected_at) if with_bundle else ([], {})
+        )
         result = await asyncio.to_thread(
             plan,
             task_text(prob.app.name, namespace),
@@ -324,7 +335,7 @@ async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever,
             retriever=retriever,
             policy=POLICY,
             schemas=SCHEMAS,
-            tools=NOTOOLS_TOOLS,
+            tools=tools,
             bundle=bundle,
         )
         orch.session.end()
@@ -341,7 +352,7 @@ def retrievers(baselines: list[str], pool: bool, registry) -> dict:
     iii = None
     chosen = {}
     for b in baselines:
-        if b in ("2", "3c", "notools"):
+        if b in ("2", "3c", *ABLATION):
             iii = iii or (pool_retriever if pool else development_retriever)(registry)
             chosen[b] = iii
         elif b in ("3a", "3b"):
@@ -355,9 +366,7 @@ def main() -> int:
     parser.add_argument(
         "--baseline", action="append", choices=BASELINES, required=True, help="repeatable"
     )
-    parser.add_argument(
-        "--model-version", help="format and quantization served (3a, 3b, 3c, notools)"
-    )
+    parser.add_argument("--model-version", help="format and quantization served (planner arms)")
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
@@ -365,7 +374,7 @@ def main() -> int:
     baselines = list(dict.fromkeys(args.baseline))
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
-        parser.error("--model-version is needed for 3a, 3b, 3c and notools")
+        parser.error("--model-version is needed for the planner arms")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
@@ -424,7 +433,7 @@ def main() -> int:
 
 def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes) -> dict:
     now = datetime.now(UTC)
-    prefix = "notools" if baseline == "notools" else f"baseline{baseline}"
+    prefix = baseline if baseline in ABLATION else f"baseline{baseline}"
     run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
     namespace = logged_namespace(problem_id)
     # start_run refuses a pool run before its touch unless this is the problem's namespace
@@ -438,10 +447,19 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     reason = None
     if baseline in PLANNER:
         bundle = counts = None
-        if baseline == "notools":
+        if baseline in ABLATION:
+            tools, with_bundle = ABLATION[baseline]
             result, first, bundle, counts, injected = asyncio.run(
                 diagnose_without_tools(
-                    orch, prob, problem_id, clean[namespace], chat, retriever[baseline], results_dir
+                    orch,
+                    prob,
+                    problem_id,
+                    clean[namespace],
+                    chat,
+                    retriever[baseline],
+                    results_dir,
+                    tools,
+                    with_bundle,
                 )
             )
         else:
@@ -476,8 +494,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             # the logs change, so the counts that chose them are kept for the audit
             transcript["bundle_error_lines"] = counts
             transcript["config"] |= {
-                "tools": sorted(NOTOOLS_TOOLS),
-                "bundle_log_services": LOG_SERVICES,
+                "tools": sorted(ABLATION[baseline][0]),
+                "bundle_log_services": LOG_SERVICES if ABLATION[baseline][1] else 0,
             }
     else:
         found, injected = observe_fault(prob, problem_id, clean[namespace])
@@ -531,7 +549,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     records, outcome, note = [], None, None
     if verdict is not None and verdict.admitted:
         # the reset after the diagnosis restarted the MongoDB pod; the execution injects again
-        if baseline == "notools" and fault_type(problem_id) in DATABASE_TYPES:
+        if baseline in ABLATION and fault_type(problem_id) in DATABASE_TYPES:
             wait_for_mongod(namespace)
         try:
             outcome = execute(

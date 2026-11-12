@@ -1,8 +1,10 @@
 r"""The ablation without interactive tools (story E5-S3, #38, BRD R5.3), with no cluster and no
 model.
 
-Reads the result files of baseline 3c from the baseline-only run (#53) and of the arm notools
-(scripts/run_baselines_pool.py --baseline notools), each next to its transcript and its manifest.
+Reads the result files of the arms of the 2 by 2 (#38, run in #165): 3c (tools, no bundle),
+toolsbundle (tools and bundle), kubectlonly (neither) and notools (bundle, no tools), from
+scripts/run_baselines_pool.py, each next to its transcript and its manifest. 3c and at least one
+other arm are needed; each pair that differs in one factor is compared when both its arms ran.
 Prints for each arm the diagnosis accuracy, the fault-type accuracy and the single-action recovery
 over the problems it ran, the totals of its run diagnostics, the seeds, model, version, date and
 commit read from the result files and the manifests; the paired comparison of the two arms on the
@@ -15,8 +17,8 @@ scripts/summarize_rag_ablation.py: the touches were logged when the runs ran.
 
 A result file given twice, or found in two folders with the same run id, is read once, and the
 result files of any other baseline are skipped. Refuses a problem outside the pool, a manifest
-with uncommitted changes, a second run of one arm on one problem, an arm with no run, and an arm
-whose runs used more than one model build. The comparison is paired on one seed and one model
+with uncommitted changes, a second run of one arm on one problem, no 3c run or no other arm, and
+an arm whose runs used more than one model build. The comparison is paired on one seed and one model
 build, so it also refuses runs of the two arms at more than one seed or with more than one model
 build between them.
 
@@ -37,7 +39,20 @@ from remvalgate.harness.rag_ablation import FIELDS, paired, score, summary
 from remvalgate.harness.tool_ablation import diagnostics
 from remvalgate.retrieval.pool_corpus import incident
 
-ARMS = {"3c": "interactive tools", "notools": "fixed telemetry bundle"}
+ARMS = {
+    "3c": "interactive tools, no bundle",
+    "notools": "fixed telemetry bundle, no telemetry tools",
+    "toolsbundle": "interactive tools and the bundle",
+    "kubectlonly": "neither: read-only kubectl only",
+}
+# the 2 by 2 of #38 (#165): each pair differs in one factor, the tools or the bundle
+PAIRS = {
+    "tools, without the bundle (3c vs kubectlonly)": ("3c", "kubectlonly"),
+    "tools, with the bundle (toolsbundle vs notools)": ("toolsbundle", "notools"),
+    "bundle, with the tools (3c vs toolsbundle)": ("3c", "toolsbundle"),
+    "bundle, without the tools (kubectlonly vs notools)": ("kubectlonly", "notools"),
+    "both (3c vs notools)": ("3c", "notools"),
+}
 
 
 def _read(path: Path) -> dict:
@@ -117,18 +132,19 @@ def main() -> int:
             )
         )
     models = {a: {(name, version) for name, version, _, _ in builds[a]} for a in ARMS}
-    for arm in ARMS:
-        if not rows[arm]:
-            parser.error(f"{arm}: no result file was given")
+    present = [a for a in ARMS if rows[a]]
+    if "3c" not in present or len(present) < 2:
+        parser.error(f"3c and at least one other arm are needed, got {present}")
+    for arm in present:
         if len(models[arm]) > 1:
             parser.error(f"{arm}: runs used more than one model build")
     # the comparison is paired on one seed and one model build
     for what, by_arm in (("seed", seeds), ("model build", models)):
         if len(set().union(*by_arm.values())) > 1:
-            got = ", ".join(f"{a} {sorted(by_arm[a])}" for a in ARMS)
+            got = ", ".join(f"{a} {sorted(by_arm[a])}" for a in present)
             parser.error(f"the arms need one {what} between them, got {got}")
 
-    shared = found["3c"].keys() & found["notools"].keys()
+    shared = set.intersection(*(set(found[a]) for a in present))
     out = {
         "arms": {
             a: {
@@ -144,19 +160,21 @@ def main() -> int:
                 **summary(rows[a]),
                 "diagnostics": _totals(list(found[a].values())),
             }
-            for a in ARMS
+            for a in present
         },
         "paired_left_out": sorted(pool - shared),
-        # paired compares the problems both arms ran
+        # each pair compares the problems both arms ran; a pair with an arm absent is left out
         "paired": {
-            "3c vs notools": {f: paired(rows["3c"], rows["notools"], f) for f in FIELDS},
+            name: {f: paired(rows[a], rows[b], f) for f in FIELDS}
+            for name, (a, b) in PAIRS.items()
+            if a in present and b in present
         },
         "problems": {},
     }
-    for a in ARMS:
+    for a in present:
         for r in rows[a]:
             # an arm that did not run the problem stays None
-            entry = out["problems"].setdefault(r.problem_id, dict.fromkeys(ARMS))
+            entry = out["problems"].setdefault(r.problem_id, dict.fromkeys(present))
             entry[a] = {
                 "has_diagnosis": r.has_diagnosis,
                 **{f: getattr(r, f) for f in FIELDS},
