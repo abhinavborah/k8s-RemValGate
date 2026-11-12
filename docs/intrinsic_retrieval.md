@@ -144,24 +144,38 @@ is superseded.
 
 Second run (`query_forms-20261112t165146z.json`, 16 touches):
 
-| Form | Hit@3 of (iii) | Same top 3, pooled | Mean per-problem share |
-|---|---|---|---|
-| raw | 7 / 16 | 32 / 66 | 0.500 |
-| without AGE | 7 / 16 | 44 / 66 | 0.688 |
-| without AGE and RESTARTS | 6 / 16 | 57 / 66 | 0.875 |
-| also without pod ids | 6 / 16 | 63 / 66 | 0.958 |
+Each form scored with (iii) on the recorded queries (fault-type label, all 16), and its stability:
+
+| Form | Hit@1 | Hit@3 | MRR | Recall@3 | Same top 3, pooled | Mean per-problem share |
+|---|---|---|---|---|---|---|
+| raw | 3 | 7 | 0.404 | 0.229 | 32 / 66 | 0.500 |
+| without AGE | 3 | 7 | 0.387 | 0.219 | 44 / 66 | 0.688 |
+| without AGE and RESTARTS | 3 | 6 | 0.380 | 0.187 | 57 / 66 | 0.875 |
+| also without pod ids | 3 | 6 | 0.359 | 0.187 | 63 / 66 | 0.958 |
+
+The raw row equals (iii) in the Results table above, as it should.
 
 The rule chose the last form, as in the first run, and retrieval now uses it in the planner and in
 these metrics (`retrieval_query`). The model still sees the observation as it is.
 
-Recomputed with that form (`intrinsic-20261112t165408z.json`, 16 touches), fault-type label, all
-16:
+Recomputed with that form (`intrinsic-20261112t165408z.json`, 16 touches), fault-type label, each
+cell as raw form (the Results table above) / chosen form:
 
-| Configuration | Hit@1 | Hit@3 | MRR | Recall@3 |
-|---|---|---|---|---|
-| (ii) dense | 3 | 7 | 0.381 | 0.187 |
-| (iii) dense + reranker | 3 | 6 | 0.359 | 0.187 |
-| (iv) hybrid + reranker | 3 | 5 | 0.363 | 0.167 |
+| Configuration | Group | Hit@1 | Hit@3 | MRR | Recall@3 |
+|---|---|---|---|---|---|
+| (ii) dense | all 16 | 5 / 3 | 9 / 7 | 0.497 / 0.381 | 0.271 / 0.187 |
+| (iii) dense + reranker | all 16 | 3 / 3 | 7 / 6 | 0.404 / 0.359 | 0.229 / 0.187 |
+| (iv) hybrid + reranker | all 16 | 3 / 3 | 6 / 5 | 0.387 / 0.363 | 0.198 / 0.167 |
+| (ii) dense | database 4 | 2 / 0 | 3 / 0 | 0.619 / 0.115 | 0.375 / 0.000 |
+| (iii) dense + reranker | database 4 | 0 / 0 | 2 / 1 | 0.348 / 0.135 | 0.250 / 0.125 |
+| (iv) hybrid + reranker | database 4 | 0 / 0 | 1 / 0 | 0.281 / 0.133 | 0.125 / 0.000 |
+| (ii) dense | TargetPortMisconfig 6 | 0 / 0 | 1 / 2 | 0.232 / 0.278 | 0.028 / 0.056 |
+| (iii) dense + reranker | TargetPortMisconfig 6 | 0 / 0 | 0 / 1 | 0.193 / 0.247 | 0.000 / 0.028 |
+| (iv) hybrid + reranker | TargetPortMisconfig 6 | 0 / 0 | 0 / 0 | 0.192 / 0.225 | 0.000 / 0.000 |
+
+Every configuration loses on all 16 and on the 4 database queries, and (ii) and (iii) gain on the 6
+TargetPortMisconfig queries. The form was chosen for stability across runs, at a cost the rule
+allowed (Hit@3 of (iii) at most 1 below raw); the database rows carry most of that cost.
 
 (iii) was fixed before any query was scored (gate G5, #35), not chosen by these metrics, so the
 choice stands. Under this form (ii) has one more Hit@3 than (iii), as it had under the raw form
