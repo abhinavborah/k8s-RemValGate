@@ -56,3 +56,10 @@ def test_the_rule_keeps_forms_within_one_query_of_raw_and_picks_the_most_stable(
     assert choose(quality, stability) == "no_age_restarts"
     # a tie keeps the form that changes the query least
     assert choose(quality, dict.fromkeys(FORMS, 0.5)) == "raw"
+
+
+def test_retrieval_uses_the_chosen_form():
+    from remvalgate.retrieval.query_form import QUERY_FORM, retrieval_query
+
+    assert QUERY_FORM == "no_age_restarts_pod_ids"
+    assert retrieval_query(OBSERVATION) == query_in_form(OBSERVATION, QUERY_FORM)

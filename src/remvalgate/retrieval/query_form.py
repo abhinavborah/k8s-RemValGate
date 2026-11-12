@@ -4,8 +4,8 @@ The observation carries columns that change from run to run of one problem: AGE 
 Deployment or pod has existed) and RESTARTS (how often a container restarted, with how long ago).
 #164 compares the raw text with forms that drop them, so retrieval depends on the fault and less on
 how long the cluster has been up. Pod names also end in random ids (the ReplicaSet hash and the pod
-id), new for every pod, so one form drops those too. strip_columns removes named columns from each kubectl table,
-using the header's column positions, which kubectl pads to the widest value.
+id), new for every pod, so one form drops those too. strip_columns removes named columns from each
+kubectl table, using the header's column positions, which kubectl pads to the widest value.
 """
 
 import re
@@ -61,3 +61,13 @@ def choose(quality: dict[str, int], stability: dict[str, float]) -> str:
     kept = [f for f in FORMS if quality[f] >= quality["raw"] - MARGIN]
     best = max(stability[f] for f in kept)
     return next(f for f in kept if stability[f] == best)
+
+
+# the form #164 chose (runs/query_forms/query_forms-20261112t145249z.json): Hit@3 6 of 16 against
+# raw's 7, and the same top 3 as the recorded query in 63 of 66 past runs against raw's 32
+QUERY_FORM = "no_age_restarts_pod_ids"
+
+
+def retrieval_query(observation: str, form: str = QUERY_FORM) -> str:
+    """The query retrieval runs on: the first observation in the chosen form."""
+    return query_in_form(observation, form)

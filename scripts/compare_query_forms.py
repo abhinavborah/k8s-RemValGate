@@ -111,7 +111,7 @@ def main() -> int:
     report = {}
     for form in FORMS:
         shaped = {p: query_in_form(q, form) for p, q in queries.items()}
-        metrics = evaluate(shaped, registry, models)["configurations"]["iii"]
+        metrics = evaluate(shaped, registry, models, form="raw")["configurations"]["iii"]
         recorded = {p: top3(q, p) for p, q in shaped.items()}
         same = [
             (
