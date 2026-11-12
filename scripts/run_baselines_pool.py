@@ -52,7 +52,7 @@ Once the 3c rerun and the oracle labels exist, scripts/summarize_g3.py prints th
 R and the minimum gain with no cluster.
 
     uv run python scripts/run_baselines_pool.py --baseline 3c --model-version "<format and \
-        quantization>" [--baseline 1 ...] [--no-thinking] [--seed S] [--base-url URL] \
+        quantization>" [--baseline 1 ...] [--no-thinking] [--seed S ...] [--base-url URL] \
         [problem id ...]
 
 Recording for the replay (issue #53): record every pool run with a terminal capture and a
@@ -127,8 +127,10 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
+from remvalgate.harness.model_build import read_build
 from remvalgate.harness.oracle import DATABASE_TYPES
 from remvalgate.harness.outcome import classify, single_action_result
+from remvalgate.harness.protocol import interleaved
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend
 from remvalgate.planner.chat import OpenAIChat
@@ -191,10 +193,13 @@ def main() -> int:
     )
     parser.add_argument("--model-version", help="format and quantization served (3a, 3b, 3c)")
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--seed", type=int, action="append", help=f"repeatable (default {SEED}); see interleaved"
+    )
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
     args = parser.parse_args()
     baselines = list(dict.fromkeys(args.baseline))
+    seeds = list(dict.fromkeys(args.seed or [SEED]))
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for 3a, 3b and 3c")
@@ -220,7 +225,7 @@ def main() -> int:
         model=MODEL,
         base_url=args.base_url,
         thinking=args.thinking,
-        seed=args.seed,
+        seed=seeds[0],
         max_tokens=4096 if args.thinking else 1024,
     )
     namespaces = sorted({logged_namespace(i) for i in selected})
@@ -238,15 +243,23 @@ def main() -> int:
     print(f"cluster {CONTEXT}: {nodes} nodes, {len(selected)} problems, baselines {baselines}")
     forward = prometheus_port_forward() if uses_model else None
     try:
-        for baseline in baselines:
-            for problem_id in selected:
-                row = run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
-                # printed as it returns, so a later stop keeps the rows already classified
-                print(json.dumps(row, sort_keys=True), flush=True)
-                # every namespace of the run must be as it was before the run
-                for ns in namespaces:
-                    left = changed(clean[ns].objects, objects(ns))
-                    check(not left, f"{problem_id}: {ns} changed: {left}")
+        for seed, problem_id, baseline in interleaved(seeds, selected, baselines):
+            row = run_one(
+                baseline,
+                problem_id,
+                registry,
+                clean,
+                dataclasses.replace(chat, seed=seed),
+                retriever,
+                args,
+                nodes,
+            )
+            # printed as it returns, so a later stop keeps the rows already classified
+            print(json.dumps(row, sort_keys=True), flush=True)
+            # every namespace of the run must be as it was before the run
+            for ns in namespaces:
+                left = changed(clean[ns].objects, objects(ns))
+                check(not left, f"{problem_id}: {ns} changed: {left}")
     finally:
         if forward is not None:
             forward.terminate()
@@ -267,6 +280,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     prob = orch.probs.get_problem_instance(problem_id)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
     reason = None
+    # read before the injection, so a model that is not loaded stops the run with nothing touched
+    build = read_build(MODEL) if baseline in PLANNER else {}
     if baseline in PLANNER:
         result, _, first, injected = asyncio.run(
             diagnose(
@@ -277,7 +292,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                 chat,
                 retriever[baseline],
                 0,
-                args.seed,
+                chat.seed,
                 results_dir,
             )
         )
@@ -316,12 +331,13 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             else "no language model"
         ),
         model_date=now.strftime("%Y-%m-%d"),
-        seed=args.seed,
+        seed=chat.seed,
         k=1,
         r=1,
         aiopslab_commit=run.aiopslab_commit,
         cluster={"context": CONTEXT, "namespace": namespace, "nodes": nodes},
         timestamp=run.timestamp,
+        model_build=build if baseline in PLANNER else {},
         sampling=(
             {
                 **{
@@ -354,7 +370,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
         "run_id": run_id,
         "problem_id": problem_id,
         "baseline": baseline,
-        "seed": args.seed,
+        "seed": chat.seed,
         "command": command,
         "reason": reason,
         "allow_list": None if verdict is None else (verdict.reason or "admitted"),

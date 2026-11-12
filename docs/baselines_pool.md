@@ -125,3 +125,17 @@ slice.
 Every pool run is recorded with a terminal capture and a timestamped pod watch, uploaded to the
 shared drive beside its manifests. The steps are in the docstring of
 `scripts/run_baselines_pool.py`.
+
+## Added on 2026-11-12: run protocol for the reruns
+
+From #161, for every run after this date:
+- `--seed` is repeatable; the reruns use 1000 and 1001.
+- The arms run interleaved: seed by seed, every arm on one problem before the next problem, with the
+  first arm rotated (`src/remvalgate/harness/protocol.py`).
+- Each manifest of a planner run records `model_build`, read from the LM Studio host at run start
+  (`src/remvalgate/harness/model_build.py`): app version, CLI commit, selected GGUF engine, loaded
+  model, quantization, context length, parallel slots and the GGUF file's SHA-256. GPU offload is not
+  reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
+- The summaries refuse runs of one comparison served by different builds, including a mix of runs
+  with a recorded build and runs from before this date.
+- The runs above have no `model_build`, so they are not compared with the reruns.

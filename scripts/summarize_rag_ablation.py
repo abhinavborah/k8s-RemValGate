@@ -11,8 +11,11 @@ src/remvalgate/harness/rag_ablation.py. The truth is the problem's fault type
 (retrieval.pool_corpus.incident). No rollout runs, so no touch is logged.
 
 A result file given twice, or found in two folders with the same run id, is read once. Refuses a
-second run of one configuration on one problem, a problem outside the pool, a manifest with
-uncommitted changes, and a configuration whose runs used more than one model build.
+second run of one configuration on one problem at one seed, a problem outside the pool, a manifest
+with uncommitted changes, a configuration whose runs used more than one model build, and runs of
+different configurations served by different recorded builds (harness/model_build.py, #161).
+Runs at more than one seed (#161) are summarised seed by seed, and every configuration must have
+run the same seeds.
 
     uv run python scripts/summarize_rag_ablation.py --results <run folder>/baseline3*.result.json
 """
@@ -25,6 +28,7 @@ from pathlib import Path
 
 from remvalgate.harness.folds import fault_type
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
+from remvalgate.harness.model_build import check_one_build
 from remvalgate.harness.outcome import Outcome
 from remvalgate.harness.rag_ablation import CONFIGURATIONS, FIELDS, paired, score, summary
 from remvalgate.retrieval.pool_corpus import incident
@@ -57,6 +61,31 @@ def main() -> int:
             _read(_beside(path, ".transcript.json")),
         )
 
+    try:
+        check_one_build((m for _, m, _ in runs.values()), "the configurations")
+    except ValueError as error:
+        parser.error(str(error))
+    by_seed: dict[int, dict] = {}
+    for run_id, run in runs.items():
+        by_seed.setdefault(run[0]["seed"], {})[run_id] = run
+    ran = {
+        b: {
+            seed
+            for seed, part in by_seed.items()
+            if any(r["baseline"] == b for r, _, _ in part.values())
+        }
+        for b in CONFIGURATIONS
+    }
+    if len({frozenset(v) for v in ran.values() if v}) > 1:
+        parser.error(f"the configurations ran different seeds: {ran}")
+    outs = {seed: _summarise(part, pool, parser) for seed, part in sorted(by_seed.items())}
+    out = next(iter(outs.values())) if len(outs) == 1 else {"seeds": outs}
+    print(json.dumps(out, indent=2, sort_keys=True))
+    return 0
+
+
+def _summarise(runs: dict, pool: set, parser) -> dict:
+    """The summary of the runs at one seed."""
     rows: dict[str, list] = {b: [] for b in CONFIGURATIONS}
     builds: dict[str, set] = {b: set() for b in CONFIGURATIONS}
     seeds: dict[str, set] = {b: set() for b in CONFIGURATIONS}
@@ -123,8 +152,7 @@ def main() -> int:
             # a configuration that did not run the problem stays None
             entry = out["problems"].setdefault(r.problem_id, dict.fromkeys(present))
             entry[b] = {"has_diagnosis": r.has_diagnosis, **{f: getattr(r, f) for f in FIELDS}}
-    print(json.dumps(out, indent=2, sort_keys=True))
-    return 0
+    return out
 
 
 if __name__ == "__main__":

@@ -183,6 +183,9 @@ class Manifest:
     # the planner's sampling settings (temperature, seeds and so on); empty for a run with no
     # sampling step, and absent from manifests written before it existed
     sampling: dict = dataclasses.field(default_factory=dict)
+    # the served model build, read from the host at run start (harness/model_build.py); empty for
+    # a run with no language model, and absent from manifests written before it existed
+    model_build: dict = dataclasses.field(default_factory=dict)
 
     def __post_init__(self):
         _check_run_id(self.run_id, "manifest")
@@ -205,7 +208,7 @@ class Manifest:
             raise ValueError(
                 "manifest aiopslab_commit: expected 40 lowercase hex characters or null"
             )
-        for name in ("cluster", "sampling"):
+        for name in ("cluster", "sampling", "model_build"):
             value = getattr(self, name)
             try:
                 # the round trip rejects NaN, tuples and other values JSON does not keep

@@ -26,6 +26,7 @@ once, so a development dry run or a partial run is never counted.
 import json
 from collections.abc import Mapping, Sequence
 
+from remvalgate.harness.model_build import check_one_build
 from remvalgate.harness.oracle import ProblemLabels
 from remvalgate.harness.outcome import Outcome
 
@@ -151,6 +152,7 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
         values = {json.dumps(m.get("sampling", {}).get(name)) for m in [*labelling, *rerun]}
         if len(values) != 1:
             raise ValueError(f"the two runs differ in sampling {name}: {sorted(values)}")
+    check_one_build([*labelling, *rerun], "the two runs")
     seeds = {m["seed"] for m in rerun}
     if len(seeds) != 1:
         raise ValueError(f"the rerun has more than one seed: {sorted(seeds)}")
