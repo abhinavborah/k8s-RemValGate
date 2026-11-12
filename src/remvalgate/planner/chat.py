@@ -36,6 +36,8 @@ class Completion:
     finish_reason: str = ""
     # None when the server returns no logprobs or marks a token's value unknown
     logprob: float | None = None
+    # the request's length in tokens as the server counted it, None when it reports none
+    prompt_tokens: int | None = None
 
 
 class Chat(Protocol):
@@ -104,4 +106,7 @@ class OpenAIChat:
         values = [t["logprob"] for t in tokens]
         # -9999.0 stands for a token outside the top 20, so the sum would be meaningless
         logprob = sum(values) if values and -9999.0 not in values else None
-        return Completion(text, data["usage"]["completion_tokens"], seconds, finish, logprob)
+        usage = data["usage"]
+        return Completion(
+            text, usage["completion_tokens"], seconds, finish, logprob, usage.get("prompt_tokens")
+        )

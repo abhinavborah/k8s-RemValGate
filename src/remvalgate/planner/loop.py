@@ -15,11 +15,16 @@ the second set fails too.
 With escalate_when_unsure (baseline 7, BRD R6.5), the system prompt also tells the model when it
 must escalate to a human instead of giving a fix, and an escalate reply ends the loop with no
 diagnosis and no command. Off, the prompt and the loop are unchanged.
+
+With a bundle (the ablation without interactive tools, BRD R5.3), the telemetry the harness
+collected once at injection comes with the task, in place of get_logs, get_metrics and get_traces,
+and the system prompt says no tool fetches it. With no bundle, the prompts and the loop are
+unchanged.
 """
 
 import dataclasses
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -48,6 +53,7 @@ FAULT_TYPES = {
 }
 READ_ONLY_VERBS = frozenset({"get", "describe"})
 DEFAULT_TOOLS = frozenset({"exec_shell", "get_logs", "get_metrics", "get_traces"})
+TELEMETRY_TOOLS = frozenset({"get_logs", "get_metrics", "get_traces"})
 
 _TOOL_HELP = {
     "exec_shell": (
@@ -93,6 +99,9 @@ class Step:
     seconds: float
     # why the server stopped: "length" means the reply was cut at the token cap
     finish_reason: str = ""
+    # the request's length in tokens as the server counted it, so a run shows how near the
+    # context limit it came; None when the server reports none
+    prompt_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -190,14 +199,32 @@ _LOGIN_NOTE = (
 )
 
 
+# when to read logs, metrics and traces; with a bundle there is nothing to fetch, so the advice
+# would mislead and the prompt says where they are instead
+_TELEMETRY_ADVICE = (
+    "Logs, metrics and traces are noisy and slow, so use them after kubectl, and read logs for "
+    "one service at a time."
+)
+_BUNDLE_NOTE = (
+    "Logs, metrics and traces were collected once at injection and are given with the task; no "
+    "tool fetches them."
+)
+
+
 def _system_prompt(
-    namespace: str, tools: frozenset[str], max_turns: int, escalate_when_unsure: bool = False
+    namespace: str,
+    tools: frozenset[str],
+    max_turns: int,
+    escalate_when_unsure: bool = False,
+    bundled: bool = False,
 ) -> str:
-    prompt = _base_prompt(namespace, tools, max_turns)
+    prompt = _base_prompt(namespace, tools, max_turns, bundled)
     return f"{prompt}\n{_ESCALATE_INSTRUCTIONS}" if escalate_when_unsure else prompt
 
 
-def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
+def _base_prompt(
+    namespace: str, tools: frozenset[str], max_turns: int, bundled: bool = False
+) -> str:
     tool_lines = "\n".join(f"- {_TOOL_HELP[t].replace('NS', namespace)}" for t in sorted(tools))
     fault_lines = "\n".join(f"- {name}: {text}" for name, text in FAULT_TYPES.items())
     return (
@@ -206,8 +233,7 @@ def _base_prompt(namespace: str, tools: frozenset[str], max_turns: int) -> str:
         f"Tools:\n{tool_lines}\n"
         f"Fault types:\n{fault_lines}\n"
         "Start with kubectl get deployments and pods to find a workload that is missing, not "
-        "ready or Pending, then describe it. Logs, metrics and traces are noisy and slow, so use "
-        "them after kubectl, and read logs for one service at a time.\n"
+        f"ready or Pending, then describe it. {_BUNDLE_NOTE if bundled else _TELEMETRY_ADVICE}\n"
         "To finish, reply with "
         '{"final": {"fault_type": F, "service": S, "reason": R, "command": C}} where F is one of '
         "the fault types above, S is the exact name of the faulty service, R is one sentence, "
@@ -230,8 +256,10 @@ def task_text(app_name: str, namespace: str) -> str:
     )
 
 
-def _task_prompt(task: str, observation: str, past: str) -> str:
+def _task_prompt(task: str, observation: str, past: str, telemetry: str = "") -> str:
     prompt = f"{task}\n\nCluster state:\n{observation}"
+    if telemetry:
+        prompt += f"\n\nTelemetry collected at injection:\n{telemetry}"
     # with no retrieval, configuration (i), the planner sees the cluster state only (baseline 3a)
     return f"{prompt}\n\nPast fixes that may be similar:\n{past}" if past else prompt
 
@@ -316,9 +344,11 @@ def plan(
     k: int = 3,
     max_observation_chars: int = 4000,
     escalate_when_unsure: bool = False,
+    bundle: Sequence[tuple[str, Mapping[str, object], str]] = (),
 ) -> Plan:
     """Run the loop. Raises RetrieverRefused for a problem the retriever does not serve, and
-    ValueError for a tool that has no help text here or no schema.
+    ValueError for a tool that has no help text here or no schema, or for a bundle that holds a
+    call of another tool or comes with a telemetry tool still in tools.
 
     observation is one read-only look at the cluster after the injection, taken by the caller.
     The model is shown it, and it is the retrieval query, so retrieval depends on the problem.
@@ -326,10 +356,21 @@ def plan(
     escalate_when_unsure adds the escalation instructions to the system prompt and accepts an
     escalate reply, which returns a plan with Stop.ESCALATE, its reason, and no diagnosis,
     command or context. Without it an escalate reply is refused like any unknown reply.
+
+    bundle holds the (tool, arguments, output) calls of get_logs, get_metrics and get_traces that
+    the harness made once at injection. Each is shown in the task prompt after the cluster state,
+    as the call and then its output cut as a tool's output is, and the system prompt says no tool
+    fetches telemetry. A bundle replaces those tools, so tools must not hold them, and it is never
+    part of the retrieval query.
     """
     unsupported = (tools - _TOOL_HELP.keys()) | (tools - schemas.tools.keys())
     if unsupported:
         raise ValueError(f"no help text or no schema for tools {sorted(unsupported)}")
+    if bundle and tools & TELEMETRY_TOOLS:
+        raise ValueError(f"a bundle replaces the tools {sorted(tools & TELEMETRY_TOOLS)}")
+    foreign = {tool for tool, _, _ in bundle} - TELEMETRY_TOOLS
+    if foreign:
+        raise ValueError(f"a bundle holds telemetry calls only, not {sorted(foreign)}")
     hits = retriever.retrieve(observation, problem_id, k)
     past = "\n".join(
         f"- {h.entry.fault_type} on {h.entry.target_service}: {h.entry.summary}. "
@@ -337,10 +378,16 @@ def plan(
         for h in hits
     )
     retrieved = tuple((h.entry.entry_id, h.rank) for h in hits)
-    system = _system_prompt(namespace, tools, max_turns, escalate_when_unsure)
+    system = _system_prompt(namespace, tools, max_turns, escalate_when_unsure, bool(bundle))
+    telemetry = "\n\n".join(
+        json.dumps({"tool": tool, "arguments": dict(arguments)})
+        + "\n"
+        + _clip(output, tool, max_observation_chars)
+        for tool, arguments, output in bundle
+    )
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": _task_prompt(task, observation, past)},
+        {"role": "user", "content": _task_prompt(task, observation, past, telemetry)},
     ]
     steps: list[Step] = []
     for turn in range(1, max_turns + 1):
@@ -357,7 +404,15 @@ def plan(
                 if not isinstance(result, str):
                     diagnosis, command = result
                     steps.append(
-                        Step(turn, completion.text, None, None, "final", *_cost(completion))
+                        Step(
+                            turn,
+                            completion.text,
+                            None,
+                            None,
+                            "final",
+                            *_cost(completion),
+                            completion.prompt_tokens,
+                        )
                     )
                     raw_command = None
                     stripped = _without_stray_brace(command)
@@ -380,7 +435,15 @@ def plan(
                 reason = _escalation(obj)
                 if reason is not None:
                     steps.append(
-                        Step(turn, completion.text, None, None, "escalate", *_cost(completion))
+                        Step(
+                            turn,
+                            completion.text,
+                            None,
+                            None,
+                            "escalate",
+                            *_cost(completion),
+                            completion.prompt_tokens,
+                        )
                     )
                     return Plan(
                         None,
@@ -416,7 +479,17 @@ def plan(
                 if escalate_when_unsure
                 else "\nThis is your last turn. Reply with the final answer now."
             )
-        steps.append(Step(turn, completion.text, tool, arguments, observation, *_cost(completion)))
+        steps.append(
+            Step(
+                turn,
+                completion.text,
+                tool,
+                arguments,
+                observation,
+                *_cost(completion),
+                completion.prompt_tokens,
+            )
+        )
         messages.append({"role": "user", "content": observation})
     return Plan(None, None, None, Stop.TURN_CAP, tuple(steps), retrieved, system)
 

@@ -10,8 +10,10 @@ from remvalgate.planner.chat import Completion
 from remvalgate.planner.loop import (
     DEFAULT_TOOLS,
     FAULT_TYPES,
+    TELEMETRY_TOOLS,
     Stop,
     _base_prompt,
+    _system_prompt,
     draw_record,
     plan,
     resample_once,
@@ -259,6 +261,29 @@ def test_the_recorded_observation_is_what_the_model_saw_including_the_last_turn_
     result, _, chat = run(replies, max_turns=2)
     assert result.steps[0].observation == chat.seen[1][-1]["content"]
     assert "last turn" in result.steps[0].observation
+
+
+def test_each_turn_records_the_prompt_tokens_the_server_counted():
+    class Counted(FakeChat):
+        def complete(self, messages, seed=None, logprobs=False):
+            done = super().complete(messages, seed, logprobs)
+            return Completion(done.text, 10, 0.5, prompt_tokens=100 * len(messages))
+
+    chat = Counted([tool("exec_shell", command=f"kubectl -n {NS} get pods"), final()])
+    result = plan(
+        "users report errors",
+        "media-service has no pods",
+        DEV,
+        NS,
+        chat=chat,
+        run_tool=FakeTools(),
+        retriever=RETRIEVER,
+        policy=POLICY,
+        schemas=SCHEMAS,
+    )
+    # the first request holds the system and task prompts, the second two more messages
+    assert [s.prompt_tokens for s in result.steps] == [200, 400]
+    assert run([final()])[0].steps[0].prompt_tokens is None
 
 
 def test_the_finish_reason_of_each_turn_is_recorded():
@@ -559,3 +584,119 @@ def test_only_a_namespace_whose_mongodb_enforces_login_gets_the_login_note():
     hotel = _base_prompt("test-hotel-reservation", DEFAULT_TOOLS, 16)
     assert "ROOT_PASSWORD_REF" in hotel and "-n test-hotel-reservation exec deploy/" in hotel
     assert "PASSWORD_REF" not in _base_prompt("test-social-network", DEFAULT_TOOLS, 16)
+
+
+# the prompts of the baseline 3c reference run (commit f1c10ef), which the ablation without
+# interactive tools is compared with: they must not change
+@pytest.mark.parametrize(
+    ("namespace", "digest"),
+    [
+        ("test-social-network", "ca0c96959d3505bf4c75f69387b14c086391dfa442b04568313947494bffea04"),
+        # this one also carries the MongoDB login note
+        (
+            "test-hotel-reservation",
+            "559e35046bf3d13ba7557058cbbd7267d32fd3b48d8de472010a6c133566c9ca",
+        ),
+    ],
+)
+def test_the_default_system_prompts_are_those_of_the_baseline_3c_run(namespace, digest):
+    import hashlib
+
+    prompt = _system_prompt(namespace, DEFAULT_TOOLS, 16)
+    assert hashlib.sha256(prompt.encode()).hexdigest() == digest
+
+
+# the ablation without interactive tools: read-only exec_shell, and the telemetry as a bundle
+EXEC_ONLY = frozenset({"exec_shell"})
+LOGS = "starting\n" * 4 + "error: connection refused"
+METRICS = "media-service: no samples" + "\nuser-service: cpu 0.2" * 3
+BUNDLE = [
+    ("get_logs", {"namespace": NS, "service": "media-service"}, LOGS),
+    ("get_metrics", {"namespace": NS}, METRICS),
+]
+ADVICE = (
+    "Logs, metrics and traces are noisy and slow, so use them after kubectl, and read logs for "
+    "one service at a time."
+)
+NOTE = (
+    "Logs, metrics and traces were collected once at injection and are given with the task; no "
+    "tool fetches them."
+)
+
+
+# AC: the bundle comes with the task, after the cluster state and before the past fixes, each
+# output cut as a tool's output is: the end of a log, the start of anything else
+def test_the_bundle_is_given_with_the_task_and_each_output_is_cut_as_a_tools_output_is():
+    _, _, chat = run([final()], tools=EXEC_ONLY, bundle=BUNDLE, max_observation_chars=25)
+    past = "\n".join(
+        f"- {e.fault_type} on {e.target_service}: {e.summary}. Fix: {e.fix_command}"
+        for e in (h.entry for h in RETRIEVER.retrieve("media-service has no pods", DEV, 3))
+    )
+    assert chat.seen[0][1]["content"] == (
+        "users report errors\n\nCluster state:\nmedia-service has no pods\n\n"
+        "Telemetry collected at injection:\n"
+        f"{tool('get_logs', namespace=NS, service='media-service')}\n"
+        "[truncated, 61 characters]\nerror: connection refused\n\n"
+        f"{tool('get_metrics', namespace=NS)}\n"
+        "media-service: no samples\n[truncated, 91 characters]\n\n"
+        f"Past fixes that may be similar:\n{past}"
+    )
+
+
+class Recording:
+    """RETRIEVER, with every query it is asked recorded."""
+
+    def __init__(self):
+        self.queries = []
+
+    def retrieve(self, query, problem_id, k):
+        self.queries.append(query)
+        return RETRIEVER.retrieve(query, problem_id, k)
+
+
+# AC: retrieval queries the observation only. The stub ranks this observation the same with the
+# bundle text added, so the recorded query is what shows the bundle stayed out of it
+def test_the_bundle_is_never_part_of_the_retrieval_query():
+    observation = "deployment scaled to zero replicas, no pod"
+    pending = [("get_logs", BUNDLE[0][1], "pod Pending, node selector names a missing node")]
+    recording = Recording()
+    plain, _, _ = run([final()], observation=observation, tools=EXEC_ONLY)
+    bundled, _, _ = run(
+        [final()], observation=observation, retriever=recording, tools=EXEC_ONLY, bundle=pending
+    )
+    assert bundled.retrieved == plain.retrieved and bundled.retrieved[0] == ("stub-002", 1)
+    assert recording.queries == [observation]
+
+
+@pytest.mark.parametrize(
+    ("tools", "item", "match"),
+    [
+        # a bundle replaces the telemetry tools, so it cannot come with the default tool set
+        (DEFAULT_TOOLS, BUNDLE[0], "a bundle replaces"),
+        (
+            EXEC_ONLY,
+            ("exec_shell", {"command": f"kubectl -n {NS} get pods"}, "x"),
+            "a bundle holds",
+        ),
+    ],
+)
+def test_a_wrong_bundle_is_refused_before_retrieval_and_any_model_call(tools, item, match):
+    # no reply to give and a problem the retriever refuses, so either step would raise otherwise
+    with pytest.raises(ValueError, match=match):
+        run([], problem=POOL, tools=tools, bundle=[item])
+
+
+# AC: with a bundle the model cannot fetch telemetry, and its prompt says so and lists exec_shell
+# only; nothing else in the prompt changes
+def test_with_a_bundle_a_telemetry_call_is_refused_and_the_prompt_says_none_is_fetched():
+    reply = tool("get_logs", namespace=NS, service="media-service")
+    bundled, tools, _ = run([reply, final()], tools=EXEC_ONLY, bundle=BUNDLE)
+    assert tools.calls == []
+    assert bundled.steps[0].observation.startswith("Refused: unknown tool 'get_logs'")
+    system = bundled.system_prompt
+    assert NOTE in system and ADVICE not in system
+    tool_lines = system.split("Tools:\n")[1].split("\nFault types:")[0]
+    assert tool_lines.startswith('- {"tool": "exec_shell"') and "\n" not in tool_lines
+    assert not any(name in system for name in TELEMETRY_TOOLS)
+    plain, _, _ = run([final()], tools=EXEC_ONLY)
+    assert system == plain.system_prompt.replace(ADVICE, NOTE)
