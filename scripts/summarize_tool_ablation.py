@@ -19,8 +19,8 @@ A result file given twice, or found in two folders with the same run id, is read
 result files of any other baseline are skipped. Refuses a problem outside the pool, a manifest
 with uncommitted changes, a second run of one arm on one problem, no 3c run or no other arm, and
 an arm whose runs used more than one model build. The comparison is paired on one seed and one model
-build, so it also refuses runs of the two arms at more than one seed or with more than one model
-build between them.
+build: runs at more than one seed (#161) are summarised seed by seed, every arm must have run the
+same seeds, and runs served by different recorded builds are refused.
 
     uv run python scripts/summarize_tool_ablation.py \
         --results <run folder>/baseline3c-*.result.json <run folder>/notools-*.result.json
@@ -34,8 +34,9 @@ from pathlib import Path
 
 from remvalgate.harness.folds import fault_type
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
+from remvalgate.harness.model_build import check_one_build
 from remvalgate.harness.outcome import Outcome
-from remvalgate.harness.rag_ablation import FIELDS, paired, score, summary
+from remvalgate.harness.rag_ablation import FIELDS, paired, score, split_by_seed, summary
 from remvalgate.harness.tool_ablation import diagnostics
 from remvalgate.retrieval.pool_corpus import incident
 
@@ -98,6 +99,19 @@ def main() -> int:
             _read(_beside(path, ".transcript.json")),
         )
 
+    try:
+        check_one_build((m for _, m, _ in runs.values()), "the arms")
+        by_seed = split_by_seed(runs, ARMS)
+    except ValueError as error:
+        parser.error(str(error))
+    outs = {seed: _summarise(part, pool, parser) for seed, part in by_seed.items()}
+    out = next(iter(outs.values())) if len(outs) == 1 else {"seeds": outs}
+    print(json.dumps(out, indent=2, sort_keys=True))
+    return 0
+
+
+def _summarise(runs: dict, pool: set, parser) -> dict:
+    """The summary of the runs at one seed."""
     rows: dict[str, list] = {a: [] for a in ARMS}
     # each arm's diagnostics by problem id
     found: dict[str, dict[str, dict]] = {a: {} for a in ARMS}
@@ -180,8 +194,7 @@ def main() -> int:
                 **{f: getattr(r, f) for f in FIELDS},
                 "diagnostics": found[a][r.problem_id],
             }
-    print(json.dumps(out, indent=2, sort_keys=True))
-    return 0
+    return out
 
 
 if __name__ == "__main__":
