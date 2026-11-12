@@ -222,7 +222,9 @@ def reset(prob, problem_id: str, clean: Clean) -> None:
     )
 
 
-async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir):
+async def diagnose(
+    orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir, escalate_when_unsure=False
+):
     """Inject, run 3c's planner and sample K candidates, check the diagnosis changed nothing, reset.
 
     Returns the plan, the candidates (none when the plan has no diagnosis or k is 0), the first
@@ -269,6 +271,8 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
             retriever=retriever,
             policy=POLICY,
             schemas=SCHEMAS,
+            # baseline 7 of the pool runner (#165); the labelling run never sets it
+            escalate_when_unsure=escalate_when_unsure,
         )
         candidates = ()
         # one draw of K: 3c is the untuned planner, which does not resample (R5.2 is the system's);

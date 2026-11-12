@@ -9,7 +9,12 @@ are in `docs/rag_ablation.md`, and the labels the headroom is counted from in
 ## The run
 
 `scripts/run_baselines_pool.py` runs the chosen baselines (`--baseline`, repeatable: 1, 2, 3a,
-3b, 3c) on the 16 pool problems. Each baseline on each problem is one run with one touch, so the
+3b, 3c, 7, and the tool ablation arms notools, toolsbundle and kubectlonly of
+`docs/tool_ablation.md`) on the 16 pool problems. Baseline 7 is 3c told to escalate when unsure
+(#44); its result row keeps the plan's `stop` (`final`, `turn_cap` or `escalate`) and `escalation`,
+so an escalation is told apart from a turn cap or an unparsed reply, and its manifest records
+`escalate_when_unsure`. No summary script reads baseline 7 yet: `summarize_rag_ablation.py` and
+`summarize_tool_ablation.py` list it among the arms they skip. Each baseline on each problem is one run with one touch, so the
 run needs gate G1 and a clean checkout. Development ids run the same way with no touch, as a dry
 run; one run takes pool or development ids, never both.
 The Hotel Reservation problems need the two MongoDB password variables of the labelling run
