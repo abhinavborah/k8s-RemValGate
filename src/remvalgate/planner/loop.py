@@ -36,15 +36,31 @@ from remvalgate.harness.toolcall import Schemas
 from remvalgate.planner.chat import Chat, Message
 from remvalgate.retrieval import Retriever
 
-# the fault types of the pool, with descriptions adapted from the AIOpsLab paper, Table 2. The
-# TargetPortMisconfig text names a mechanism (targetPort against the container port) that the
-# paper does not state; the other four follow the paper.
+# the fault types of the pool, each described by the change its injector in the pinned AIOpsLab
+# makes (aiopslab/generators/fault/), at the same level of detail for all five, naming no service:
+# TargetPortMisconfig inject_virtual.py inject_misconfig_k8s, ScalePod inject_virtual.py
+# (kubectl scale to 0), AssignNonExistentNode inject_virtual.py inject_assign_to_non_existent_node,
+# RevokeAuth script/revoke-admin-*-mongo.sh (revokeRolesFromUser readWrite), UserUnregistered
+# script/remove-admin-mongo.sh (dropUser). Until 2026-11-12 RevokeAuth read "revoked
+# authentication causes database connection failures", which describes a failed login, the effect
+# of UserUnregistered (#162).
 FAULT_TYPES = {
-    "TargetPortMisconfig": "a service targetPort does not match the container port",
-    "ScalePod": "a deployment was scaled to zero pods",
-    "AssignNonExistentNode": "a pod stays Pending, assigned to a node that does not exist",
-    "RevokeAuth": "revoked authentication causes database connection failures",
-    "UserUnregistered": "the database user was unregistered, so access fails",
+    "TargetPortMisconfig": (
+        "a Service's targetPort was changed so it no longer matches the port its pods listen on: "
+        "the Service forwards no traffic to its pods while they stay Running"
+    ),
+    "ScalePod": "a Deployment was scaled to zero replicas, so it has no pods",
+    "AssignNonExistentNode": (
+        "a Deployment's pods were given a nodeSelector for a node that does not exist, so they "
+        "stay Pending"
+    ),
+    "RevokeAuth": (
+        "the database user lost its readWrite role on a database: it can still log in, but its "
+        "queries on that database are refused as not authorized"
+    ),
+    "UserUnregistered": (
+        "the database user was deleted: logging in as that user fails authentication"
+    ),
 }
 READ_ONLY_VERBS = frozenset({"get", "describe"})
 DEFAULT_TOOLS = frozenset({"exec_shell", "get_logs", "get_metrics", "get_traces"})

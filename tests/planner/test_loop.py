@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -160,6 +161,30 @@ def test_the_prompt_carries_the_namespace_the_fault_types_and_retrieved_fixes():
     system, user = chat.seen[0][0]["content"], chat.seen[0][1]["content"]
     assert NS in system and all(t in system for t in FAULT_TYPES)
     assert "Fix: kubectl" in user and "media-service has no pods" in user
+
+
+def test_the_fault_type_descriptions_state_what_each_injector_changes():
+    # each text is checked against the pinned AIOpsLab injector named above FAULT_TYPES (#162)
+    assert FAULT_TYPES["TargetPortMisconfig"].startswith("a Service's targetPort was changed")
+    assert "scaled to zero replicas" in FAULT_TYPES["ScalePod"]
+    assert "nodeSelector for a node that does not exist" in FAULT_TYPES["AssignNonExistentNode"]
+    # revokeRolesFromUser: the login works and the queries are refused
+    assert "lost its readWrite role" in FAULT_TYPES["RevokeAuth"]
+    assert "can still log in" in FAULT_TYPES["RevokeAuth"]
+    # dropUser: the login itself fails
+    assert "was deleted" in FAULT_TYPES["UserUnregistered"]
+    assert "fails authentication" in FAULT_TYPES["UserUnregistered"]
+    # no service, database, port or node of a pool problem is named, as a whole word
+    names = (
+        "mongodb-geo mongodb-rate geo rate geo-db rate-db user-service text-service "
+        "post-storage-service compose-post-service home-timeline-service user-timeline-service "
+        "nginx-thrift media-service 9090 9999 extra-node"
+    ).split()
+    for text in FAULT_TYPES.values():
+        assert not [n for n in names if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text)]
+    # each effect clause separates its type: only TargetPortMisconfig keeps its pods Running
+    assert "stay Running" in FAULT_TYPES["TargetPortMisconfig"]
+    assert "refused" not in FAULT_TYPES["TargetPortMisconfig"]
 
 
 def test_the_task_prompt_lists_the_retrieved_fixes_after_the_cluster_state():
@@ -501,15 +526,35 @@ def escalate(reason="the evidence does not single out one service"):
     return json.dumps({"escalate": {"reason": reason}})
 
 
+# the fault-type texts the runs before #162 used
+FAULT_TYPES_BEFORE_162 = {
+    "TargetPortMisconfig": "a service targetPort does not match the container port",
+    "ScalePod": "a deployment was scaled to zero pods",
+    "AssignNonExistentNode": "a pod stays Pending, assigned to a node that does not exist",
+    "RevokeAuth": "revoked authentication causes database connection failures",
+    "UserUnregistered": "the database user was unregistered, so access fails",
+}
+
+
 def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7():
     # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt;
-    # updated once for the turn cap of 16 (from 8), the only change, as the second hash shows
+    # updated for the turn cap of 16 (from 8) and for the fault-type texts of #162, the only
+    # changes, as the older hashes show
     import hashlib
 
     result, _, _ = run([final()])
     digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
-    assert digest == "ca0c96959d3505bf4c75f69387b14c086391dfa442b04568313947494bffea04"
-    old = result.system_prompt.replace("at most 16 turns", "at most 8 turns")
+    assert digest == "2661acd2927641094ce4b11940457ca467fdc6865a9fb292bcd63f8116f8b94e"
+    before_162 = result.system_prompt
+    for name, text in FAULT_TYPES.items():
+        before_162 = before_162.replace(
+            f"- {name}: {text}", f"- {name}: {FAULT_TYPES_BEFORE_162[name]}"
+        )
+    assert (
+        hashlib.sha256(before_162.encode()).hexdigest()
+        == "ca0c96959d3505bf4c75f69387b14c086391dfa442b04568313947494bffea04"
+    )
+    old = before_162.replace("at most 16 turns", "at most 8 turns")
     assert (
         hashlib.sha256(old.encode()).hexdigest()
         == "f29dd9d78018b6f948f3999453567ef01d317bdf0729f14d9df6702d5438d288"
