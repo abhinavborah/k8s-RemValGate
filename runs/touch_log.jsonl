@@ -228,3 +228,4 @@
 {"problem_id": "revoke_auth_mongodb-mitigation-1", "run_id": "baseline3b-revoke_auth_mongodb-mitigation-1-20261111t063738z", "slice": "pool", "timestamp": "2026-11-11T06:37:38Z"}
 {"problem_id": "revoke_auth_mongodb-mitigation-1", "run_id": "baseline3b-revoke_auth_mongodb-mitigation-1-20261111t064354z", "slice": "pool", "timestamp": "2026-11-11T06:43:54Z"}
 {"problem_id": "revoke_auth_mongodb-mitigation-1", "run_id": "notools-revoke_auth_mongodb-mitigation-1-20261112t074933z", "slice": "pool", "timestamp": "2026-11-12T07:49:33Z"}
+{"problem_id": "revoke_auth_mongodb-mitigation-1", "run_id": "notools-revoke_auth_mongodb-mitigation-1-20261112t082928z", "slice": "pool", "timestamp": "2026-11-12T08:29:28Z"}
