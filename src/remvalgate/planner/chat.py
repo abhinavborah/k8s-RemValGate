@@ -58,9 +58,10 @@ class OpenAIChat:
     top_p: float = 0.8
     top_k: int = 20
     # sent explicitly (#161): the requests used to leave it out, meant as no penalty since repeated
-    # JSON keys and tool names are legitimate here, but LM Studio then applies the model's hub
-    # default, 1.5 (enabled in its model.yaml), checked on the run host on 2026-11-12 at
-    # temperature 0. Every planner run so far ran with 1.5, so it is now stated and recorded.
+    # JSON keys and tool names are legitimate here. On the run host LM Studio then applied the
+    # hub model.yaml default of qwen/qwen3.5-4b, 1.5 (enabled there; one prompt at temperature 0
+    # on 2026-11-12 matched 1.5, not 0), so its LM Studio runs ran with 1.5. Every server now gets
+    # 1.5: one whose own default is 0, such as llama-server, behaves differently from before.
     presence_penalty: float = 1.5
     seed: int = 0
     # a thinking turn can use most of this before any content appears
