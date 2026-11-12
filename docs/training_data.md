@@ -7,7 +7,7 @@ with no new rollouts. The builder is `src/remvalgate/harness/training_data.py`, 
 
 Reusing the oracle labels departs from R7.1 and proposal version 2, which ask for K new rollouts
 per training problem per fold (384 at K = 8, about 33 hours serial). The group confirmed it
-(BRD version 1.15), and the change is in the BRD change log (1.11). It saves about 256 rollouts. The
+(BRD version 1.16), and the change is in the BRD change log (1.11). It saves about 256 rollouts. The
 limit it brings is under Limits; the masking, the copied-fix exclusion and the `held_out_text`
 count below bound it. A rerun of only the (problem, fold) pairs that retrieved a fold-f record was
 rejected: the folds spread each fault type, so most pairs retrieve a same-type fold-f record and

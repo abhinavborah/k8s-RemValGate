@@ -126,8 +126,8 @@ The `media-frontend` init container clones a repository from GitHub on every sta
 cluster needs access to GitHub and the pod can take about 15 minutes to be Ready (measured once).
 Then wait for all pods Ready and compare the image digests below with the cluster again.
 
-Only the ARM config was run. Upstream also ships `kind/kind-config-x86.yaml`, which was not run
-here, and its node image digest is not recorded.
+The verified run used the ARM config. Upstream also ships `kind/kind-config-x86.yaml`, which was
+run once, on the backup host (`docs/backup_host.md`); its digests are below.
 
 `helm`, `kind` and `kubectl` must be installed. Versions of the verified run: kind v0.33.0,
 kubectl client v1.36.1, helm v4.3.1, Docker Desktop 4.96.0 (engine 29.9.1, aarch64). The cluster
@@ -153,6 +153,14 @@ memory figures below were measured under that emulation, so Docker Desktop's amd
 part of the cluster configuration. The Rosetta handler was registered in the Docker VM and in use,
 and no Rosetta key was set in Docker's `settings-store.json`, so the setting was at its default.
 Without amd64 emulation in Docker, these pods were not tried and are expected not to start.
+
+The x86 config ran on the backup host on 2026-11-10. Six of the container images above reported the
+same digests there: all but `media-frontend`, which AIOpsLab swaps only on ARM, and
+`alpine/git:latest`, whose tag had moved.
+
+- node image `jacksonarthurclark/aiopslab-kind-x86`: `sha256:d631857278d3f8ce5c36364c75ec25695ceb22e311ec6621a4ebf5506b86774d`
+- `yg397/media-frontend:xenial` (Social Network on x86): `sha256:272049995f2929435b91da34f20fc16216a7f974d1b8f9afa0ccbb529f1a9840`
+- `alpine/git:latest` (init container): `sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d`
 
 Regenerate the list after a redeploy with
 `kubectl --context kind-kind get pods -n test-social-network -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u`
@@ -299,7 +307,10 @@ records K and the sampling settings. The script then checks that the cluster did
 deletes the workload job and resets.
 The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
 sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other fields tried.
-`--model-version` is required and goes into the manifest with the thinking setting. Run it with
+`--model-version` is required and goes into the manifest with the thinking setting. `--model`
+names the served planner, `qwen/qwen3.5-4b` by default or `qwen/qwen3.5-9b` (#154), here and in
+`scripts/run_oracle_labels.py` ([docs/larger_planner_check.md](docs/larger_planner_check.md)). Run
+it with
 Social Network deployed and Ready, Prometheus installed (below) and the model loaded; CI does not
 run it. Keep the laptop awake and plugged in: a sleep stalled the first attempt and left a fault
 injected.
@@ -401,6 +412,13 @@ needs gate G1 and a clean checkout. The rules and the file format are in
 [docs/training_data.md](docs/training_data.md). `scripts/check_length_proxy.py` compares the
 export's tokenizer-free length proxy with a saved tokenizer on synthetic text of the gate input's
 shape, with no pool data and no touch; the result is in the same file (Length check).
+
+Baseline 5 (story E6-S4, R6.4) is the planner LoRA-fine-tuned per fold on the label-1 training
+records, ranking its own K candidates by log-probability. `scripts/export_baseline5_heldout.py`
+writes each fold's held-out scoring input from the same 16 labels files, logging one touch per pool
+problem. `scripts/baseline5_kaggle.py` trains and scores one fold on a GPU notebook, and
+`scripts/summarize_baseline5.py` gives the rankings, coverage curves and top-1 results beside
+baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md).
 
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
