@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -173,9 +174,17 @@ def test_the_fault_type_descriptions_state_what_each_injector_changes():
     # dropUser: the login itself fails
     assert "was deleted" in FAULT_TYPES["UserUnregistered"]
     assert "fails authentication" in FAULT_TYPES["UserUnregistered"]
-    # no service, database or port of a pool problem is named
+    # no service, database, port or node of a pool problem is named, as a whole word
+    names = (
+        "mongodb-geo mongodb-rate geo rate geo-db rate-db user-service text-service "
+        "post-storage-service compose-post-service home-timeline-service user-timeline-service "
+        "nginx-thrift media-service 9090 9999 extra-node"
+    ).split()
     for text in FAULT_TYPES.values():
-        assert not any(s in text for s in ("mongodb-", "geo", "rate", "user-service", "9999"))
+        assert not [n for n in names if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text)]
+    # each effect clause separates its type: only TargetPortMisconfig keeps its pods Running
+    assert "stay Running" in FAULT_TYPES["TargetPortMisconfig"]
+    assert "refused" not in FAULT_TYPES["TargetPortMisconfig"]
 
 
 def test_the_task_prompt_lists_the_retrieved_fixes_after_the_cluster_state():
@@ -538,7 +547,7 @@ def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7
 
     result, _, _ = run([final()])
     digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
-    assert digest == "b33e9ee0afbeb9596be792a6cf8fe67eb48e54c55f6bb17abe096d05be110e31"
+    assert digest == "494dab2abe3e69e8b98f64d3d9ba2e46c0a9745f3db778387d6739cfa3fbec9e"
     # the telemetry advice that #163 removed, put back where it stood
     before_163 = result.system_prompt.replace(
         "then describe it.\n",
@@ -547,7 +556,7 @@ def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7
     )
     assert (
         hashlib.sha256(before_163.encode()).hexdigest()
-        == "1bb7887caf53c63999a18844a6e8c2a283dfab0312db57f702e7700fb65f7c3e"
+        == "2661acd2927641094ce4b11940457ca467fdc6865a9fb292bcd63f8116f8b94e"
     )
     before_162 = before_163
     for name, text in FAULT_TYPES.items():

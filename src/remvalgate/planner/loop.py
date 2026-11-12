@@ -47,8 +47,8 @@ from remvalgate.retrieval import Retriever
 # of UserUnregistered (#162).
 FAULT_TYPES = {
     "TargetPortMisconfig": (
-        "a Service's targetPort was changed so it no longer matches the port its pods listen on, "
-        "so connections to the Service are refused"
+        "a Service's targetPort was changed so it no longer matches the port its pods listen on: "
+        "the Service forwards no traffic to its pods while they stay Running"
     ),
     "ScalePod": "a Deployment was scaled to zero replicas, so it has no pods",
     "AssignNonExistentNode": (

@@ -62,11 +62,15 @@ Three problems, one run each: a signal, not a test.
 
 ## Added on 2026-11-12: fault-type text defect
 
-The planner prompt of these runs described RevokeAuth as "revoked authentication causes database
-connection failures". The injector removes the readWrite role of the database user, so the user
-can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
-The text is corrected in #162. The results here stay as they were run and are superseded by the
-rerun of #165.
+The planner prompt of this check used fault-type descriptions adapted from the AIOpsLab paper. #162 rewrites
+all five from the change each injector in the pinned AIOpsLab makes, so every fault-type line of
+the planner prompt differs from the one this check used. The defect that led to it was found after the
+pool runs, in the review of the tool ablation run on the pool (#160): RevokeAuth read "revoked
+authentication causes database connection failures", while the injector removes the database
+user's readWrite role, so the user can still log in and its queries are refused; a failed login is
+the effect of UserUnregistered. This check ran on three development problems (TargetPortMisconfig, ScalePod and
+AssignNonExistentNode), none of them RevokeAuth, and #165 does not rerun it, so its result holds
+for the old fault-type texts only.
 
 
 ## Added on 2026-11-12: telemetry advice and ticket time
