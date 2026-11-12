@@ -18,6 +18,8 @@ on one procedure:
      until the fault shows, run the untuned planner with retrieval configuration (i), (ii) or
      (iii) and the settings of the labelling run, check the diagnosis changed nothing (diagnose
      with no candidates);
+   - notools: as 3c, with the telemetry tools replaced by a bundle collected once at injection
+     (diagnose_without_tools, below);
    - 1 and 2: inject, save the objects, wait until the fault shows, read the state with observe in
      the problem's namespace, and ask the fault-type rule or retrieval only (configuration (iii))
      for its action;
@@ -38,6 +40,15 @@ thinking setting and model build as the labelling run, at a pre-stated seed that
 on one seed and one procedure. Run the G3 part with --baseline 3c first; the other four can run
 later with the same code and settings.
 
+The arm notools is the ablation without interactive tools (story E5-S3, #38, BRD R5.3): 3c's
+planner, retrieval path, seed and settings, with get_logs, get_metrics and get_traces removed and
+read-only exec_shell kept. Right after the first observation the harness collects a fixed bundle
+once: the metrics and traces of the namespace, summarised as the tools summarise them for 3c, and
+the logs of up to LOG_SERVICES Deployments whose pods are not healthy
+(src/remvalgate/harness/tool_ablation.py). The planner gets the bundle with the task, and its
+command is executed as 3c's is. Its run ids start with notools-; the rules and the comparison
+with 3c are in docs/tool_ablation.md.
+
 Development problems run the same way with the synthetic stub corpus and no touch, as a dry run;
 one run takes pool or development ids, never both. A failed check stops the run: the files of the
 runs already finished stay, and the rest are run again by id, each with a new touch.
@@ -45,7 +56,8 @@ runs already finished stay, and the rest are run again by id, each with a new to
 Outputs go to runs/baselines_pool/, which git ignores, and to the shared drive:
 
     <run id>.json                the run manifest
-    <run id>.transcript.json     the plan or the observations behind the command
+    <run id>.transcript.json     the plan or the observations behind the command, and the
+                                 bundle of a notools run
     <run id>.result.json         the command, the allow-list verdict, the outcome, the execution
 
 Once the 3c rerun and the oracle labels exist, scripts/summarize_g3.py prints the headroom result,
@@ -93,21 +105,25 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from aiopslab.paths import config
+from aiopslab.session import Session
 from run_dev_end_to_end import TOUCH_LOG, check, kubectl
 from run_oracle_labels import (
     POLICY,
+    SCHEMAS,
     clean_state,
     diagnose,
     execute,
     objects,
+    pods,
     reset,
     wait_for_fault,
 )
-from run_planner_dev import MODEL, prometheus_port_forward
+from run_planner_dev import MODEL, prometheus_port_forward, remove_workload, start_workload
 
 from remvalgate.aiopslab_pin import pinned_commit
 from remvalgate.baselines.observe import observe
@@ -129,18 +145,24 @@ from remvalgate.harness.manifest import (
 )
 from remvalgate.harness.oracle import DATABASE_TYPES
 from remvalgate.harness.outcome import classify, single_action_result
+from remvalgate.harness.tool_ablation import LOG_SERVICES, unready_services
 from remvalgate.overlay import new_orchestrator
-from remvalgate.overlay.fixes import CannotSend
+from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
 from remvalgate.planner.chat import OpenAIChat
-from remvalgate.planner.loop import plan
+from remvalgate.planner.loop import plan, task_text
+from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever, pool_retriever
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
 CONTEXT = "kind-kind"
-BASELINES = ("1", "2", "3a", "3b", "3c")
-PLANNER = ("3a", "3b", "3c")
+BASELINES = ("1", "2", "3a", "3b", "3c", "notools")
+PLANNER = ("3a", "3b", "3c", "notools")
+# the ablation without interactive tools keeps read-only exec_shell (proposal version 2, VI)
+NOTOOLS_TOOLS = frozenset({"exec_shell"})
+# the summary limit the tool outputs of 3c's run get (run_tool in scripts/run_oracle_labels.py)
+PREVIEW_CHARS = 4000
 # pre-stated before the run: differs from the labelling run's seed 0, so the R check compares two
 # draws of the planner and not one draw twice
 SEED = 1000
@@ -170,12 +192,89 @@ def observe_fault(prob, problem_id: str, clean) -> tuple[list, dict]:
     return found, injected
 
 
+async def collect_bundle(orch, namespace: str, injected_at: int) -> list[tuple[str, dict, str]]:
+    """The fixed telemetry bundle of the notools arm, taken once right after the first observation.
+
+    The metrics and traces of the namespace, summarised as run_tool summarises them for 3c, and the
+    logs of up to LOG_SERVICES Deployments whose pods are not healthy now. Nothing here reads the
+    problem's fault or target. The planner cuts each output as it cuts a tool's output.
+    """
+    calls = [("get_metrics", {"namespace": namespace}), ("get_traces", {"namespace": namespace})]
+    calls += [
+        ("get_logs", {"namespace": namespace, "service": service})
+        for service in unready_services(pods(namespace), LOG_SERVICES)
+    ]
+    bundle = []
+    for tool, arguments in calls:
+        output = await orch.ask_env(tool_call(tool, arguments))
+        bundle.append((tool, arguments, preview(tool, output, PREVIEW_CHARS, since=injected_at)))
+    return bundle
+
+
+async def diagnose_without_tools(orch, prob, problem_id, clean, chat, retriever, results_dir):
+    """diagnose of scripts/run_oracle_labels.py with no candidates and the telemetry tools replaced
+    by the bundle: the same injection, workload, wait, first observation, check and reset.
+
+    Returns the plan, the first observation, the bundle and the objects as the injection left them.
+    """
+    namespace = prob.namespace
+    orch.session = Session(results_dir=results_dir)
+    orch.session.set_problem(prob, pid=problem_id)
+    orch.session.set_agent("planner")
+    loop = asyncio.get_running_loop()
+    try:
+        prob.inject_fault()
+        # the trace export carries spans from before its window, so the summary keeps later ones
+        injected_at = int(time.time() * 1e6)
+        # the database faults change MongoDB users, which these objects do not record
+        if fault_type(problem_id) not in DATABASE_TYPES:
+            took = bool(changed(clean.objects, objects(namespace)))
+            check(took, f"{problem_id}: the injection left the cluster unchanged")
+        injected = objects(namespace)
+        await asyncio.to_thread(start_workload, prob)
+        # as before each execution; for the database faults the only check, since their injector
+        # deletes the client's pods whatever its script did (fault_shows)
+        wait_for_fault(prob, problem_id)
+        orch.session.start()
+
+        def run_tool(tool, arguments):
+            # plan() runs in a worker thread, so the coroutine goes back to this loop
+            future = asyncio.run_coroutine_threadsafe(
+                orch.ask_env(tool_call(tool, arguments)), loop
+            )
+            return preview(tool, future.result(), PREVIEW_CHARS, since=injected_at)
+
+        first = await orch.ask_env(exec_shell(f"kubectl -n {namespace} get deployments,pods"))
+        bundle = await collect_bundle(orch, namespace, injected_at)
+        result = await asyncio.to_thread(
+            plan,
+            task_text(prob.app.name, namespace),
+            first,
+            problem_id,
+            namespace,
+            chat=chat,
+            run_tool=run_tool,
+            retriever=retriever,
+            policy=POLICY,
+            schemas=SCHEMAS,
+            tools=NOTOOLS_TOOLS,
+            bundle=bundle,
+        )
+        orch.session.end()
+        left = changed(injected, objects(namespace))
+        check(not left, f"{problem_id}: the diagnosis changed the cluster: {left}")
+    finally:
+        remove_workload()
+        reset(prob, problem_id, clean)
+    return result, first, bundle, injected
+
+
 def retrievers(baselines: list[str], pool: bool, registry) -> dict:
     """The retriever of each baseline that needs one, each model loaded once."""
     iii = None
     chosen = {}
     for b in baselines:
-        if b in ("2", "3c"):
+        if b in ("2", "3c", "notools"):
             iii = iii or (pool_retriever if pool else development_retriever)(registry)
             chosen[b] = iii
         elif b in ("3a", "3b"):
@@ -189,7 +288,9 @@ def main() -> int:
     parser.add_argument(
         "--baseline", action="append", choices=BASELINES, required=True, help="repeatable"
     )
-    parser.add_argument("--model-version", help="format and quantization served (3a, 3b, 3c)")
+    parser.add_argument(
+        "--model-version", help="format and quantization served (3a, 3b, 3c, notools)"
+    )
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
@@ -197,7 +298,7 @@ def main() -> int:
     baselines = list(dict.fromkeys(args.baseline))
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
-        parser.error("--model-version is needed for 3a, 3b and 3c")
+        parser.error("--model-version is needed for 3a, 3b, 3c and notools")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
@@ -256,7 +357,8 @@ def main() -> int:
 
 def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes) -> dict:
     now = datetime.now(UTC)
-    run_id = f"baseline{baseline}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+    prefix = "notools" if baseline == "notools" else f"baseline{baseline}"
+    run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
     namespace = logged_namespace(problem_id)
     # start_run refuses a pool run before its touch unless this is the problem's namespace
     run = start_run(
@@ -268,19 +370,27 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
     reason = None
     if baseline in PLANNER:
-        result, _, first, injected = asyncio.run(
-            diagnose(
-                orch,
-                prob,
-                problem_id,
-                clean[namespace],
-                chat,
-                retriever[baseline],
-                0,
-                args.seed,
-                results_dir,
+        bundle = None
+        if baseline == "notools":
+            result, first, bundle, injected = asyncio.run(
+                diagnose_without_tools(
+                    orch, prob, problem_id, clean[namespace], chat, retriever[baseline], results_dir
+                )
             )
-        )
+        else:
+            result, _, first, injected = asyncio.run(
+                diagnose(
+                    orch,
+                    prob,
+                    problem_id,
+                    clean[namespace],
+                    chat,
+                    retriever[baseline],
+                    0,
+                    args.seed,
+                    results_dir,
+                )
+            )
         command = result.command
         defaults = inspect.signature(plan).parameters
         transcript = dataclasses.asdict(result) | {"first_observation": first}
@@ -290,6 +400,16 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             "retrieval_k": defaults["k"].default,
             "baseline": baseline,
         }
+        if bundle is not None:
+            # the outputs as the planner got them, since Plan.context is empty at the turn cap
+            transcript["bundle"] = [
+                {"tool": tool, "arguments": arguments, "output": output}
+                for tool, arguments, output in bundle
+            ]
+            transcript["config"] |= {
+                "tools": sorted(NOTOOLS_TOOLS),
+                "bundle_log_services": LOG_SERVICES,
+            }
     else:
         found, injected = observe_fault(prob, problem_id, clean[namespace])
         if baseline == "1":
