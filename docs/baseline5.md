@@ -19,7 +19,9 @@ but whether a fold fits a T4's memory and session is unchecked.
   files: per problem the sampling messages the planner saw (`sampling_messages`, as
   `planner.loop.sample` built them) and all K candidates in draw order with their replies, labels
   and outcomes. Duplicates and candidates with no outcome are kept; one with no outcome does not
-  work. A held-out problem retrieved from the corpus of its own fold, which leaves out every fold-f
+  work. As in the training data export, the 16 labelling runs must share one setup (model name
+  and version, K, seed and sampling settings), or no fold is written. A held-out problem
+  retrieved from the corpus of its own fold, which leaves out every fold-f
   problem, so its prompt needs no mask. The file also records whether baseline 3c's top pick, the
   plan's own command, solved the problem (`g3.top_pick_solved`).
 - **Touches.** Reading pool labels is an evaluation-set touch. Before any file is read the export
@@ -70,8 +72,10 @@ go to the shared drive.
 ## Results
 
 `scripts/summarize_baseline5.py` takes one held-out file and its scores file per fold. It checks
-that each scores file names its held-out file's SHA-256 and fold and scores exactly its candidates,
-then gives per held-out problem:
+that each scores file names its held-out file's SHA-256 and fold, scores exactly its candidates
+and trained on none of its problems, and that no fold is given twice. The notebook itself refuses
+a training file and a held-out file whose labelling runs differ in setup. The summary then gives
+per held-out problem:
 
 - the ranking of the K candidates by score, highest first, ties in draw order;
 - the coverage curve: for m = 1 to K, the expected share of the top m candidates that do not work
@@ -80,8 +84,11 @@ then gives per held-out problem:
   working share). A problem with no candidates is not solved.
 
 The totals are baseline 5's expected number of problems solved and baseline 3c's, from the oracle
-labels. Baselines 1, 2, 3a and 3b come from their own pool runs and are set beside these in the main
-runs (#55).
+labels. With `--results`, the pool result files of baselines 1, 2, 3a and 3b
+(`scripts/run_baselines_pool.py`, #150) are set beside them: each baseline's outcome per problem
+and its problems solved over the same problems. Each baseline's rows must cover each pool problem
+once. The summary also keeps, per fold, the held-out file's name and its touch-log run ids, so the
+result traces to the touch log.
 
 ## Limits
 
@@ -94,5 +101,23 @@ runs (#55).
 - Gate G3 found no recoverable problem in the pool (#53): on no problem where 3c's top pick failed
   did another of the K candidates work. A ranking over the K can therefore solve at most the
   problems on which 3c's top pick already worked.
+- On the labelling run's labels ([oracle_labels.md](oracle_labels.md), Results) every candidate
+  works on 6 problems, none works on 9, and only `pool-k8s_target_port-misconfig-mitigation-6`
+  has mixed outcomes (5 of 8). On the other 15 problems every ranking gives the same top-1 and
+  the same coverage curve. Baseline 5's total is therefore 6 plus its top-1 share on that one
+  problem, between 6 and 7, whatever the fine-tuning learns. Baseline 3c solved 7, so baseline 5
+  can tie it or lose by one problem and cannot show a win, and a paired comparison has at most
+  one discordant problem. When that problem is held out, its fold trains on label-1 rows of
+  AssignNonExistentNode and ScalePod problems only. Whether four folds of GPU time are worth
+  spending on this is a group decision.
+- A long prompt may not fit a T4 in bfloat16. A review estimate (unmeasured) puts the limit
+  at about 6,000 to 7,000 prompt tokens for scoring, and lower for training, since on a card
+  of compute capability 7.5 attention may hold the full score matrix in float32. A 16-turn
+  conversation can exceed 16,384 tokens ([oracle_labels.md](oracle_labels.md)). Before booking
+  T4 time, the main runs read the longest prompt from the export report (`baseline5_length`,
+  a proxy meant to overestimate) and the held-out prompts. If they are above that range, use a
+  card of compute capability 8.0 or newer. The notebook prints its longest training prompt
+  before training. Float16 is not used, since a cast to float16 can overflow
+  (`scripts/smoke_qwen.py`).
 - The BRD still names the gate as what baseline 5 is compared against (O1, R9.3). Which system
   takes that place is a group decision to record in the BRD.

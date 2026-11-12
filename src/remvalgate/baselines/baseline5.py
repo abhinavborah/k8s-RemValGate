@@ -22,13 +22,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from remvalgate.harness.folds import pool_folds
-from remvalgate.harness.g3 import top_pick_solved
+from remvalgate.harness.g3 import solved_by_baseline, top_pick_solved
 from remvalgate.harness.manifest import Registry, logged_namespace, start_run
 from remvalgate.harness.metrics import aurc, harmful_rate_at_coverage, top1_accuracy
 from remvalgate.harness.oracle import read_labels
+from remvalgate.harness.outcome import Outcome
 from remvalgate.harness.training_data import (
     Run,
     check_run,
+    check_setup,
     labels_by_problem,
     read_run,
     sampling_messages,
@@ -90,7 +92,9 @@ def export_heldout(
     The labels files are those of the training data export (training_data.export), each with
     its manifest and transcript beside it. Before any file is read the ids are checked from the
     file names and one touch per pool problem is appended through start_run, with run id
-    b5-heldout-<fold>-<problem id>-<UTC time>. An existing output is never overwritten.
+    b5-heldout-<fold>-<problem id>-<UTC time>. Every run is then read and the runs must share
+    one setup (training_data.check_setup), as in the training data export, before any fold is
+    written. An existing output is never overwritten.
     """
     now = (now or datetime.now(UTC)).astimezone(UTC)
     by_problem = labels_by_problem(labels_paths, registry)
@@ -111,12 +115,14 @@ def export_heldout(
             namespace=logged_namespace(pid),
         )
         touches[pid] = run_id
+    read = {p: read_run(path, p) for p, path in sorted(by_problem.items())}
+    check_setup([run for run, _ in read.values()])
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
     for fold in sorted(set(assignment.values())):
         held = sorted(p for p, f in assignment.items() if f == fold)
-        runs = [read_run(by_problem[p], p) for p in held]
+        runs = [read[p] for p in held]
         body = {
             "format": HELDOUT_FORMAT,
             "fold": fold,
@@ -173,12 +179,21 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def summarize(pairs: Sequence[tuple[str | Path, str | Path]]) -> dict:
+def summarize(
+    pairs: Sequence[tuple[str | Path, str | Path]],
+    results: Sequence[Mapping] = (),
+    pool: Sequence[str] = (),
+) -> dict:
     """The per-problem results and the totals of baseline 5 over the folds given.
 
     Each pair is a held-out file and the scores file the notebook wrote from it. A scores file
-    must name its held-out file's SHA-256 and fold and score every candidate of it, and no fold
-    may appear twice; otherwise ValueError.
+    must name its held-out file's SHA-256 and fold, score every candidate of it and have trained
+    on no problem of it, and no fold may appear twice; otherwise ValueError.
+
+    results are the pool result rows of the other baselines (scripts/run_baselines_pool.py: rows
+    with baseline, problem_id and outcome), which must cover each pool problem once per baseline
+    (g3.solved_by_baseline). Each baseline's outcome is then set beside baseline 5's per problem,
+    and its problems solved are counted over the same problems.
     """
     problems, runs, folds = [], [], set()
     for heldout_path, scores_path in pairs:
@@ -196,9 +211,17 @@ def summarize(pairs: Sequence[tuple[str | Path, str | Path]]) -> dict:
         ids = {c["id"] for p in heldout["problems"] for c in p["candidates"]}
         if set(scored["scores"]) != ids:
             raise ValueError(f"{scores_path}: does not score exactly the held-out candidates")
+        # a record id is <problem id>/<seed>
+        trained = {i.rsplit("/", 1)[0] for i in scored["trained_ids"]}
+        leaked = sorted(trained & {p["problem_id"] for p in heldout["problems"]})
+        if leaked:
+            raise ValueError(f"{scores_path}: trained on held-out problems {leaked}")
         problems += [problem_result(p, scored["scores"]) for p in heldout["problems"]]
-        runs.append({k: v for k, v in scored.items() if k != "scores"})
-    return {
+        runs.append(
+            {k: v for k, v in scored.items() if k != "scores"}
+            | {"heldout_file": heldout_path.name, "heldout_touches": heldout["touches"]}
+        )
+    summary = {
         "folds": sorted(folds),
         "problems": len(problems),
         # expected number of problems whose top pick works; ties at the top shared
@@ -207,3 +230,14 @@ def summarize(pairs: Sequence[tuple[str | Path, str | Path]]) -> dict:
         "per_problem": problems,
         "runs": runs,
     }
+    if results:
+        solved_by_baseline(results, pool)
+        outcome = {(r["baseline"], r["problem_id"]): r["outcome"] for r in results}
+        baselines = sorted({r["baseline"] for r in results})
+        for r in problems:
+            r["other_baselines"] = {b: outcome[b, r["problem_id"]] for b in baselines}
+        summary["other_baselines_solved"] = {
+            b: sum(Outcome(r["other_baselines"][b]) is Outcome.RECOVERED for r in problems)
+            for b in baselines
+        }
+    return summary

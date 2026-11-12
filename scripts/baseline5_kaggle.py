@@ -77,6 +77,18 @@ def _load(path: Path) -> tuple[dict, str]:
     return json.loads(raw), hashlib.sha256(raw).hexdigest()
 
 
+# the labelling run's setup, as training_data.setup compares it within one export
+SETUP_FIELDS = ("model_name", "model_version", "k", "seed")
+SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+
+
+def _setup(manifest: dict) -> tuple:
+    sampling = manifest.get("sampling", {})
+    return tuple(manifest.get(n) for n in SETUP_FIELDS) + tuple(
+        sampling.get(n) for n in SAMPLING_FIELDS
+    )
+
+
 def _check(train: dict, heldout: dict) -> None:
     if train.get("format") != "remvalgate-training-data/1" or train.get("kind") != "baseline5":
         raise SystemExit("--train is not a baseline 5 training file")
@@ -86,6 +98,9 @@ def _check(train: dict, heldout: dict) -> None:
         raise SystemExit(f"fold {train['fold']} training file, fold {heldout['fold']} held out")
     if train["fold_assignment_sha256"] != heldout["fold_assignment_sha256"]:
         raise SystemExit("the two files use different fold assignments")
+    files = [*train["labels_files"].values(), *heldout["labels_files"].values()]
+    if len({_setup(f["manifest"]) for f in files}) != 1:
+        raise SystemExit("the two files come from labelling runs of different setups")
     trained = {r["problem_id"] for r in train["records"]}
     held = {p["problem_id"] for p in heldout["problems"]}
     if trained & held:
@@ -128,6 +143,9 @@ def main() -> int:
         [p for p in model.parameters() if p.requires_grad], lr=LEARNING_RATE
     )
     encoded = [encode(tokenizer, r["messages"], r["completion"]) for r in rows]
+    # a long prompt may not fit a T4 in bfloat16 (docs/baseline5.md, Limits)
+    longest = max((len(p) for p, _ in encoded), default=0)
+    print(f"{len(rows)} training rows, longest training prompt {longest} tokens", flush=True)
     losses = []
     model.train()
     for epoch in range(EPOCHS):

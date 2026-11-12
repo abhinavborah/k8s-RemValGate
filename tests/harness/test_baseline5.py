@@ -79,6 +79,17 @@ def test_export_refuses_an_incomplete_pool_before_any_touch(tmp_path):
     assert all(t["run_id"][:5] == "seal-" for t in read_touches(repo / "runs" / "touch_log.jsonl"))
 
 
+def test_export_refuses_labelling_runs_of_another_setup_before_writing(tmp_path):
+    repo = _repo(tmp_path)
+    paths = _files(tmp_path, sorted(ASSIGNMENT))
+    manifest = paths[-1].with_name(paths[-1].name.removesuffix(".labels.json") + ".json")
+    body = json.loads(manifest.read_text())
+    manifest.write_text(json.dumps(body | {"model_version": "another build"}))
+    with pytest.raises(ValueError, match="must share one setup"):
+        _export(tmp_path, paths, repo)
+    assert not list((tmp_path / "out").glob("*.json"))
+
+
 def _problem(works, solved=False):
     return {
         "problem_id": "p",
@@ -113,7 +124,12 @@ def test_summarize_totals_the_folds_and_refuses_a_scores_file_of_another_held_ou
     heldout = _write(
         tmp_path,
         "h.json",
-        {"format": HELDOUT_FORMAT, "fold": 0, "problems": [_problem([False, True], solved=True)]},
+        {
+            "format": HELDOUT_FORMAT,
+            "fold": 0,
+            "touches": ["b5-heldout-0-p-t"],
+            "problems": [_problem([False, True], solved=True)],
+        },
     )
     sha = hashlib.sha256(heldout.read_bytes()).hexdigest()
     scores = {
@@ -121,14 +137,56 @@ def test_summarize_totals_the_folds_and_refuses_a_scores_file_of_another_held_ou
         "fold": 0,
         "heldout": {"file": "h.json", "sha256": sha},
         "model": "m",
+        "trained_ids": ["q/0"],
         "scores": {"p/0": -3.0, "p/1": -2.0},
     }
     summary = summarize([(heldout, _write(tmp_path, "s.json", scores))])
     assert summary["baseline5_solved"] == 1.0 and summary["baseline3c_solved"] == 1
-    assert summary["runs"] == [{k: v for k, v in scores.items() if k != "scores"}]
+    assert summary["runs"] == [
+        {k: v for k, v in scores.items() if k != "scores"}
+        | {"heldout_file": "h.json", "heldout_touches": ["b5-heldout-0-p-t"]}
+    ]
     other = _write(tmp_path, "o.json", scores | {"heldout": {"file": "h.json", "sha256": "0"}})
     with pytest.raises(ValueError, match="another held-out file"):
         summarize([(heldout, other)])
     missing = _write(tmp_path, "m.json", scores | {"scores": {"p/0": -1.0}})
     with pytest.raises(ValueError, match="exactly the held-out candidates"):
         summarize([(heldout, missing)])
+    good = tmp_path / "s.json"
+    with pytest.raises(ValueError, match="repeated or not the file's"):
+        summarize([(heldout, good), (heldout, good)])
+    mismatch = _write(tmp_path, "f.json", scores | {"fold": 1})
+    with pytest.raises(ValueError, match="repeated or not the file's"):
+        summarize([(heldout, mismatch)])
+    leaked = _write(tmp_path, "l.json", scores | {"trained_ids": ["q/0", "p/1"]})
+    with pytest.raises(ValueError, match="trained on held-out problems"):
+        summarize([(heldout, leaked)])
+
+
+def test_summarize_sets_the_other_baselines_beside_baseline_5(tmp_path):
+    heldout = _write(
+        tmp_path,
+        "h.json",
+        {"format": HELDOUT_FORMAT, "fold": 0, "touches": [], "problems": [_problem([True])]},
+    )
+    sha = hashlib.sha256(heldout.read_bytes()).hexdigest()
+    scores = {
+        "format": SCORES_FORMAT,
+        "fold": 0,
+        "heldout": {"file": "h.json", "sha256": sha},
+        "trained_ids": [],
+        "scores": {"p/0": -1.0},
+    }
+    pair = [(heldout, _write(tmp_path, "s.json", scores))]
+    rows = [
+        {"baseline": "1", "problem_id": "p", "outcome": "RECOVERED"},
+        {"baseline": "1", "problem_id": "q", "outcome": "RECOVERED"},
+        {"baseline": "2", "problem_id": "p", "outcome": "APPLIED_INEFFECTIVE"},
+        {"baseline": "2", "problem_id": "q", "outcome": "RECOVERED"},
+    ]
+    summary = summarize(pair, rows, ["p", "q"])
+    other = summary["per_problem"][0]["other_baselines"]
+    assert other == {"1": "RECOVERED", "2": "APPLIED_INEFFECTIVE"}
+    assert summary["other_baselines_solved"] == {"1": 1, "2": 0}
+    with pytest.raises(ValueError, match="pool problems missing"):
+        summarize(pair, rows[:3], ["p", "q"])
