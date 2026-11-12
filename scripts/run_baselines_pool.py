@@ -194,12 +194,12 @@ def main() -> int:
     parser.add_argument("--model-version", help="format and quantization served (3a, 3b, 3c)")
     parser.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
-        "--seed", type=int, action="append", help=f"repeatable (default {SEED}); see interleaved"
+        "--seed", type=int, action="append", help="repeatable (default 1000 and 1001, #161)"
     )
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
     args = parser.parse_args()
     baselines = list(dict.fromkeys(args.baseline))
-    seeds = list(dict.fromkeys(args.seed or [SEED]))
+    seeds = list(dict.fromkeys(args.seed or [SEED, SEED + 1]))
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for 3a, 3b and 3c")

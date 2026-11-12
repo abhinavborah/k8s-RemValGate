@@ -160,6 +160,31 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
         raise ValueError(f"the rerun repeats the labelling run's seed {seeds.pop()}")
 
 
+def combine_seeds(rows: Sequence[Mapping]) -> list[dict]:
+    """One row per baseline and problem from rows at one or more seeds (#161), by the rule of #56:
+    the problem counts as RECOVERED only if it recovered at every seed. The combined row keeps the
+    first row's fields, takes the outcome of the first seed that did not recover, and lists the
+    seeds. Raises ValueError for two rows of one baseline, problem and seed, or for a baseline
+    whose problems ran at different seeds."""
+    grouped: dict[tuple[str, str], list[Mapping]] = {}
+    for row in rows:
+        grouped.setdefault((row["baseline"], row["problem_id"]), []).append(row)
+    seeds_of: dict[str, set] = {}
+    out = []
+    for (baseline, problem_id), mine in sorted(grouped.items()):
+        seeds = [r["seed"] for r in mine]
+        if len(set(seeds)) != len(seeds):
+            raise ValueError(f"baseline {baseline}: {problem_id} has two rows at one seed")
+        seeds_of.setdefault(baseline, set()).add(frozenset(seeds))
+        mine = sorted(mine, key=lambda r: r["seed"])
+        failed = [r for r in mine if Outcome(r["outcome"]) is not Outcome.RECOVERED]
+        out.append({**mine[0], "outcome": (failed or mine)[0]["outcome"], "seeds": sorted(seeds)})
+    for baseline, sets in seeds_of.items():
+        if len(sets) > 1:
+            raise ValueError(f"baseline {baseline}: problems ran at different seeds")
+    return out
+
+
 def solved_by_baseline(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:
     """Per baseline, how many pool problems its result rows solved (RECOVERED), from rows that
     cover each pool problem exactly once. Raises ValueError for a baseline whose rows repeat a

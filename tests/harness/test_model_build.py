@@ -23,7 +23,13 @@ RUNTIME = (
 )
 
 
-def _host(tmp_path, ps=PS):
+def _host(
+    tmp_path,
+    ps=PS,
+    version="\x1b[38mbanner\x1b[0m\nCLI commit: 43d4b26\n",
+    runtime=RUNTIME,
+    app="0.4.27+2\n",
+):
     hub = tmp_path / ".lmstudio" / "hub" / "models" / "qwen" / "qwen3.5-4b"
     hub.mkdir(parents=True)
     (hub / "model.yaml").write_text(
@@ -41,9 +47,9 @@ def _host(tmp_path, ps=PS):
     def run(*argv):
         return {
             ("lms", "ps", "--json"): json.dumps(ps),
-            ("lms", "runtime", "ls"): RUNTIME,
-            ("lms", "version"): "\x1b[38mbanner\x1b[0m\nCLI commit: 43d4b26\n",
-        }.get(argv[:3], "0.4.27+2\n")
+            ("lms", "runtime", "ls"): runtime,
+            ("lms", "version"): version,
+        }.get(argv[:3], app)
 
     return run
 
@@ -87,3 +93,20 @@ def test_runs_with_different_builds_are_refused_and_the_file_path_does_not_count
         check_one_build([a, old])
     # a run with no language model takes no part
     check_one_build([a, {"model_name": "none"}])
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"app": ""}, "app version"),
+        ({"version": "banner only\n"}, "CLI commit"),
+        (
+            {"runtime": RUNTIME.replace("\u2713            GGUF", "             GGUF")},
+            "GGUF engine",
+        ),
+    ],
+)
+def test_a_field_the_host_does_not_report_stops_the_run(tmp_path, kwargs, match):
+    # two builds that both read as unknown would otherwise pass check_one_build
+    with pytest.raises(RuntimeError, match=match):
+        read_build("qwen/qwen3.5-4b", run=_host(tmp_path, **kwargs), home=tmp_path)

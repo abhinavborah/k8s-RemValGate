@@ -106,8 +106,9 @@ def read_build(
 ) -> dict:
     """The build of the loaded model model_key, as the host reports it.
 
-    Raises RuntimeError when the model is not loaded or its file cannot be found, so a run never
-    starts without a build record.
+    Raises RuntimeError when the model is not loaded, its file cannot be found, or the app
+    version, CLI commit or selected GGUF engine cannot be read, so a run never starts without a
+    full build record.
     """
     home = home or Path.home()
     loaded = [m for m in json.loads(run("lms", "ps", "--json")) if m.get("modelKey") == model_key]
@@ -119,13 +120,21 @@ def read_build(
     try:
         app = run("defaults", "read", APP_PLIST, "CFBundleShortVersionString").strip()
     except (OSError, subprocess.CalledProcessError):
-        app = "unknown"
+        app = ""
+    # a field the host does not report stops the run: two builds that both read as unknown would
+    # pass check_one_build
+    if not app:
+        raise RuntimeError(f"cannot read the LM Studio app version from {APP_PLIST}")
+    if commit is None:
+        raise RuntimeError("cannot read the LM Studio CLI commit (lms version)")
+    if len(engines) != 1:
+        raise RuntimeError(f"expected one selected GGUF engine (lms runtime ls), got {engines}")
     path = _model_file(model, home / ".lmstudio" / "models", home / ".lmstudio" / "hub" / "models")
     return {
         "server": "lmstudio",
         "app_version": app,
-        "cli_commit": commit.group(1) if commit else "unknown",
-        "gguf_engine": engines[0] if len(engines) == 1 else "unknown",
+        "cli_commit": commit.group(1),
+        "gguf_engine": engines[0],
         "model_key": model_key,
         "variant": model.get("selectedVariant"),
         "quantization": model["quantization"]["name"],

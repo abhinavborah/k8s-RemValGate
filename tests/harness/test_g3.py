@@ -214,3 +214,25 @@ def test_solved_by_baseline_counts_recovered_rows_per_baseline():
 def test_solved_by_baseline_refuses_a_partial_or_repeated_run(rows, match):
     with pytest.raises(ValueError, match=match):
         solved_by_baseline(rows, POOL)
+
+
+def test_seeds_combine_to_recovered_only_when_every_seed_recovered():
+    from remvalgate.harness.g3 import combine_seeds
+
+    def row(problem, seed, outcome):
+        return {"baseline": "3c", "problem_id": problem, "seed": seed, "outcome": outcome}
+
+    rec, fail = Outcome.RECOVERED.value, Outcome.APPLIED_INEFFECTIVE.value
+    out = combine_seeds(
+        [row("p1", 1000, rec), row("p1", 1001, rec), row("p2", 1001, fail), row("p2", 1000, rec)]
+    )
+    assert [(r["problem_id"], r["outcome"], r["seeds"]) for r in out] == [
+        ("p1", rec, [1000, 1001]),
+        ("p2", fail, [1000, 1001]),
+    ]
+    # one seed passes through unchanged apart from the seed list
+    assert combine_seeds([row("p1", 1000, fail)])[0]["outcome"] == fail
+    with pytest.raises(ValueError, match="two rows at one seed"):
+        combine_seeds([row("p1", 1000, rec), row("p1", 1000, rec)])
+    with pytest.raises(ValueError, match="different seeds"):
+        combine_seeds([row("p1", 1000, rec), row("p1", 1001, rec), row("p2", 1000, rec)])

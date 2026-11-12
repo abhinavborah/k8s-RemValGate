@@ -129,7 +129,7 @@ shared drive beside its manifests. The steps are in the docstring of
 ## Added on 2026-11-12: run protocol for the reruns
 
 From #161, for every run after this date:
-- `--seed` is repeatable; the reruns use 1000 and 1001.
+- `--seed` is repeatable and defaults to 1000 and 1001, the seeds of the reruns.
 - The arms run interleaved: seed by seed, every arm on one problem before the next problem, with the
   first arm rotated (`src/remvalgate/harness/protocol.py`).
 - Each manifest of a planner run records `model_build`, read from the LM Studio host at run start
