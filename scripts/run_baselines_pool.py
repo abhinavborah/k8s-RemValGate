@@ -268,6 +268,8 @@ def main() -> int:
 
 
 def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes) -> dict:
+    # read before start_run, so a model that is not loaded stops the run before its touch (#161)
+    build = read_build(MODEL) if baseline in PLANNER else {}
     now = datetime.now(UTC)
     run_id = f"baseline{baseline}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
     namespace = logged_namespace(problem_id)
@@ -280,8 +282,6 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     prob = orch.probs.get_problem_instance(problem_id)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
     reason = None
-    # read before the injection, so a model that is not loaded stops the run with nothing touched
-    build = read_build(MODEL) if baseline in PLANNER else {}
     if baseline in PLANNER:
         result, _, first, injected = asyncio.run(
             diagnose(

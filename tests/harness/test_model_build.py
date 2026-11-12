@@ -28,6 +28,10 @@ def _host(tmp_path, ps=PS):
     hub.mkdir(parents=True)
     (hub / "model.yaml").write_text(
         "model: qwen/qwen3.5-4b\nbase:\n  - key: lmstudio-community/qwen3.5-4b-gguf\n"
+        "config:\n  operation:\n    fields:\n"
+        "      - key: llm.prediction.temperature\n        value: 1.0\n"
+        "      - key: llm.prediction.llama.presencePenalty\n"
+        "        value:\n          checked: true\n          value: 1.5\n"
     )
     folder = tmp_path / ".lmstudio" / "models" / "lmstudio-community" / "Qwen3.5-4B-GGUF"
     folder.mkdir(parents=True)
@@ -54,6 +58,14 @@ def test_the_build_is_read_from_the_host_with_the_gguf_files_hash(tmp_path):
     # the weights file, never the mmproj vision file
     assert build["model_file"].endswith("Qwen3.5-4B-Q8_0.gguf")
     assert build["model_sha256"] == hashlib.sha256(b"weights").hexdigest()
+    # the defaults the server applies to parameters a request does not send; no override here
+    assert build["server_defaults"] == {
+        "hub": {
+            "llm.prediction.temperature": 1.0,
+            "llm.prediction.llama.presencePenalty": {"checked": True, "value": 1.5},
+        },
+        "override": {},
+    }
 
 
 def test_a_model_that_is_not_loaded_stops_the_run(tmp_path):

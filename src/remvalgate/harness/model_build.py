@@ -7,6 +7,10 @@ build_key gives the same value for both; check_one_build refuses a set of runs t
 including a mix of runs with a recorded build and runs without one (written before this record
 existed).
 
+It also records the server's sampling defaults, which apply to every parameter a request does not
+send (chat.py sends temperature, top-p and top-k only): the `config` fields of the model's hub
+`model.yaml`, and the per-model override LM Studio keeps, if any.
+
 Not reported by `lms ps`: GPU offload. It is left out rather than guessed.
 """
 
@@ -16,6 +20,8 @@ import re
 import subprocess
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
+
+import yaml
 
 APP_PLIST = "/Applications/LM Studio.app/Contents/Info"
 # fields that differ between runs of one build, so they do not take part in build_key
@@ -71,6 +77,28 @@ def _model_file(loaded: Mapping, models: Path, hub: Path) -> Path:
     return found[0]
 
 
+def _server_defaults(model_key: str, home: Path) -> dict:
+    """The hub model.yaml's config fields as key: value, and LM Studio's per-model override."""
+    hub = home / ".lmstudio" / "hub" / "models" / model_key / "model.yaml"
+    fields = {}
+    if hub.exists():
+        config = (yaml.safe_load(hub.read_text(encoding="utf-8")) or {}).get("config") or {}
+        for part in config.values():
+            for field in (part or {}).get("fields") or []:
+                fields[field["key"]] = field["value"]
+    override = (
+        home
+        / ".lmstudio"
+        / ".internal"
+        / "user-concrete-model-default-config"
+        / f"{model_key}.json"
+    )
+    return {
+        "hub": fields,
+        "override": json.loads(override.read_text(encoding="utf-8")) if override.exists() else {},
+    }
+
+
 def read_build(
     model_key: str,
     run: Callable[..., str] = _run,
@@ -105,6 +133,7 @@ def read_build(
         "parallel": model.get("parallel"),
         "model_file": str(path),
         "model_sha256": _sha256(path),
+        "server_defaults": _server_defaults(model_key, home),
     }
 
 

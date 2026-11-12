@@ -134,8 +134,12 @@ From #161, for every run after this date:
   first arm rotated (`src/remvalgate/harness/protocol.py`).
 - Each manifest of a planner run records `model_build`, read from the LM Studio host at run start
   (`src/remvalgate/harness/model_build.py`): app version, CLI commit, selected GGUF engine, loaded
-  model, quantization, context length, parallel slots and the GGUF file's SHA-256. GPU offload is not
-  reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
+  model, quantization, context length, parallel slots, the GGUF file's SHA-256 and the server's
+  sampling defaults (the hub `model.yaml` config fields and any per-model override). GPU offload is
+  not reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
+- The server's defaults apply to every parameter a request does not send. `planner/chat.py` sends
+  temperature, top-p and top-k, so the hub's presence penalty of 1.5 (enabled) applied to every
+  planner run on this host, before and after this date, in every arm alike.
 - The summaries refuse runs of one comparison served by different builds, including a mix of runs
   with a recorded build and runs from before this date.
 - The runs above have no `model_build`, so they are not compared with the reruns.
