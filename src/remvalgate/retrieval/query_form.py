@@ -65,8 +65,9 @@ def choose(quality: dict[str, int], stability: dict[str, float]) -> str:
     return next(f for f in kept if stability[f] == best)
 
 
-# the form #164 chose (runs/query_forms/query_forms-20261112t145249z.json): Hit@3 6 of 16 against
-# raw's 7, and the same top 3 as the recorded query in 63 of 66 past runs against raw's 32
+# the form #164 chose (runs/query_forms/query_forms-20261112t165146z.json): Hit@3 6 of 16 against
+# raw's 7, and a mean per-problem share of 0.958 of past runs with the recorded query's top 3,
+# against raw's 0.500
 QUERY_FORM = "no_age_restarts_pod_ids"
 
 
