@@ -451,13 +451,15 @@ def test_a_plan_without_a_diagnosis_or_a_k_below_one_is_refused_before_any_model
         draw([], k=0)
 
 
-def test_the_task_names_the_problems_own_application_and_namespace():
-    # the text the development runs used, from AIOpsLab's metadata name for Social Network
-    assert task_text("Social Network", "test-social-network") == (
+def test_the_task_names_the_problems_own_application_and_namespace_and_the_ticket_time():
+    # AIOpsLab's metadata name for Social Network; the ticket time is the injection time (#163)
+    opened = 1_794_475_589_000_000  # 2026-11-12T09:26:29Z
+    assert task_text("Social Network", "test-social-network", opened) == (
         "Users report errors from the social network application in namespace "
-        "test-social-network. Find the faulty service and give one command that fixes it."
+        "test-social-network. The ticket opened at 2026-11-12T09:26:29Z. Find the faulty service "
+        "and give one command that fixes it."
     )
-    hotel = task_text("Hotel Reservation", "test-hotel-reservation")
+    hotel = task_text("Hotel Reservation", "test-hotel-reservation", opened)
     assert "hotel reservation application in namespace test-hotel-reservation" in hotel
     assert "social" not in hotel
 
@@ -529,14 +531,25 @@ FAULT_TYPES_BEFORE_162 = {
 
 def test_with_the_flag_off_the_system_prompt_is_unchanged_from_before_baseline_7():
     # sha256 of the prompt before E6-S5, so baselines 3a to 3c and the planner keep their prompt;
-    # updated for the turn cap of 16 (from 8) and for the fault-type texts of #162, the only
+    # updated for the turn cap of 16 (from 8), the fault-type texts of #162 and the telemetry advice
+    # removed by #163, the only
     # changes, as the older hashes show
     import hashlib
 
     result, _, _ = run([final()])
     digest = hashlib.sha256(result.system_prompt.encode()).hexdigest()
-    assert digest == "1bb7887caf53c63999a18844a6e8c2a283dfab0312db57f702e7700fb65f7c3e"
-    before_162 = result.system_prompt
+    assert digest == "b33e9ee0afbeb9596be792a6cf8fe67eb48e54c55f6bb17abe096d05be110e31"
+    # the telemetry advice that #163 removed, put back where it stood
+    before_163 = result.system_prompt.replace(
+        "then describe it.\n",
+        "then describe it. Logs, metrics and traces are noisy and slow, so use them after "
+        "kubectl, and read logs for one service at a time.\n",
+    )
+    assert (
+        hashlib.sha256(before_163.encode()).hexdigest()
+        == "1bb7887caf53c63999a18844a6e8c2a283dfab0312db57f702e7700fb65f7c3e"
+    )
+    before_162 = before_163
     for name, text in FAULT_TYPES.items():
         before_162 = before_162.replace(
             f"- {name}: {text}", f"- {name}: {FAULT_TYPES_BEFORE_162[name]}"
@@ -595,3 +608,13 @@ def test_only_a_namespace_whose_mongodb_enforces_login_gets_the_login_note():
     hotel = _base_prompt("test-hotel-reservation", DEFAULT_TOOLS, 16)
     assert "ROOT_PASSWORD_REF" in hotel and "-n test-hotel-reservation exec deploy/" in hotel
     assert "PASSWORD_REF" not in _base_prompt("test-social-network", DEFAULT_TOOLS, 16)
+
+
+def test_the_prompts_of_two_arms_differ_only_in_their_tool_lines():
+    # no advice on telemetry, so an arm without the telemetry tools gets the same text (#163)
+    full = _base_prompt(NS, DEFAULT_TOOLS, 16).splitlines()
+    shell = _base_prompt(NS, frozenset({"exec_shell"}), 16).splitlines()
+    dropped = [line for line in full if line not in shell]
+    assert dropped and all(line.startswith('- {"tool": "get_') for line in dropped)
+    assert [line for line in shell if line not in full] == []
+    assert not any(w in "\n".join(full) for w in ("noisy", "slow", "after kubectl"))

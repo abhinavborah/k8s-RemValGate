@@ -221,7 +221,7 @@ async def run_problem(
         first = await orch.ask_env(exec_shell(f"kubectl -n {NS} get deployments,pods"))
         result = await asyncio.to_thread(
             plan,
-            task_text(prob.app.name, prob.namespace),
+            task_text(prob.app.name, prob.namespace, injected_at),
             first,
             problem_id,
             NS,

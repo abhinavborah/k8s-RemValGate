@@ -67,3 +67,11 @@ connection failures". The injector removes the readWrite role of the database us
 can still log in and its queries are refused; a failed login is the effect of UserUnregistered.
 The text is corrected in #162. The results here stay as they were run and are superseded by the
 rerun of #165.
+
+
+## Added on 2026-11-12: telemetry advice and ticket time
+
+The planner prompt of these runs told the tool arms that logs, metrics and traces "are noisy and
+slow, so use them after kubectl". That advice steers an arm away from the telemetry it is meant to
+use; it is removed in #163. #163 also writes the ticket time (the injection time) into every task.
+The results here stay as they were run and are superseded by the rerun of #165.
