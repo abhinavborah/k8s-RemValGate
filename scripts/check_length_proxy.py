@@ -6,7 +6,7 @@ scripts/export_training_data.py counts, and prints, per application and kind, th
 and count, the number of samples over the 2,048 token budget by each, and the range of their ratio
 over the samples. Exits 1 when the tokenizer counts more than the proxy on a gate input, the case
 in which the proxy's over-budget list can miss a row.
-The result for Qwen3.5-4B is in docs/training_data.md (Length).
+The result for Qwen3.5-4B is in docs/training_data.md (Length check).
 
     uv run --with transformers==5.22.1 python scripts/check_length_proxy.py --tokenizer DIR
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from transformers import AutoTokenizer
 
-from remvalgate.harness.length_check import compare
+from remvalgate.harness.length_check import compare, proxy_undercounts
 
 
 def main() -> int:
@@ -34,7 +34,7 @@ def main() -> int:
             f"over budget {row['proxy_over']:>2} by proxy, {row['count_over']:>2} by count  "
             f"count/proxy {row['ratio_min']:.3f} to {row['ratio_max']:.3f}"
         )
-    under = [row for row in rows if row["kind"] == "gate input" and row["ratio_max"] > 1]
+    under = proxy_undercounts(rows)
     for row in under:
         print(f"the tokenizer counts more than the proxy on a {row['application']} gate input")
     return 1 if under else 0

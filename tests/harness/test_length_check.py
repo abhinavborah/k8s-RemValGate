@@ -10,6 +10,7 @@ from remvalgate.harness.length_check import (
     compare,
     gate_input,
     listing,
+    proxy_undercounts,
     samples,
 )
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, load_registry
@@ -85,3 +86,14 @@ def test_compare_gives_each_kind_its_ratios_over_the_seeds():
     rows = compare(lambda text: TOKEN_BUDGET + 1, range(2))
     over = {(r["application"], r["kind"]): (r["count_over"], r["proxy_over"]) for r in rows}
     assert over["Hotel Reservation", "gate input"] == (2, 0)
+
+
+def test_a_count_above_the_proxy_is_flagged_on_gate_inputs_only():
+    assert proxy_undercounts(compare(length_proxy, range(2))) == []
+    # one token more than the proxy on every text
+    rows = proxy_undercounts(compare(lambda text: length_proxy(text) + 1, range(2)))
+    assert [(r["application"], r["kind"]) for r in rows] == [(a, "gate input") for a in APPS]
+    # one token more on the pod names alone, which start with pod/, as on Qwen3.5-4B
+    rows = compare(lambda text: length_proxy(text) + text.startswith("pod/"), range(2))
+    assert any(r["kind"] == "pod names" and r["ratio_max"] > 1 for r in rows)
+    assert proxy_undercounts(rows) == []

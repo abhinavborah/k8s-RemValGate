@@ -5,7 +5,7 @@ tokenizer. Counting the gate inputs themselves would read pool data, an evaluati
 these texts hold none: the first observation is a `kubectl get deployments,pods` listing of an
 application's deployments with one Ready pod each, and the retrieved past fixes are entries of the
 synthetic development corpus (retrieval/stub.py). scripts/check_length_proxy.py counts them with a
-tokenizer, and docs/training_data.md (Length) records the result.
+tokenizer, and docs/training_data.md (Length check) records the result.
 
 The listing is laid out as kubectl lays it out (cli-runtime printers/tabwriter.go: minimum width
 6, padding 3, the last column unpadded). A pod is named as Kubernetes names it: the deployment, the
@@ -177,3 +177,9 @@ def compare(count: Callable[[str], int], seeds: Sequence[int] = SEEDS) -> list[d
         }
         for (app, kind), p in pairs.items()
     ]
+
+
+def proxy_undercounts(rows: Sequence[dict]) -> list[dict]:
+    """The rows of compare on which the tokenizer counts more than the proxy on a gate input, the
+    case in which the proxy's over-budget list can miss a row."""
+    return [row for row in rows if row["kind"] == "gate input" and row["ratio_max"] > 1]
