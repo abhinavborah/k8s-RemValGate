@@ -409,7 +409,9 @@ from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster an
 f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
 the retrieved past fixes. Reading the labels logs one touch per fold and training problem, so it
 needs gate G1 and a clean checkout. The rules and the file format are in
-[docs/training_data.md](docs/training_data.md).
+[docs/training_data.md](docs/training_data.md). `scripts/check_length_proxy.py` compares the
+export's tokenizer-free length proxy with a saved tokenizer on synthetic text of the gate input's
+shape, with no pool data and no touch; the result is in the same file (Length check).
 
 Baseline 5 (story E6-S4, R6.4) is the planner LoRA-fine-tuned per fold on the label-1 training
 records, ranking its own K candidates by log-probability. `scripts/export_baseline5_heldout.py`
