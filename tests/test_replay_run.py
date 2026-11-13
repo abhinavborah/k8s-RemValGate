@@ -1,0 +1,80 @@
+"""Checks of the replay script on made-up files: the order of the parts, a refused candidate, an
+escalation, and the cut of a batch recording to one run."""
+
+import importlib.util
+import json
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "replay_run.py"
+spec = importlib.util.spec_from_file_location("replay_run", SCRIPT)
+replay = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(replay)
+
+MANIFEST = {
+    "run_id": "oracle-dev-scale_pod_zero_social_net-mitigation-1-x",
+    "problem_id": "dev-scale_pod_zero_social_net-mitigation-1",
+    "timestamp": "2026-11-10T14:00:10Z",
+    "k": 2,
+    "r": 2,
+    "seed": 1000,
+    "sampling": {"baseline": "3c"},
+}
+
+
+def test_parts_in_order_with_refusal():
+    transcript = {
+        "first_observation": "NAME READY\nuser-service 0/0",
+        "diagnosis": {"fault_type": "ScalePod", "service": "user-service", "reason": "0 replicas"},
+        "stop": "final",
+    }
+    labels = {
+        "n": 2,
+        "c": 1,
+        "candidates": [
+            {"seed": 0, "command": "kubectl scale ...", "rejection": None, "outcome": "RECOVERED"},
+            {"seed": 1, "command": "kubectl delete ns x", "rejection": "verb not allowed"},
+        ],
+        "plan": {"command": "kubectl scale ...", "outcome": "RECOVERED", "rejection": None},
+    }
+    parts = replay.stages(MANIFEST, transcript, labels, {})
+    assert [title[0] for title, _ in parts] == list("123456")
+    text = dict(parts)
+    assert "ScalePod" in text["1. Injected fault"] and "seed 1000" in text["1. Injected fault"]
+    assert "refused: verb not allowed" in text["4. Candidates"]
+    assert "2 candidates, 1 refused" in text["4. Candidates"]
+    assert "kubectl scale" in text["5. Chosen action or escalation"]
+    assert "RECOVERED" in text["6. Outcome"] and "n = 2, c = 1" in text["6. Outcome"]
+
+
+def test_escalation_from_a_result_row():
+    result = {"command": None, "stop": "escalate", "escalation": "unsure", "outcome": "NOT_SENT"}
+    text = dict(replay.stages(MANIFEST, {"diagnosis": None, "stop": "escalate"}, {}, result))
+    assert "escalated to a human" in text["5. Chosen action or escalation"]
+    assert "unsure" in text["5. Chosen action or escalation"]
+    assert "NOT_SENT" in text["6. Outcome"]
+
+
+def test_cut_of_a_batch_recording(tmp_path):
+    (tmp_path / "a.json").write_text(json.dumps(MANIFEST))
+    (tmp_path / "a.transcript.json").write_text("{}")
+    (tmp_path / "b.json").write_text(json.dumps(MANIFEST | {"timestamp": "2026-11-10T14:00:20Z"}))
+    start, end = replay.window(tmp_path / "a.json")
+    assert end - start == 10
+
+    # the capture starts at 14:00:00; version 3 times are intervals: events at 5, 12, 15 and 25 s
+    cast = tmp_path / "batch.cast"
+    events = [[5.0, "o", "before"], [7.0, "o", "one"], [3.0, "o", "two"], [10.0, "o", "after"]]
+    header = {"version": 3, "timestamp": int(start) - 10}
+    cast.write_text("\n".join(json.dumps(x) for x in [header, *events]) + "\n")
+    assert replay.slice_cast(cast, start, end, tmp_path / "a.cast") == 2
+    lines = [json.loads(x) for x in (tmp_path / "a.cast").read_text().splitlines()]
+    assert lines[0]["timestamp"] == int(start)
+    assert lines[1:] == [[2.0, "o", "one"], [3.0, "o", "two"]]
+
+    pods = tmp_path / "batch.pods.log"
+    pods.write_text(
+        "2026-11-10T14:00:05Z ADDED a\n2026-11-10T14:00:12Z MODIFIED b\n"
+        "not a stamp\n2026-11-10T14:00:20Z DELETED c\n"
+    )
+    assert replay.slice_pods(pods, start, end, tmp_path / "a.pods.log") == 1
+    assert (tmp_path / "a.pods.log").read_text() == "2026-11-10T14:00:12Z MODIFIED b\n"
