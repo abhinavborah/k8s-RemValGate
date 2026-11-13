@@ -221,7 +221,7 @@ async def run_problem(
         first = await orch.ask_env(exec_shell(f"kubectl -n {NS} get deployments,pods"))
         result = await asyncio.to_thread(
             plan,
-            task_text(prob.app.name, prob.namespace),
+            task_text(prob.app.name, prob.namespace, injected_at),
             first,
             problem_id,
             NS,
@@ -412,7 +412,14 @@ def main() -> int:
                 sampling={
                     **{
                         n: getattr(chat, n)
-                        for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+                        for n in (
+                            "temperature",
+                            "top_p",
+                            "top_k",
+                            "presence_penalty",
+                            "max_tokens",
+                            "thinking",
+                        )
                     },
                     "seeds": [c["seed"] for c in transcript["candidates"]],
                     # which baseline ran and how the judge scored, so the manifest alone says so

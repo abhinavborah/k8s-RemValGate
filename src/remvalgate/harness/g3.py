@@ -26,11 +26,12 @@ once, so a development dry run or a partial run is never counted.
 import json
 from collections.abc import Mapping, Sequence
 
+from remvalgate.harness.model_build import check_one_build
 from remvalgate.harness.oracle import ProblemLabels
 from remvalgate.harness.outcome import Outcome
 
 # the sampling settings both runs' manifests record, compared by check_rerun_settings
-SAMPLING_KEYS = ("temperature", "top_p", "top_k", "max_tokens")
+SAMPLING_KEYS = ("temperature", "top_p", "top_k", "presence_penalty", "max_tokens")
 
 # the project stops when 3c's top pick solves at least this many pool problems
 HEADROOM_STOP = 12
@@ -140,7 +141,8 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
 
     labelling and rerun hold the manifests of the labelling run and of 3c's rerun. Both runs must
     name one model and one model version (format, quantization and thinking setting) and the same
-    sampling settings, the same in both, and the rerun one seed that the labelling run did not use.
+    sampling settings, the same in both, and the rerun seeds that the labelling run did not use
+    (one, or the 2 of #161, whose rows combine_seeds turns into one row per problem).
     Raises ValueError otherwise.
     """
     for name in ("model_name", "model_version"):
@@ -151,11 +153,36 @@ def check_rerun_settings(labelling: Sequence[dict], rerun: Sequence[dict]) -> No
         values = {json.dumps(m.get("sampling", {}).get(name)) for m in [*labelling, *rerun]}
         if len(values) != 1:
             raise ValueError(f"the two runs differ in sampling {name}: {sorted(values)}")
+    check_one_build([*labelling, *rerun], "the two runs")
     seeds = {m["seed"] for m in rerun}
-    if len(seeds) != 1:
-        raise ValueError(f"the rerun has more than one seed: {sorted(seeds)}")
-    if seeds & {m["seed"] for m in labelling}:
-        raise ValueError(f"the rerun repeats the labelling run's seed {seeds.pop()}")
+    used = seeds & {m["seed"] for m in labelling}
+    if used:
+        raise ValueError(f"the rerun repeats the labelling run's seeds {sorted(used)}")
+
+
+def combine_seeds(rows: Sequence[Mapping]) -> list[dict]:
+    """One row per baseline and problem from rows at one or more seeds (#161), by the rule of #56:
+    the problem counts as RECOVERED only if it recovered at every seed. The combined row keeps the
+    first row's fields, takes the outcome of the first seed that did not recover, and lists the
+    seeds. Raises ValueError for two rows of one baseline, problem and seed, or for a baseline
+    whose problems ran at different seeds."""
+    grouped: dict[tuple[str, str], list[Mapping]] = {}
+    for row in rows:
+        grouped.setdefault((row["baseline"], row["problem_id"]), []).append(row)
+    seeds_of: dict[str, set] = {}
+    out = []
+    for (baseline, problem_id), mine in sorted(grouped.items()):
+        seeds = [r["seed"] for r in mine]
+        if len(set(seeds)) != len(seeds):
+            raise ValueError(f"baseline {baseline}: {problem_id} has two rows at one seed")
+        seeds_of.setdefault(baseline, set()).add(frozenset(seeds))
+        mine = sorted(mine, key=lambda r: r["seed"])
+        failed = [r for r in mine if Outcome(r["outcome"]) is not Outcome.RECOVERED]
+        out.append({**mine[0], "outcome": (failed or mine)[0]["outcome"], "seeds": sorted(seeds)})
+    for baseline, sets in seeds_of.items():
+        if len(sets) > 1:
+            raise ValueError(f"baseline {baseline}: problems ran at different seeds")
+    return out
 
 
 def solved_by_baseline(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:

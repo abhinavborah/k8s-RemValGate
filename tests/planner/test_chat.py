@@ -7,12 +7,12 @@ import pytest
 from remvalgate.planner.chat import OpenAIChat
 
 
-def fake_urlopen(captured, content, **choice):
+def fake_urlopen(captured, content, usage=None, **choice):
     def urlopen(request, timeout):
         captured.append(json.loads(request.data))
         body = {
             "choices": [{"message": {"content": content}, **choice}],
-            "usage": {"completion_tokens": 7},
+            "usage": usage or {"completion_tokens": 7},
         }
         return io.BytesIO(json.dumps(body).encode())
 
@@ -27,6 +27,14 @@ def test_thinking_off_sends_reasoning_effort_none_and_think_blocks_are_stripped(
     completion = OpenAIChat(model="m", thinking=False).complete([{"role": "user", "content": "hi"}])
     assert sent[0]["reasoning_effort"] == "none" and sent[0]["seed"] == 0
     assert completion.text == '{"a": 1}' and completion.completion_tokens == 7
+
+
+def test_the_prompt_tokens_the_server_counted_are_kept_and_none_when_absent(monkeypatch):
+    counted = {"completion_tokens": 7, "prompt_tokens": 1234}
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen([], "x", usage=counted))
+    assert OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}]).prompt_tokens == 1234
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen([], "x"))
+    assert OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}]).prompt_tokens is None
 
 
 def test_thinking_is_on_by_default_and_leaves_reasoning_effort_out(monkeypatch):
@@ -76,3 +84,33 @@ def test_logprobs_are_asked_for_only_when_a_call_wants_them(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
     OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
     assert "logprobs" not in sent[0]
+
+
+def test_the_presence_penalty_is_sent_so_the_server_default_never_decides_it(monkeypatch):
+    # LM Studio applies the model's hub default (1.5) to a request that leaves it out (#161)
+    sent = []
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen(sent, "x"))
+    OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+    assert sent[0]["presence_penalty"] == 1.5
+    assert {"temperature", "top_p", "top_k", "presence_penalty"} <= sent[0].keys()
+
+
+@pytest.mark.parametrize(
+    "script", ["run_baselines_pool.py", "run_oracle_labels.py", "run_planner_dev.py"]
+)
+def test_every_runner_records_the_presence_penalty_with_the_sampling(script):
+    # read as a syntax tree: the scripts need an AIOpsLab config file to import
+    import ast
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / script
+    names = [
+        {e.value for e in n.elts}
+        for n in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(n, ast.Tuple)
+        and n.elts
+        and all(isinstance(e, ast.Constant) for e in n.elts)
+        and "temperature" in {e.value for e in n.elts}
+    ]
+    assert names, f"{script} records no sampling settings"
+    assert all("presence_penalty" in n for n in names)

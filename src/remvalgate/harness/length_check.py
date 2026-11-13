@@ -86,6 +86,9 @@ APPS = {
     ),
 }
 SEEDS = range(20)
+# the ticket time of every synthetic task, 2026-11-08T00:00:00Z in microseconds: fixed, so the
+# samples depend on the seed only, and of the same length as any time the task line can hold
+OPENED_AT = 1_794_096_000_000_000
 
 
 def _table(rows: Sequence[Sequence[str]]) -> str:
@@ -118,7 +121,7 @@ def gate_input(app: str, observation: str, rng: random.Random) -> str:
     service = rng.choice(names)
     return json.dumps(
         {
-            "task": task_text(app, namespace),
+            "task": task_text(app, namespace, OPENED_AT),
             "first_observation": observation,
             "diagnosis": {
                 "fault_type": "TargetPortMisconfig",

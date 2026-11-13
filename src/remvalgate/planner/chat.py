@@ -36,6 +36,8 @@ class Completion:
     finish_reason: str = ""
     # None when the server returns no logprobs or marks a token's value unknown
     logprob: float | None = None
+    # the request's length in tokens as the server counted it, None when it reports none
+    prompt_tokens: int | None = None
 
 
 class Chat(Protocol):
@@ -53,11 +55,16 @@ class OpenAIChat:
     # reasoning_effort none
     thinking: bool = True
     # the Qwen3.5 card's non-thinking settings, used in both modes so the modes differ in one
-    # thing, except presence_penalty: the card advises 1.5 against repetition, but repeated JSON
-    # keys and tool names are legitimate here
+    # thing
     temperature: float = 0.7
     top_p: float = 0.8
     top_k: int = 20
+    # sent explicitly (#161): the requests used to leave it out, meant as no penalty since repeated
+    # JSON keys and tool names are legitimate here. On the run host LM Studio then applied the
+    # hub model.yaml default of qwen/qwen3.5-4b, 1.5 (enabled there; one prompt at temperature 0
+    # on 2026-11-12 matched 1.5, not 0), so its LM Studio runs ran with 1.5. Every server now gets
+    # 1.5: one whose own default is 0, such as llama-server, behaves differently from before.
+    presence_penalty: float = 1.5
     seed: int = 0
     # a thinking turn can use most of this before any content appears
     max_tokens: int = 4096
@@ -72,6 +79,7 @@ class OpenAIChat:
             "temperature": self.temperature,
             "top_p": self.top_p,
             "top_k": self.top_k,
+            "presence_penalty": self.presence_penalty,
             "seed": self.seed if seed is None else seed,
             "max_tokens": self.max_tokens,
         }
@@ -104,4 +112,7 @@ class OpenAIChat:
         values = [t["logprob"] for t in tokens]
         # -9999.0 stands for a token outside the top 20, so the sum would be meaningless
         logprob = sum(values) if values and -9999.0 not in values else None
-        return Completion(text, data["usage"]["completion_tokens"], seconds, finish, logprob)
+        usage = data["usage"]
+        return Completion(
+            text, usage["completion_tokens"], seconds, finish, logprob, usage.get("prompt_tokens")
+        )

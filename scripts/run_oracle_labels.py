@@ -88,6 +88,7 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
+from remvalgate.harness.model_build import read_build
 from remvalgate.harness.oracle import (
     DATABASE_TYPES,
     Clean,
@@ -154,6 +155,43 @@ def wait_until_healthy(namespace: str, workloads: frozenset[str]) -> None:
         time.sleep(2)
 
 
+MONGOD_WAIT_S = 180
+
+
+def wait_for_mongod(namespace: str) -> None:
+    """Wait until every MongoDB Deployment of the namespace answers a ping, before an injection.
+
+    The reset deletes the MongoDB pod and waits until the pods run, but the MongoDB Deployments have
+    no readiness probe, so the next injection could reach the new pod before mongod listened, fail
+    with "Connection refused" and leave no fault (2026-11-12, revoke_auth_mongodb-mitigation-1,
+    twice, notools arm; probably also 2026-11-08, the same problem in 3b, where the fault did not
+    show in time). This only
+    waits; it changes no injection, planner, bundle or outcome step, and a ping needs no login.
+    Called before every injection of a database fault only: a fault of another type may leave a
+    MongoDB Deployment with no pod to ping.
+    """
+    names = [
+        n
+        for n in kubectl(
+            "-n", namespace, "get", "deploy", "-o", "jsonpath={.items[*].metadata.name}"
+        ).stdout.split()
+        if n.startswith("mongodb-")
+    ]
+    deadline = time.monotonic() + MONGOD_WAIT_S
+    for name in names:
+        while True:
+            done = subprocess.run(
+                ["kubectl", "--context", CONTEXT, "-n", namespace, "exec", f"deploy/{name}", "--"]
+                + ["mongo", "--quiet", "--eval", "db.runCommand({ping: 1}).ok"],
+                capture_output=True,
+                text=True,
+            )
+            if done.returncode == 0 and done.stdout.strip().endswith("1"):
+                break
+            check(time.monotonic() < deadline, f"{namespace}/{name}: mongod did not answer a ping")
+            time.sleep(2)
+
+
 def wait_for_fault(prob, problem_id: str) -> dict:
     """The pod status once the fault shows in it. The same reading is the status before the
     action, so a workload that recovers for a moment between two readings is not taken as
@@ -184,7 +222,9 @@ def reset(prob, problem_id: str, clean: Clean) -> None:
     )
 
 
-async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir):
+async def diagnose(
+    orch, prob, problem_id, clean, chat, retriever, k, seed, results_dir, escalate_when_unsure=False
+):
     """Inject, run 3c's planner and sample K candidates, check the diagnosis changed nothing, reset.
 
     Returns the plan, the candidates (none when the plan has no diagnosis or k is 0), the first
@@ -195,6 +235,8 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
+    if fault_type(problem_id) in DATABASE_TYPES:
+        wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
@@ -220,7 +262,7 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
         first = await orch.ask_env(exec_shell(f"kubectl -n {namespace} get deployments,pods"))
         result = await asyncio.to_thread(
             plan,
-            task_text(prob.app.name, namespace),
+            task_text(prob.app.name, namespace, injected_at),
             first,
             problem_id,
             namespace,
@@ -229,6 +271,8 @@ async def diagnose(orch, prob, problem_id, clean, chat, retriever, k, seed, resu
             retriever=retriever,
             policy=POLICY,
             schemas=SCHEMAS,
+            # baseline 7 of the pool runner (#165); the labelling run never sets it
+            escalate_when_unsure=escalate_when_unsure,
         )
         candidates = ()
         # one draw of K: 3c is the untuned planner, which does not resample (R5.2 is the system's);
@@ -251,6 +295,9 @@ def execute(orch, prob, problem_id, command, clean, injected, results_dir, recor
     namespace = prob.namespace
     # raises CannotSend before anything is injected
     carried_action(command, orch.parser.parse, strict=False)
+    # the reset after the diagnosis or the last candidate restarted the MongoDB pod
+    if fault_type(problem_id) in DATABASE_TYPES:
+        wait_for_mongod(namespace)
     start = time.perf_counter()
     try:
         prob.inject_fault()
@@ -341,6 +388,8 @@ def main() -> int:
     forward = prometheus_port_forward()
     try:
         for problem_id in selected:
+            # read before start_run, so a model that is not loaded stops with no touch (#161)
+            build = read_build(args.model, args.base_url)
             now = datetime.now(UTC)
             run_id = f"oracle-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
             namespace = logged_namespace(problem_id)
@@ -386,12 +435,20 @@ def main() -> int:
                 aiopslab_commit=run.aiopslab_commit,
                 cluster={"context": CONTEXT, "namespace": namespace, "nodes": nodes},
                 timestamp=run.timestamp,
+                model_build=build,
                 # the seeds of the draws, empty when the plan had no diagnosis; the diagnosis
                 # turns use seed
                 sampling={
                     **{
                         n: getattr(chat, n)
-                        for n in ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+                        for n in (
+                            "temperature",
+                            "top_p",
+                            "top_k",
+                            "presence_penalty",
+                            "max_tokens",
+                            "thinking",
+                        )
                     },
                     "seeds": [c.seed for c in candidates],
                     "baseline": "3c",

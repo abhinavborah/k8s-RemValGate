@@ -438,6 +438,11 @@ manifest per problem, its `.nocheck.json` result and a pooled summary that names
 model and the sampling setup go to `runs/manifests/`. The pool's sampled candidates come from the
 oracle labelling run (#27).
 
+`scripts/run_baselines_pool.py --baseline notools` is the ablation without interactive tools
+(story E5-S3, #38, R5.3), and `scripts/summarize_tool_ablation.py` compares it with baseline 3c
+with no cluster (`src/remvalgate/harness/tool_ablation.py`). The telemetry bundle and the rules
+are in [docs/tool_ablation.md](docs/tool_ablation.md).
+
 ## Large files
 
 Model weights, rollout logs and datasets are not committed. They live on shared drive storage and

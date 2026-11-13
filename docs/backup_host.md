@@ -22,6 +22,7 @@ A result from this host is a separate configuration and is reported per host:
 | `media-frontend` image | `jacksonarthurclark/media-frontend` (ARM build) | `yg397/media-frontend:xenial` (the chart's default) |
 | Model server | LM Studio | llama-server b12110 on one T4 |
 | Sampling the client does not send | LM Studio's defaults | llama-server's defaults, such as `min_p` 0.05 |
+| Presence penalty | 1.5, the hub default, sent explicitly since #161 | the server's default on 2026-11-10 (not recorded); sent as 1.5 since #161 |
 | A request longer than the context | not checked | refused with HTTP 400, which ends the run |
 | The sum of a candidate's log-probabilities | not checked | covers the thinking tokens as well as the answer |
 

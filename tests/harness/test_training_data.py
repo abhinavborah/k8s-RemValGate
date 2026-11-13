@@ -55,6 +55,7 @@ SETUP = {
         "temperature": 0.7,
         "top_p": 0.8,
         "top_k": 20,
+        "presence_penalty": 1.5,
         "max_tokens": 2048,
         "thinking": True,
     },
@@ -108,7 +109,9 @@ def _synthetic(problem_id, retrieved=None, extra=()):
     retrieved = retrieved if retrieved is not None else ["runbook-ScalePod"]
     observation = "NAME READY STATUS\nsynth-service-1 0/1 Running"
     past = "\n".join(f"- {_entry_line(i)}" for i in retrieved)
-    user = _task_prompt(task_text("Social Network", namespace), observation, past)
+    user = _task_prompt(
+        task_text("Social Network", namespace, 1_794_475_589_000_000), observation, past
+    )
     transcript = {
         "candidates": [
             {"seed": s, "command": c, "reply": json.dumps({"command": c}), "draw": 1}
@@ -394,7 +397,9 @@ def test_rebuilt_sampling_messages_equal_what_the_draws_of_sample_saw():
     # a synthetic plan and its transcript, stored with sorted keys as the transcript file is;
     # the rebuilt messages must equal what planner.loop.sample sent, its sample prompt included
     namespace = "test-social-network"
-    user = _task_prompt(task_text("Social Network", namespace), "pods", "- runbook line")
+    user = _task_prompt(
+        task_text("Social Network", namespace, 1_794_475_589_000_000), "pods", "- runbook line"
+    )
     context = ({"role": "system", "content": "system prompt"}, {"role": "user", "content": user})
     fields = {"fault_type": "ScalePod", "service": "synth", "reason": "zero replicas"}
     diagnosis = Diagnosis(**fields)
@@ -419,6 +424,7 @@ def test_rebuilt_sampling_messages_equal_what_the_draws_of_sample_saw():
         ({"k": 4}, "k"),
         ({"seed": 1000}, "seed"),
         ({"sampling": {**SETUP["sampling"], "thinking": False}}, "sampling.thinking"),
+        ({"sampling": {**SETUP["sampling"], "presence_penalty": 0.0}}, "sampling.presence_penalty"),
     ],
 )
 def test_labelling_runs_of_another_setup_are_not_pooled(change, field):

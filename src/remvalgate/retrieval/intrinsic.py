@@ -31,6 +31,7 @@ from remvalgate.retrieval.configs import Dense, Encode, HybridRerank, NoRetrieva
 from remvalgate.retrieval.corpus import build_corpus
 from remvalgate.retrieval.fixed import configuration_iii
 from remvalgate.retrieval.pool_corpus import RUNBOOK, pool_incidents
+from remvalgate.retrieval.query_form import QUERY_FORM, retrieval_query
 
 CONFIGURATIONS = ("i", "ii", "iii", "iv")
 # the models read at most this many tokens of a query
@@ -133,9 +134,14 @@ def build_configurations(
     }
 
 
-def evaluate(queries: Mapping[str, str], registry: Registry, models: tuple[Encode, Score]) -> dict:
-    """Rank every query with every configuration and report the metrics. Raises ValueError unless
-    queries holds exactly the pool's problems."""
+def evaluate(
+    queries: Mapping[str, str],
+    registry: Registry,
+    models: tuple[Encode, Score],
+    form: str = QUERY_FORM,
+) -> dict:
+    """Rank every query, in the given form (#164), with every configuration and report the metrics.
+    Raises ValueError unless queries holds exactly the pool's problems."""
     assignment = pool_folds(registry)
     if queries.keys() != assignment.keys():
         difference = sorted(queries.keys() ^ assignment.keys())
@@ -155,7 +161,9 @@ def evaluate(queries: Mapping[str, str], registry: Registry, models: tuple[Encod
                 [
                     h.entry
                     for h in retriever.retrieve(
-                        queries[q.entry_id], q.entry_id, len(corpora[assignment[q.entry_id]])
+                        retrieval_query(queries[q.entry_id], form),
+                        q.entry_id,
+                        len(corpora[assignment[q.entry_id]]),
                     )
                 ],
             )

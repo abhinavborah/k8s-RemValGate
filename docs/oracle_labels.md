@@ -235,3 +235,33 @@ but the pod watch stops after about 45 minutes in run 1 and 49 minutes in run 2,
 line, consistent with the API server closing the watch (kube-apiserver `--min-request-timeout`: a
 randomized time above 1800 seconds by default), so the later problems of each run have no pod
 watch.
+
+
+## Added on 2026-11-12: fault-type text defect
+
+The planner prompt of these runs used fault-type descriptions adapted from the AIOpsLab paper. #162 rewrites
+all five from the change each injector in the pinned AIOpsLab makes, so every fault-type line of
+the planner prompt differs from the one these runs used. The defect that led to it was found after the
+pool runs, in the review of the tool ablation run on the pool (#160): RevokeAuth read "revoked
+authentication causes database connection failures", while the injector removes the database
+user's readWrite role, so the user can still log in and its queries are refused; a failed login is
+the effect of UserUnregistered. The results here stay as they were run and are superseded by the
+rerun of #165.
+
+
+## Added on 2026-11-12: telemetry advice and ticket time
+
+The planner prompt of these runs told the planner that logs, metrics and traces "are noisy and slow, so use them after
+kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
+so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
+(the injection time) into every task. The results here stay as they were run and are superseded by the rerun of #165.
+
+## Added on 2026-11-13: wait for mongod before each injection
+
+On the 4 MongoDB problems, `diagnose` and `execute` in `scripts/run_oracle_labels.py` now wait until
+every MongoDB Deployment of the namespace answers a ping before each injection (`wait_for_mongod`).
+The reset waits until the pods run, but those Deployments have no readiness probe, so an injection
+could reach a new MongoDB pod before mongod listened and leave no fault. It changes no injection,
+candidate or outcome step. The labels here were taken without it; the labels of the #165 rerun are
+taken with it. The development problems have no MongoDB fault, so a development dry run does not
+exercise it.

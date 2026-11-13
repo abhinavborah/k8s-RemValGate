@@ -79,7 +79,7 @@ def _load(path: Path) -> tuple[dict, str]:
 
 # the labelling run's setup, as training_data.setup compares it within one export
 SETUP_FIELDS = ("model_name", "model_version", "k", "seed")
-SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "max_tokens", "thinking")
+SAMPLING_FIELDS = ("temperature", "top_p", "top_k", "presence_penalty", "max_tokens", "thinking")
 
 
 def _setup(manifest: dict) -> tuple:

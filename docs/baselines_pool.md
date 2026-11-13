@@ -2,12 +2,19 @@
 
 Story E9-S2 (#53), gate G3. Gate G3 fixes three values before any gate or planner training: R,
 the minimum gain and the headroom result. This file states how they are computed, before any
-result is read. No baseline-only pool run has been made yet.
+result is read. The baseline-only pool runs have since been made: the results of 3a, 3b and 3c
+are in `docs/rag_ablation.md`, and the labels the headroom is counted from in
+`docs/oracle_labels.md`.
 
 ## The run
 
 `scripts/run_baselines_pool.py` runs the chosen baselines (`--baseline`, repeatable: 1, 2, 3a,
-3b, 3c) on the 16 pool problems. Each baseline on each problem is one run with one touch, so the
+3b, 3c, 7, and the tool ablation arms notools, toolsbundle and kubectlonly of
+`docs/tool_ablation.md`) on the 16 pool problems. Baseline 7 is 3c told to escalate when unsure
+(#44); its result row keeps the plan's `stop` (`final`, `turn_cap` or `escalate`) and `escalation`,
+so an escalation is told apart from a turn cap or an unparsed reply, and its manifest records
+`escalate_when_unsure`. No summary script reads baseline 7 yet: `summarize_rag_ablation.py` and
+`summarize_tool_ablation.py` list it among the arms they skip. Each baseline on each problem is one run with one touch, so the
 run needs gate G1 and a clean checkout. Development ids run the same way with no touch, as a dry
 run; one run takes pool or development ids, never both.
 The Hotel Reservation problems need the two MongoDB password variables of the labelling run
@@ -125,3 +132,52 @@ slice.
 Every pool run is recorded with a terminal capture and a timestamped pod watch, uploaded to the
 shared drive beside its manifests. The steps are in the docstring of
 `scripts/run_baselines_pool.py`.
+
+## Added on 2026-11-12: fault-type text defect
+
+The planner prompt of the 3a, 3b and 3c pool runs (results in `docs/rag_ablation.md`) and of
+the oracle labelling run (`docs/oracle_labels.md`) used fault-type descriptions adapted from the AIOpsLab paper. #162 rewrites
+all five from the change each injector in the pinned AIOpsLab makes, so every fault-type line of
+the planner prompt differs from the one these runs used. The defect that led to it was found after the
+pool runs, in the review of the tool ablation run on the pool (#160): RevokeAuth read "revoked
+authentication causes database connection failures", while the injector removes the database
+user's readWrite role, so the user can still log in and its queries are refused; a failed login is
+the effect of UserUnregistered. Those results stay as they were run and are superseded by the rerun of #165.
+
+
+## Added on 2026-11-12: telemetry advice and ticket time
+
+The planner prompt of the 3a, 3b and 3c pool runs (results in `docs/rag_ablation.md`) and of
+the oracle labelling run (`docs/oracle_labels.md`) told the planner that logs, metrics and traces "are noisy and slow, so use them after
+kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
+so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
+(the injection time) into every task. Those results stay as they were run and are superseded by the rerun of #165.
+
+
+## Added on 2026-11-12: run protocol for the reruns
+
+From #161, for every run after this date:
+- `--seed` is repeatable and defaults to 1000 and 1001, the seeds of the reruns.
+- The arms run interleaved: seed by seed, every arm on one problem before the next problem, with the
+  first arm rotated (`src/remvalgate/harness/protocol.py`).
+- Each manifest of a planner run records `model_build`, read from the LM Studio host at run start
+  (`src/remvalgate/harness/model_build.py`): app version, CLI commit, selected GGUF engine, loaded
+  model, quantization, context length, parallel slots, the GGUF file's SHA-256 and the server's
+  sampling defaults (the hub `model.yaml` config fields and any per-model override). GPU offload is
+  not reported by `lms ps` and is left out. A run stops before its touch if the model is not loaded.
+- `planner/chat.py` sent temperature, top-p and top-k only. Two sources say the presence penalty of
+  the LM Studio runs on the run host was 1.5: the hub `model.yaml` of `qwen/qwen3.5-4b` there has
+  `presencePenalty` 1.5 enabled (the `server_defaults` field of `model_build` records it for new
+  runs), and on 2026-11-12 one prompt at temperature 0 with no presence penalty gave the same output
+  as with 1.5 and a different one from 0. One prompt cannot tell 1.5 from another non-zero value
+  with the same output, and only the presence penalty was checked, not the hub's other fields. On
+  this evidence the penalty was 1.5 for the 4B on LM Studio on this host, in every arm alike; the
+  run on the backup host (llama-server, `docs/backup_host.md`) is not covered. `planner/chat.py` now
+  sends `presence_penalty: 1.5` explicitly to every server and the manifests record it, so the runs
+  no longer depend on the server's default. The reruns of #165 are compared with each other only.
+- The summaries refuse runs of one comparison served by different builds, including a mix of runs
+  with a recorded build and runs from before this date.
+- Runs made before this date (3a, 3b and 3c, results in `docs/rag_ablation.md`, and the oracle
+  labels, `docs/oracle_labels.md`) have no `model_build`, so they are not compared with the reruns.
+- The build names the base URL and the host, and `read_build` refuses a base URL that is not this
+  host's LM Studio server. Manifests record `r` as the number of seeds of the run.
