@@ -149,15 +149,16 @@ deployment of the application's chart, laid out and named as kubectl and Kuberne
 out and name them, and the retrieved past fixes are development corpus entries. It exits 1 when
 the tokenizer counts more than the proxy on a gate input.
 
-Run on 2026-11-09 with the tokenizer folder of [Running it](#running-it) (Qwen3.5-4B at revision
-`851bf6e`, transformers 5.22.1), 20 samples per application and text:
+Run on 2026-11-13 with the tokenizer folder of [Running it](#running-it) (Qwen3.5-4B at revision
+`851bf6e`, transformers 5.22.1), 20 samples per application and text, with the task line that
+gives the ticket time (#167):
 
 | Application | Text | Proxy, largest | Count, largest | Over 2,048 by proxy, by count | Count / proxy |
 |---|---|---|---|---|---|
-| Social Network | gate input | 2251 | 1948 | 20, 0 | 0.859 to 0.874 |
+| Social Network | gate input | 2274 | 1974 | 20, 0 | 0.861 to 0.876 |
 | Social Network | listing alone | 1806 | 1588 | 0, 0 | 0.872 to 0.886 |
 | Social Network | pod names alone | 493 | 541 | 0, 0 | 1.078 to 1.110 |
-| Hotel Reservation | gate input | 1724 | 1431 | 0, 0 | 0.826 to 0.834 |
+| Hotel Reservation | gate input | 1747 | 1457 | 0, 0 | 0.830 to 0.838 |
 | Hotel Reservation | listing alone | 1291 | 1091 | 0, 0 | 0.841 to 0.855 |
 | Hotel Reservation | pod names alone | 312 | 364 | 0, 0 | 1.155 to 1.194 |
 
@@ -166,8 +167,12 @@ Run on 2026-11-09 with the tokenizer folder of [Running it](#running-it) (Qwen3.
   pads a column is one token. It is below the count on generated pod names, whose suffixes mix
   digits with single letters, so it is not a bound on all text.
 - Every synthetic Social Network gate input is over the budget by the proxy and under it by the
-  count; the largest count is 1,948, 100 under the budget. So the proxy's over-budget list of the
+  count; the largest count is 1,974, 74 under the budget. So the proxy's over-budget list of the
   2026-11-08 export can hold rows that fit, and a row near the budget needs the tokenizer's count.
+- Superseded: the runs of 2026-11-09 and 2026-11-12, on the task line without the ticket time,
+  gave the same listing and pod name rows and smaller gate inputs (largest proxy and count 2251
+  and 1948 for Social Network, 1724 and 1431 for Hotel Reservation; count / proxy 0.859 to 0.874
+  and 0.826 to 0.834). The ticket time adds about 23 proxy tokens and 26 counted tokens.
 
 Step 3 of #165 runs this check again ([Results](#results)).
 
