@@ -53,11 +53,13 @@ whose served model is not its problem's fold (or a control served by a fold's mo
 
 ## Results
 
-#165 step 3, run 2026-11-14 from a clean checkout at `f434ca2`, 15:12 to 21:32 IST: the 64 batch
-runs (16 problems, 2 arms, seeds 1000 and 1001), served by llama.cpp `61dbf49` on one A100 SXM
-80 GB host (the base Qwen3.5-4B Q8_0 for 3c, each fold's merged GGUF for 3cft). Every manifest was
-checked: clean commit, the right build per arm by SHA-256, the problem's own fold for 3cft, one
-touch per run. The rule and its labels were confirmed on #56 before the result was read.
+#165 step 3, run 2026-11-14 from a clean checkout at `f434ca2`: the #159 labels 15:12 to 17:12 IST,
+then the 64 batch runs, started 17:12 to 21:27 IST and ended 21:32 IST (16:02 UTC); the result was
+read at 21:33 IST. The batch covers 16 problems, 2 arms and seeds 1000 and 1001, served by
+llama.cpp `61dbf49` on one A100 SXM 80 GB host (the base Qwen3.5-4B Q8_0 for 3c, each fold's merged
+GGUF for 3cft). Every manifest was checked: clean commit, the right build per arm by SHA-256, the
+problem's own fold for 3cft, one touch per run. The threshold was confirmed on #56 and the labels
+adopted (#181) before the batch ended and before its result was read; see Threshold.
 
 | | 3c | 3cft | wins (only 3cft) | losses (only 3c) | mid-p | Bonett-Price 95% |
 |---|---|---|---|---|---|---|
@@ -68,7 +70,8 @@ touch per run. The rule and its labels were confirmed on #56 before the result w
 **The claim is falsified:** 0 wins and 2 losses at both seeds, against a bar of 5 wins and 0
 losses or 7 and 1. The losses are `pool-assign_to_non_existent_node_social_net-mitigation-3` and
 `pool-scale_pod_zero_social_net-mitigation-2`. The fine-tuned planner is therefore not the final
-system: the confirmation slice (#59) and the singleton check (#73) use 3c.
+system. Using 3c for the confirmation slice (#59) and the singleton check (#73) is proposed,
+pending group confirmation on #59.
 
 Reported beside it:
 
@@ -83,7 +86,9 @@ Reported beside it:
 
 Run notes: one planner retry in the fold 1 labels (`RemoteDisconnected`, recovered; requests carry
 a fixed seed). The batch was paused once between two runs (17:17 to 17:41 IST) for a network change
-on the run host; no run was cut. Files: `step3.tar.gz` (SHA-256
+on the run host; no run was cut. Each labelling fold and the batch were recorded with asciinema
+(`runs/recordings/rerun165_step3_*.cast`, with their stdout logs) beside a timestamped pod watch
+(`rerun165_step3_20261114.pods.log`); all are in the archive below. Files: `step3.tar.gz` (SHA-256
 `12200ed8f809e75dd35f4cb101177e7d6cc32482ca7887a3678051d6bc80292b`), to be uploaded to the shared
 drive.
 

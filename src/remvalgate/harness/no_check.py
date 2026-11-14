@@ -345,7 +345,8 @@ def ablate_runs(
         "both_draws": tally_record(pooled(results, both=True)),
     }
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"nocheck-summary-{now().strftime('%Y%m%dt%H%M%Sz')}.json"
+    # microseconds, so two runs started in one second never clash on the summary's name
+    out = out_dir / f"nocheck-summary-{now().strftime('%Y%m%dt%H%M%S%fz')}.json"
     # mode x: a summary is never overwritten
     with out.open("x", encoding="utf-8", newline="\n") as file:
         file.write(json.dumps(summary, indent=2, sort_keys=True) + "\n")

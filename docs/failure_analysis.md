@@ -86,9 +86,15 @@ Runs per arm, both seeds (32 each), #165 step 3:
 - Diagnosis: 3c right 26, wrong fault type 2, wrong service 2, none 2; 3cft right 25, wrong service
   2, none 5.
 - The fine-tuned planner reaches the turn cap more often (5 against 2) and gives no diagnosis in
-  those runs; its refusals and wrong diagnoses are about the same as the control's. Its two losses
-  in the claim are problems the control recovers at both seeds.
+  those runs; its refusals and wrong diagnoses are about the same as the control's.
+- Its two losses in the claim, read from the result files: on
+  `pool-assign_to_non_existent_node_social_net-mitigation-3` it reached the turn cap with no
+  diagnosis at seed 1000 and recovered at seed 1001; on
+  `pool-scale_pod_zero_social_net-mitigation-2` it recovered at seed 1000 and at seed 1001 wrote
+  `kubectl ... set deployment text-service replicas=1`, which the allow-list refused
+  (VERB_NOT_ALLOWED). Each loss is one seed's failure on a problem the planner can solve.
 
+## Limits
 
 - One run per arm, problem and seed. A class count is descriptive, and the seed-to-seed change of
   one arm (3c: 3 problems) is of the same size as many of the differences above.

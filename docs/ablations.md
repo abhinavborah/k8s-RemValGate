@@ -2,7 +2,9 @@
 
 Story E9-S6 (#57). One page for the ablation of each capability the research question uses, as
 counts with rates and no significance test (R9.4). The runs are those of #165, from one commit,
-interleaved, at seeds 1000 and 1001, on the 16 pool problems. The fine-tuning ablation is the
+interleaved, at seeds 1000 and 1001, on the 16 pool problems, except where a section says
+otherwise (R5.4 and the retrieval ablation of the fine-tuned planner are labelling runs at seed 0).
+The fine-tuning ablation is the
 primary analysis ([primary_analysis.md](primary_analysis.md)).
 
 ## Recovered problems, every arm
@@ -25,12 +27,14 @@ discordant pairs, are in [rag_ablation.md](rag_ablation.md) ("Added on 2026-11-1
 retrieval metrics of configurations (i) to (iv) are in [intrinsic_retrieval.md](intrinsic_retrieval.md).
 
 On the fine-tuned planner (#34, labelled 2026-11-14 with `--no-retrieval`, against #159's labels
-with retrieval; same server, fold builds, seed 0 and K = 8):
+with retrieval; same server, fold builds, seed 0 and K = 8). #34 ran from `3963f4f` and #159 from
+`f434ca2`; of the code the labelling run uses, only `scripts/run_oracle_labels.py` changed between
+them, by the `--no-retrieval` option (#180).
 
 | Fine-tuned planner | top pick solves | problems with a working candidate | working candidates | mixed | recoverable |
 |---|---|---|---|---|---|
-| with retrieval (#159) | 8 | 7 | 55 of 120 | 1 | 0 |
-| without retrieval (#34) | 3 | 5 | 32 of 96 | 1 | 2 |
+| with retrieval (#159) | 8 of 16, 0.50 | 7 of 16, 0.44 | 55 of 120, 0.46 | 1 | 0 |
+| without retrieval (#34) | 3 of 16, 0.19 | 5 of 16, 0.31 | 32 of 96, 0.33 | 1 | 2 |
 
 The top pick fails without retrieval on 5 problems it solves with it, and on none the other way.
 Problems with no candidates (turn cap): 1 with retrieval, 4 without. Descriptive, with no test. The
@@ -57,6 +61,12 @@ fold 1's name (same second) and is pooled from its per-problem files.
 |---|---|---|---|---|---|---|---|---|---|
 | untuned (step 2, 16 problems) | 128 | 73, 0.57 | 44, 0.34 | 11, 0.09 | 14 | 14 | 10 | 5 | 1 |
 | fine-tuned (#159, 15 problems) | 120 | 88, 0.73 | 29, 0.24 | 3, 0.03 | 17 | 1 | 10 | 0 | 1 |
+
+Per fold, fine-tuned: fold 0, 24 candidates (3 problems), 13 admitted, 8 removed, 3 no command;
+fold 1, 32, 25, 7, 0; fold 2, 32, 25, 7, 0; fold 3, 32, 25, 7, 0. All ran from `f434ca2` on
+2026-11-14 (`scripts/ablate_no_check.py runs/oracle_3cft/oracle3cft-fold<f>-*.json`, one call per
+fold). Fold 2's numbers are the sum of its four `nocheck-*.nocheck.json` files (`without_check`
+counts), since its summary file was not written; the name clash is fixed in this change.
 
 One fine-tuned problem (`k8s_target_port-misconfig-mitigation-1`) reached the turn cap with no
 candidates, so it has none to check and logs no touch. Without the check, a third of the untuned
