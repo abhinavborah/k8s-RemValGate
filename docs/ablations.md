@@ -24,6 +24,19 @@ From #165 step 1. "Both seeds" counts a problem only when it recovered at both (
 discordant pairs, are in [rag_ablation.md](rag_ablation.md) ("Added on 2026-11-14"). The intrinsic
 retrieval metrics of configurations (i) to (iv) are in [intrinsic_retrieval.md](intrinsic_retrieval.md).
 
+On the fine-tuned planner (#34, labelled 2026-11-14 with `--no-retrieval`, against #159's labels
+with retrieval; same server, fold builds, seed 0 and K = 8):
+
+| Fine-tuned planner | top pick solves | problems with a working candidate | working candidates | mixed | recoverable |
+|---|---|---|---|---|---|
+| with retrieval (#159) | 8 | 7 | 55 of 120 | 1 | 0 |
+| without retrieval (#34) | 3 | 5 | 32 of 96 | 1 | 2 |
+
+The top pick fails without retrieval on 5 problems it solves with it, and on none the other way.
+Problems with no candidates (turn cap): 1 with retrieval, 4 without. Descriptive, with no test. The
+labels with retrieval ran 15:12 to 17:12 IST and these 21:41 to 23:11 IST, not interleaved (#161),
+so cluster drift is a confound beside retrieval; the top pick is compared at seed 0 only.
+
 ## Tool calling
 
 The 2 by 2 of telemetry tools against the error bundle: 3c, toolsbundle, kubectlonly and notools.
@@ -35,12 +48,19 @@ Per seed, with Wilson intervals and discordant pairs, in [tool_ablation.md](tool
 `scripts/ablate_no_check.py` applies the allow-list again, offline, to every sampled candidate of
 a labelling run and reports the share it removes by reason. It reads pool transcripts, so each
 problem is a logged touch, and it runs from the checkout whose touch log the runs of #165 step 3
-append to. It runs on the 16 labels of #165 step 2 (untuned) and the 16 of #159 (fine-tuned) once
-step 3 has ended, and its result is added here.
+append to. It ran on 2026-11-14 after step 3 on the 16 labels of #165 step 2 (untuned) and those of
+#159 (fine-tuned). The fine-tuned labels come from 4 models, one per fold, and the script pools one
+model per run, so it ran per fold and the counts are added; fold 2's summary file clashed with
+fold 1's name (same second) and is pooled from its per-problem files.
 
-Until then, from the run 3 labels (`docs/oracle_labels.md`): of 128 candidates, 44 were refused by
-the allow-list (VERB_NOT_ALLOWED 14, FLAG_DENIED 14, SHELL_METACHAR 10, PARSE_ERROR 5,
-RESOURCE_NOT_ALLOWED 1), and 11 replies had no command or were not valid JSON.
+| Candidates | n | admitted | removed | no command | FLAG_DENIED | VERB_NOT_ALLOWED | SHELL_METACHAR | PARSE_ERROR | RESOURCE_NOT_ALLOWED |
+|---|---|---|---|---|---|---|---|---|---|
+| untuned (step 2, 16 problems) | 128 | 73, 0.57 | 44, 0.34 | 11, 0.09 | 14 | 14 | 10 | 5 | 1 |
+| fine-tuned (#159, 15 problems) | 120 | 88, 0.73 | 29, 0.24 | 3, 0.03 | 17 | 1 | 10 | 0 | 1 |
+
+One fine-tuned problem (`k8s_target_port-misconfig-mitigation-1`) reached the turn cap with no
+candidates, so it has none to check and logs no touch. Without the check, a third of the untuned
+candidates and a quarter of the fine-tuned ones would reach the cluster unvetted.
 
 ## Fine-tuning
 

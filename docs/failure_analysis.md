@@ -3,7 +3,7 @@
 Story E9-S7 (#58). Why the planner runs of #165 fail, and where the arms disagree. The classes and
 counts come from `scripts/failure_cases.py` (`src/remvalgate/harness/failures.py`); the examples
 are read from the transcripts by hand. This covers #165 step 1 (224 runs, 7 arms, seeds 1000 and
-1001). The fine-tuned arm (3cft) and its control are added when step 3 has run.
+1001). The fine-tuned arm (3cft) and its fresh 3c control of #165 step 3 are in "Step 3" below.
 
 ## Classes
 
@@ -72,7 +72,23 @@ Diagnosis, runs per arm:
   - At seed 1001, 3c named `post-storage-service`.
   - (`baseline3c-k8s_target_port-misconfig-mitigation-3-20261113t014239z`)
 
-## Limits
+## Step 3: the fine-tuned planner and its control
+
+Runs per arm, both seeds (32 each), #165 step 3:
+
+| Arm | Recovered | Refused | Admitted, not sent | Applied, not recovered | Turn cap | Escalated |
+|---|---|---|---|---|---|---|
+| 3c (control) | 17 | 8 | 0 | 5 | 2 | 0 |
+| 3cft | 15 | 7 | 0 | 5 | 5 | 0 |
+
+- Refusal reasons: 3c FLAG_DENIED 4, VERB_NOT_ALLOWED 2, RESOURCE_NOT_ALLOWED 1, SHELL_METACHAR 1;
+  3cft FLAG_DENIED 4, VERB_NOT_ALLOWED 3.
+- Diagnosis: 3c right 26, wrong fault type 2, wrong service 2, none 2; 3cft right 25, wrong service
+  2, none 5.
+- The fine-tuned planner reaches the turn cap more often (5 against 2) and gives no diagnosis in
+  those runs; its refusals and wrong diagnoses are about the same as the control's. Its two losses
+  in the claim are problems the control recovers at both seeds.
+
 
 - One run per arm, problem and seed. A class count is descriptive, and the seed-to-seed change of
   one arm (3c: 3 problems) is of the same size as many of the differences above.
