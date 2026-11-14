@@ -59,7 +59,8 @@ The confirmation slice (#59, R9.6) and the singleton types (#73, R9.5) run basel
 retrieving from every pool incident and the runbook, since they are in no fold (BRD 1.20). Their
 outputs go to runs/confirmation/ and runs/singleton/. The first run of the confirmation slice passes
 --open-confirmation, which opens it once after every check of the run; a later run of the slice
-is refused before the opening and after 3 runs of a problem.
+is refused before the opening and after 3 runs of a problem. Of the 5 singleton types, 3 have a
+fault type (oracle.SINGLETON_TYPES) and run; the other 2 are refused before any touch (BRD 1.22).
 
 Outputs go to runs/baselines_pool/, which git ignores, and to the shared drive:
 
@@ -141,7 +142,7 @@ from remvalgate.baselines.untuned import pool_untuned_retriever, untuned_retriev
 from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import check_chain
 from remvalgate.harness.cluster_state import changed
-from remvalgate.harness.folds import fault_type, pool_folds
+from remvalgate.harness.folds import pool_folds
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
     MAX_R,
@@ -154,7 +155,7 @@ from remvalgate.harness.manifest import (
     write_manifest,
 )
 from remvalgate.harness.model_build import build_for
-from remvalgate.harness.oracle import DATABASE_TYPES
+from remvalgate.harness.oracle import DATABASE_TYPES, problem_fault_type
 from remvalgate.harness.outcome import classify, single_action_result
 from remvalgate.harness.protocol import interleaved
 from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest_services
@@ -208,12 +209,12 @@ def observe_fault(prob, problem_id: str, clean) -> tuple[list, dict]:
     Returns the observations and the objects as the injection left them.
     """
     namespace = prob.namespace
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the database faults change MongoDB users, which these objects do not record
-        if fault_type(problem_id) not in DATABASE_TYPES:
+        if problem_fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
             check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
@@ -292,14 +293,14 @@ async def diagnose_without_tools(
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
         injected_at = int(time.time() * 1e6)
         # the database faults change MongoDB users, which these objects do not record
-        if fault_type(problem_id) not in DATABASE_TYPES:
+        if problem_fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
             check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
@@ -442,6 +443,15 @@ def main() -> int:
     development = [i for i in selected if args.slice is Slice.DEVELOPMENT]
     if args.slice in HELD_OUT and set(baselines) - HELD_OUT_BASELINES:
         parser.error(f"{args.slice} problems run baselines {sorted(HELD_OUT_BASELINES)} only")
+    untyped = []
+    for i in selected:
+        try:
+            problem_fault_type(i)
+        except ValueError:
+            untyped.append(i)
+    if untyped:
+        # redeploy_without_PV and the Astronomy Shop problem are not run (#73)
+        parser.error(f"no fault type, so not run: {', '.join(untyped)}")
     if args.open_confirmation and args.slice is not Slice.CONFIRMATION:
         parser.error("--open-confirmation is for confirmation problems only")
     if "3cft" in baselines and development and args.dev_fold is None:

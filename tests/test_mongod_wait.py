@@ -7,7 +7,7 @@ import ast
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
-GUARD = "fault_type(problem_id) in DATABASE_TYPES"
+GUARD = "problem_fault_type(problem_id) in DATABASE_TYPES"
 
 
 def _injecting(path: Path) -> dict[str, ast.AST]:
