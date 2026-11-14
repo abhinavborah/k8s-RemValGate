@@ -146,7 +146,7 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
-from remvalgate.harness.model_build import read_build, read_served_build
+from remvalgate.harness.model_build import build_for
 from remvalgate.harness.oracle import DATABASE_TYPES
 from remvalgate.harness.outcome import classify, single_action_result
 from remvalgate.harness.protocol import interleaved
@@ -350,14 +350,6 @@ def fold_servers(path: Path | None) -> dict[int, dict]:
     return servers
 
 
-def served_or_local_build(model: str, args) -> dict:
-    """The model build of this run: a llama-server's record file when given, else LM Studio's."""
-    if args.served_build is None:
-        return read_build(model, args.base_url)
-    key = os.environ.get(API_KEY_ENV)
-    return read_served_build(model, args.base_url, args.served_build, api_key=key)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("problems", nargs="*", help="pool or development ids (default: the pool)")
@@ -477,10 +469,15 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
         chat = dataclasses.replace(chat, base_url=server["base_url"])
         key = os.environ.get(API_KEY_ENV)
         # read before start_run, so a server that is not the recorded one stops the run first
-        build = read_served_build(MODEL, server["base_url"], server["served_build"], api_key=key)
+        build = build_for(MODEL, server["base_url"], server["served_build"], fold, key)
     else:
         # read before start_run, so a model that is not loaded stops the run before its touch
-        build = served_or_local_build(MODEL, args) if baseline in PLANNER else {}
+        key = os.environ.get(API_KEY_ENV)
+        build = (
+            build_for(MODEL, args.base_url, args.served_build, None, key)
+            if baseline in PLANNER
+            else {}
+        )
     now = datetime.now(UTC)
     prefix = baseline if baseline in ABLATION else f"baseline{baseline}"
     run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"

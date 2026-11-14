@@ -88,7 +88,7 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
-from remvalgate.harness.model_build import read_build, read_served_build
+from remvalgate.harness.model_build import build_for
 from remvalgate.harness.oracle import (
     DATABASE_TYPES,
     Clean,
@@ -331,14 +331,6 @@ def execute(orch, prob, problem_id, command, clean, injected, results_dir, recor
     return outcome
 
 
-def served_or_local_build(model: str, args) -> dict:
-    """The model build of this run: a llama-server's record file when given, else LM Studio's."""
-    if args.served_build is None:
-        return read_build(model, args.base_url)
-    key = os.environ.get(API_KEY_ENV)
-    return read_served_build(model, args.base_url, args.served_build, api_key=key)
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("problems", nargs="*", help="pool or development ids (default: the pool)")
@@ -426,7 +418,8 @@ def main() -> int:
     try:
         for problem_id in selected:
             # read before start_run, so a model that is not loaded stops with no touch (#161)
-            build = served_or_local_build(args.model, args)
+            key = os.environ.get(API_KEY_ENV)
+            build = build_for(args.model, args.base_url, args.served_build, args.fold, key)
             now = datetime.now(UTC)
             run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
             namespace = logged_namespace(problem_id)

@@ -28,16 +28,22 @@ requests there. The base GGUF, converted the same way, is served the same way as
 so the two compared arms share one server, one build and one host (#161). 3c's runs on the run
 host's LM Studio are a separate configuration and are reported apart.
 
-- **Build record.** When a server starts, the GPU host writes a record file: llama.cpp commit,
-  host, GPU, GGUF file name and SHA-256, quantization, context length and server arguments.
+- **Build record.** `scripts/serve_on_gpu_host.sh` starts a server and its tunnel, and
+  `scripts/write_served_record.py` writes its record on the GPU host: llama.cpp commit, host, GPU,
+  GGUF file name and SHA-256, quantization, context length, server arguments, and the fold and the
+  SHA-256 of the adapter weights the GGUF was merged from (both null for the control). The hashes
+  are computed from the files the server loads.
   `model_build.read_served_build` checks it against the running server's `/props` (file name,
-  context length, build) and refuses a mismatch before the run's touch. The tunnel address is
+  context length, build) and refuses a mismatch before the run's touch. It also refuses a record
+  whose fold is not the fold the run uses, so a swapped `--fold-servers` entry or another fold's
+  record given to `--fold` cannot serve a held-out problem with an adapter trained on it. The tunnel address is
   recorded per run as `endpoint` and is not part of `build_key`, since it changes on a restart.
 - **Access.** The server requires an API key. The run host reads it from the environment
   (`REMVALGATE_PLANNER_API_KEY`), and it is never written to the repository or a manifest.
 - **Dropped connections.** `planner/chat.py` retries a dropped connection, a timeout or a 5xx up
   to 3 times, 5 and 15 seconds apart, and prints each retry. The request carries a fixed seed, so
-  a retry asks for the same reply. A 4xx is never retried.
+  a retry asks for the same reply. A 4xx is never retried. Each step and candidate of a transcript
+  records its `attempts`, so a reply that needed a retry shows in the record.
 
 ## Runs
 

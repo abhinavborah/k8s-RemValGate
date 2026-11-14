@@ -87,7 +87,9 @@ def test_the_fine_tuned_arm_is_3c_with_its_folds_server():
     text = ast.unparse(run_one)
     # the fold's server and record are chosen before start_run, so a wrong server stops first
     assert text.index("args.folds.get(problem_id, args.dev_fold)") < text.index("start_run(")
-    assert text.index("read_served_build(") < text.index("start_run(")
+    assert text.index("build_for(MODEL, server['base_url'], server['served_build'], fold, key)") < (
+        text.index("start_run(")
+    )
     assert "base_url=server['base_url']" in text
     # the manifest records which fold's adapter served the run
     assert "'fold': fold" in text

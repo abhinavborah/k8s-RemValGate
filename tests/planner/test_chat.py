@@ -140,6 +140,7 @@ def test_a_dropped_connection_or_5xx_is_retried_with_the_same_body(monkeypatch, 
     monkeypatch.setattr("urllib.request.urlopen", _flaky(failures, sent, "ok"))
     completion = OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}], seed=3)
     assert completion.text == "ok"
+    assert completion.attempts == 3
     bodies = [s for s in sent if "messages" in s]
     assert len(bodies) == 1 and bodies[0]["seed"] == 3
     assert capsys.readouterr().err.count("planner request retry") == 2

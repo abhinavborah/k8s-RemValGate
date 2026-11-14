@@ -15,9 +15,10 @@ checked.
 
 A server reached over a network (the GPU host of the fine-tuned planner, behind a tunnel) can
 drop a connection or answer 5xx. Such a call is retried up to `attempts` times; the request
-carries a fixed seed, so a retry asks for the same reply, and each retry is printed. A 4xx is
-never retried. When REMVALGATE_PLANNER_API_KEY is set, it is sent as a bearer token; it is read
-from the environment only, never stored.
+carries a fixed seed, so a retry asks for the same reply. Each retry is printed, and the reply
+records how many requests it took (`attempts`, kept in each step and candidate of a transcript).
+A 4xx is never retried. When REMVALGATE_PLANNER_API_KEY is set, it is sent as a bearer token; it
+is read from the environment only, never stored.
 """
 
 import http.client
@@ -53,6 +54,8 @@ class Completion:
     logprob: float | None = None
     # the request's length in tokens as the server counted it, None when it reports none
     prompt_tokens: int | None = None
+    # requests sent for this reply: 1, or more when a dropped connection was retried
+    attempts: int = 1
 
 
 class Chat(Protocol):
@@ -143,5 +146,11 @@ class OpenAIChat:
         logprob = sum(values) if values and -9999.0 not in values else None
         usage = data["usage"]
         return Completion(
-            text, usage["completion_tokens"], seconds, finish, logprob, usage.get("prompt_tokens")
+            text,
+            usage["completion_tokens"],
+            seconds,
+            finish,
+            logprob,
+            usage.get("prompt_tokens"),
+            attempt,
         )
