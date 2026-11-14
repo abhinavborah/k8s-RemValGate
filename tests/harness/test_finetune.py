@@ -31,9 +31,26 @@ def test_five_wins_and_no_loss_at_both_seeds_supports_the_claim():
 def test_a_tie_or_a_small_gain_is_falsified():
     base = set(POOL[:6])
     assert compare(_rows("3c", base) + _rows("3cft", base), POOL)["claim"] == "falsified"
-    # 4 wins with no loss: mid-p 0.0625, above the threshold
+    # 4 wins with no loss: below the minimum gain of 5
     gain = compare(_rows("3c", base) + _rows("3cft", base | set(POOL[6:10])), POOL)
     assert gain["both_seeds"]["n21"] == 4 and gain["claim"] == "falsified"
+
+
+def test_two_losses_falsify_whatever_the_wins():
+    # 9 wins with 2 losses: mid-p 0.0386 is below 0.05, but the minimum gain allows at most 1 loss
+    base = set(POOL[:6])
+    out = compare(_rows("3c", base) + _rows("3cft", set(POOL[2:6]) | set(POOL[6:15])), POOL)
+    both = out["both_seeds"]
+    assert (both["n12"], both["n21"]) == (2, 9)
+    assert both["mcnemar_midp"] < 0.05
+    assert out["claim"] == "falsified"
+
+
+def test_seven_wins_with_one_loss_supports_the_claim():
+    base = set(POOL[:6])
+    out = compare(_rows("3c", base) + _rows("3cft", set(POOL[1:6]) | set(POOL[6:13])), POOL)
+    assert (out["both_seeds"]["n12"], out["both_seeds"]["n21"]) == (1, 7)
+    assert out["claim"] == "supported"
 
 
 def test_a_problem_counts_only_when_it_recovers_at_both_seeds():

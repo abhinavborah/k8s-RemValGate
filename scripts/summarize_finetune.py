@@ -2,9 +2,9 @@
 
 Reads the result files of the 3c control and the 3cft arm (scripts/run_baselines_pool.py, #165
 step 3), each next to its manifest, and prints the paired comparison per seed and with the seeds
-combined by the rule of #56, and whether the claim is supported or falsified at the threshold
-committed with gate G3 (src/remvalgate/harness/finetune.py). Refuses a 3cft run served by another
-fold's model and a control served by a fold's model.
+combined by the rule of #56, and whether the claim is supported or falsified at the minimum gain
+of gate G3 on the combined counts (src/remvalgate/harness/finetune.py). Refuses a 3cft run served
+by another fold's model and a control served by a fold's model.
 
 With --labels (the untuned oracle labels, runs/oracle/) and --ft-labels (the fine-tuned
 planner's, runs/oracle_3cft/), it adds the candidates of both planners labelled by execution. With
@@ -28,7 +28,9 @@ from remvalgate.harness.oracle import read_labels
 
 
 def _manifest(path: Path) -> dict:
-    return json.loads(path.with_name(path.name.split(".")[0] + ".json").read_text("utf-8"))
+    return json.loads(
+        path.with_name(path.name.removesuffix(".result.json") + ".json").read_text("utf-8")
+    )
 
 
 def main() -> int:

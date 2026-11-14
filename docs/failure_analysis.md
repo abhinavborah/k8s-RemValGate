@@ -50,7 +50,7 @@ Diagnosis, runs per arm:
    - 3c named the wrong service in 3 of them: `social-graph-service` for `user-service` (problem 1, seed 1000), `compose-post-service` for `post-storage-service` (problem 3, seed 1000), and `nginx-web-server` for `compose-post-service` (problem 4, seed 1000).
    - In the other 3 it misdiagnosed the fault type (problem 5, seed 1000) or reached the turn cap (problems 1 and 2, seed 1001).
    - In the first and third, the command was also refused: `kubectl edit` (VERB_NOT_ALLOWED) and `kubectl create service` (FLAG_DENIED).
-3. **The turn cap ends runs without a diagnosis,** mostly where the planner keeps calling tools: 7 runs of baseline 7, 6 of kubectlonly, 3 of 3c. notools, which has no tools beyond read-only kubectl and starts with the bundle, never reaches it.
+3. **The turn cap ends runs without a diagnosis,** mostly where the planner keeps calling tools: 7 runs of baseline 7, 6 of kubectlonly, 4 of 3a, 3 of 3c, 2 of 3b and 1 of toolsbundle. notools, which has no tools beyond read-only kubectl and starts with the bundle, never reaches it.
 
 ## Examples
 

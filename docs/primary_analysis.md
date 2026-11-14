@@ -14,12 +14,17 @@ Story E9-S5 (#56). The claim compares the fine-tuned planner's top pick with the
 - **Unit.** A problem counts as recovered only if it recovers at both seeds (the rule of #56,
   `harness.g3.combine_seeds`). Each seed is also reported alone.
 
-## Threshold, committed before the runs
+## Threshold
 
-With gate G3 (#53, R6.6, [baselines_pool.md](baselines_pool.md)): the claim is supported only if
-3cft recovers more problems than it loses against 3c and the two-sided McNemar mid-p (#21) is
-below 0.05, paired by problem at n = 16. That takes 5 wins with 0 losses, or 7 with 1. Anything
-else falsifies it. The interval is the Bonett-Price interval for the paired difference (#21).
+The threshold is the minimum gain committed with gate G3 (#53, R6.6,
+[baselines_pool.md](baselines_pool.md), `harness.g3.meets_min_gain`), applied to the combined
+counts at n = 16: the claim is supported only with 5 wins and 0 losses, or 7 wins and 1 loss
+against 3c. Two or more losses falsify it whatever the wins, and anything else falsifies it too.
+That threshold was committed for the gate against baseline 5. Applying it to this comparison
+(3cft against 3c) is proposed and pending group confirmation (#56), and is disclosed as such.
+
+The two-sided McNemar mid-p (#21) and the Bonett-Price interval for the paired difference (#21)
+are reported beside the claim and do not decide it. Each seed's counts are descriptive.
 
 What G3 already bounds: on the untuned planner's own candidates, only 1 problem is recoverable
 (#165 step 2), so a ranking over them can gain at most 1. 3cft samples its own candidates, so it is

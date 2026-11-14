@@ -5,9 +5,11 @@ pick recovers each pool problem. Both ran on the same server, interleaved, at th
 (#165 step 3, #159). A problem counts as recovered only if it recovers at every seed (the rule of
 #56, combine_seeds). The paired test is the two-sided McNemar mid-p of #21, paired by problem,
 with the Bonett-Price interval for the difference (3cft minus 3c, as the second system minus the
-first). The threshold was committed with gate G3 before the runs (#53, R6.6): the claim is
-supported only if 3cft wins more problems than it loses and the mid-p is below 0.05, which at
-n = 16 takes 5 wins with 0 losses or 7 with 1.
+first). The threshold is the minimum gain of gate G3 (#53, R6.6, `g3.meets_min_gain`), applied
+to the combined counts at n = 16: the claim is supported only with 5 wins and 0 losses, or 7 wins
+and 1 loss; two or more losses falsify it whatever the wins. Applying it to this comparison is
+pending group confirmation (#56). The mid-p and the interval are reported beside it, and each
+seed's counts are descriptive.
 
 The candidates of each planner, labelled by execution, are summarised beside it: per problem the
 top pick's outcome, the working candidates of K, mixed outcomes and whether the problem is
@@ -16,13 +18,12 @@ recoverable (top pick fails, another candidate works).
 
 from collections.abc import Mapping, Sequence
 
-from remvalgate.harness.g3 import _complete, combine_seeds, top_pick_solved
+from remvalgate.harness.g3 import _complete, combine_seeds, meets_min_gain, top_pick_solved
 from remvalgate.harness.oracle import ProblemLabels
 from remvalgate.harness.outcome import Outcome
 from remvalgate.harness.stats import bonett_price, mcnemar_midp
 
 UNTUNED, FINE_TUNED = "3c", "3cft"
-ALPHA = 0.05
 
 
 def _recovered(rows: Sequence[Mapping]) -> dict[str, bool]:
@@ -59,7 +60,7 @@ def _pair(untuned: dict[str, bool], tuned: dict[str, bool], problems: Sequence[s
         "n21": n21,
         "mcnemar_midp": midp,
         "difference_bonett_price95": [low, high],
-        "supported": n21 > n12 and midp < ALPHA,
+        "meets_min_gain": meets_min_gain(n21, n12),
     }
 
 
@@ -84,7 +85,7 @@ def compare(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:
         for arm in (UNTUNED, FINE_TUNED)
     }
     out["both_seeds"] = _pair(by_arm[UNTUNED], by_arm[FINE_TUNED], sorted(pool))
-    out["claim"] = "supported" if out["both_seeds"]["supported"] else "falsified"
+    out["claim"] = "supported" if out["both_seeds"]["meets_min_gain"] else "falsified"
     out["per_problem"] = {
         p: {UNTUNED: by_arm[UNTUNED][p], FINE_TUNED: by_arm[FINE_TUNED][p]} for p in sorted(pool)
     }

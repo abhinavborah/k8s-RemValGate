@@ -11,10 +11,10 @@ From #165 step 1. "Both seeds" counts a problem only when it recovered at both (
 
 | Arm | Retrieval | Tools | Bundle | Seed 1000 | Seed 1001 | Both seeds |
 |---|---|---|---|---|---|---|
-| 3a | none | telemetry | no | 5 of 16, 0.31 | 3 of 16, 0.19 | 2 of 16, 0.12 |
+| 3a | none | telemetry | no | 5 of 16, 0.31 | 3 of 16, 0.19 | 2 of 16, 0.13 |
 | 3b | dense | telemetry | no | 6 of 16, 0.38 | 6 of 16, 0.38 | 6 of 16, 0.38 |
 | 3c | dense plus reranker | telemetry | no | 7 of 16, 0.44 | 8 of 16, 0.50 | 6 of 16, 0.38 |
-| toolsbundle | dense plus reranker | telemetry | yes | 10 of 16, 0.62 | 9 of 16, 0.56 | 8 of 16, 0.50 |
+| toolsbundle | dense plus reranker | telemetry | yes | 10 of 16, 0.63 | 9 of 16, 0.56 | 8 of 16, 0.50 |
 | kubectlonly | dense plus reranker | read-only kubectl | no | 8 of 16, 0.50 | 9 of 16, 0.56 | 7 of 16, 0.44 |
 | notools | dense plus reranker | read-only kubectl | yes | 11 of 16, 0.69 | 9 of 16, 0.56 | 9 of 16, 0.56 |
 
