@@ -13,6 +13,12 @@ never served by an adapter trained on it.
   revision and keeps the base model's tokenizer, chat template and processor files.
 - llama.cpp's `convert_hf_to_gguf.py` converts the merged model with `--outtype q8_0`, the
   quantization of the untuned runs. The llama.cpp commit is recorded with each server.
+- The 3c control's GGUF is made the same way: the merge script with no adapter, then the same
+  conversion. Saving through transformers drops the model's next-token prediction layer
+  (`blk.32`, used only for speculative decoding, which these servers do not run), so a merged
+  model has 378 tensors against 393 for a direct conversion of the original files. Building the
+  control through the same path gives both arms the same structure (4,482,400,128 bytes each), so
+  the two GGUFs differ in the LoRA weights only.
 
 ## Serving
 
@@ -57,6 +63,10 @@ host's LM Studio are a separate configuration and are reported apart.
   `b3382-61dbf492`, `base-q8_0.gguf`), 16 valid tool calls, 0 retries. It reached the turn cap,
   as 3c on LM Studio did on this problem at seed 1000 in #165 step 0. One run is a sanity check,
   not a comparison.
+- **Dry run of 3cft.** 3c (control GGUF `basemerged-q8_0.gguf`) and 3cft (`--dev-fold 0`,
+  `fold0-q8_0.gguf`) on `dev-scale_pod_zero_social_net-mitigation-1` at seed 1000, interleaved:
+  both RECOVERED, each manifest names its own server's GGUF and SHA-256, `sampling.fold` is 0 for
+  3cft and null for 3c, 0 retries. One run per arm checks the path, not the comparison.
 - **Template.** The base GGUF has the same chat template, tokens, merges and special token ids
   as LM Studio's Qwen3.5-4B Q8_0 (equal hashes). Its tensor layout is the newer one of llama.cpp
   `61dbf49` (fused `attn_qkv_gate` and `ssm_beta_alpha`, and the next-token prediction block).
