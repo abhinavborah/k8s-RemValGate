@@ -54,7 +54,12 @@ def docker_exec_both(
 
 @contextmanager
 def capture_failed_output(shell: type) -> Iterator[None]:
-    """Within the block, shell.docker_exec keeps both streams of a failed command."""
+    """Within the block, shell.docker_exec keeps both streams of a failed command.
+
+    The swap is on the class, so it holds for the whole process while the block runs. It is safe
+    only while nothing else calls Shell concurrently, as in apply, which sends one fix after the
+    diagnosis has finished.
+    """
     original = shell.__dict__["docker_exec"]
     shell.docker_exec = staticmethod(docker_exec_both)
     try:
