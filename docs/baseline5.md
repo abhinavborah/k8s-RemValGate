@@ -160,4 +160,6 @@ candidate first.
   `eb5f3ffa6c12fbce347eb1539adc02a3cacd2f16844b871ab789caa7bebe1d8a`) and the summary of
   `scripts/summarize_baseline5.py` (SHA-256
   `c57fb7489130e8541542323f5b6b87cae7ea4d3eaad73fdf89f02d74101ec5c4`). They are kept with the
-  step 3 run logs and go to the shared drive with the step 3 archive.
+  step 3 run logs; `scores.tar.gz` is on the shared drive under
+  `rerun165_step3_20261114/` (4572 bytes), and the summary is rebuilt from it with
+  `scripts/summarize_baseline5.py`.
