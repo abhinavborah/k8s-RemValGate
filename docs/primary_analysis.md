@@ -1,10 +1,14 @@
 # Primary analysis: the fine-tuned planner against the untuned planner
 
 Story E9-S5 (#56). The claim compares the fine-tuned planner's top pick with the untuned planner's
-(baseline 3c), per pool problem, as recovered or not. It is a pre-specified exploratory comparison:
-its rule was fixed before its result, but the decision to fine-tune the planner was taken after the
-failed headroom check (BRD 1.17, R6.6), so it is reported beside the primary claim and never in
-place of it.
+(baseline 3c), per pool problem, as recovered or not. The claim: **3cft recovers more pool problems
+than 3c and loses at most one problem that 3c recovers**, by the threshold below.
+
+It is a pre-specified exploratory comparison: its rule was fixed before its result, but the
+decision to fine-tune the planner was taken after the failed headroom check (BRD 1.17, R6.6). The
+BRD's primary claim (O1, R9.3) still names the gate against baseline 5, which was not trained, and
+what replaces it is open (BRD change 1.15); this comparison is reported beside it and never in its
+place.
 
 ## What is compared
 
@@ -28,9 +32,12 @@ counts at n = 16:
 - **Not supported:** anything else (1 to 4 wins with no loss, 2 to 6 wins with 1 loss). This is a
   gain too small for 16 problems to separate from noise, not evidence of no effect.
 
-That threshold was committed for the gate against baseline 5. Applying it to this comparison
-(3cft against 3c), with these three labels, was confirmed on #56 by two group members on
-2026-11-14, before the batch of #165 step 3 ended and before its result was read.
+That threshold was committed for the gate against baseline 5. On #56, two group members confirmed
+the threshold and the both-seeds rule for this comparison (2026-11-14, 13:00 and 14:24 UTC). The
+three labels were proposed in the 14:24 UTC comment and adopted in #181 at 15:48 UTC by a third
+group member, before the batch of #165 step 3 ended (16:02 UTC) and before its result was read
+(16:03 UTC). No further group member has confirmed the labels on #56; the result is falsified
+under the labels and under the earlier two-way wording alike.
 
 The two-sided McNemar mid-p (#21) and the Bonett-Price interval for the paired difference (#21)
 are reported beside the claim and do not decide it. Each seed's counts are descriptive.

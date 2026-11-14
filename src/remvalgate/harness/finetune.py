@@ -6,12 +6,13 @@ pick recovers each pool problem. Both ran on the same server, interleaved, at th
 #56, combine_seeds). The paired test is the two-sided McNemar mid-p of #21, paired by problem,
 with the Bonett-Price interval for the difference (3cft minus 3c, as the second system minus the
 first). The threshold is the minimum gain of gate G3 (#53, R6.6, `g3.meets_min_gain`), applied
-to the combined counts at n = 16: the claim is supported only with 5 wins and 0 losses, or 7 wins
-and 1 loss. It is falsified by two or more losses whatever the wins, or by no more wins than
-losses. Anything else (1 to 4 wins with no loss, 2 to 6 wins with 1 loss) is "not supported": a
-gain too small for 16 problems to separate from noise, which is not evidence of no effect. The
-rule and its labels were confirmed on #56 before the result was read. The mid-p and the interval
-are reported beside it, and each seed's counts are descriptive.
+to the combined counts at n = 16: the claim is supported only with at least 5 wins and no loss,
+or at least 7 wins and 1 loss. It is falsified by two or more losses whatever the wins, or by no
+more wins than losses. Anything else (1 to 4 wins with no loss, 2 to 6 wins with 1 loss) is "not
+supported": a gain too small for 16 problems to separate from noise, which is not evidence of no
+effect. The threshold was confirmed on #56 and the labels adopted before the result was read
+(docs/primary_analysis.md). The mid-p and the interval are reported beside it, and each seed's
+counts are descriptive.
 
 The candidates of each planner, labelled by execution, are summarised beside it: per problem the
 top pick's outcome, the working candidates of K, mixed outcomes and whether the problem is
