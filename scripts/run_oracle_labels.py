@@ -77,7 +77,7 @@ from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check_chain, load_policy
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.execute import kubectl_rolled_out
-from remvalgate.harness.folds import fault_type
+from remvalgate.harness.folds import fault_type, pool_folds
 from remvalgate.harness.harm import detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
@@ -88,7 +88,7 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
-from remvalgate.harness.model_build import read_build
+from remvalgate.harness.model_build import build_for
 from remvalgate.harness.oracle import (
     DATABASE_TYPES,
     Clean,
@@ -101,7 +101,7 @@ from remvalgate.harness.snapshot import kubectl_put, strip
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import carried_action, exec_shell, tool_call
-from remvalgate.planner.chat import OpenAIChat
+from remvalgate.planner.chat import API_KEY_ENV, OpenAIChat
 from remvalgate.planner.loop import Draws, draw_record, plan, sample, task_text
 from remvalgate.planner.models import add_model_argument, check_pool_model
 from remvalgate.planner.telemetry import preview
@@ -109,6 +109,8 @@ from remvalgate.retrieval.fixed import development_retriever, pool_retriever
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "oracle"
+# the fine-tuned planner's labels (#159), kept apart so no glob of runs/oracle mixes the two sets
+FT_OUT_DIR = ROOT / "runs" / "oracle_3cft"
 SCRATCH = ROOT / "runs" / "oracle_scratch"
 CONTEXT = "kind-kind"
 POLICY = load_policy(DEFAULT_POLICY_PATH)
@@ -339,11 +341,38 @@ def main() -> int:
     # K = 8 is the submitted proposal's value, not group-confirmed
     parser.add_argument("--candidates", type=int, default=8, help="K, candidates per problem")
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
+    parser.add_argument(
+        "--served-build",
+        type=Path,
+        help="record file of a llama-server on another host (model_build.read_served_build); "
+        "without it the server must be this host's LM Studio",
+    )
+    parser.add_argument(
+        "--fold",
+        type=int,
+        choices=range(4),
+        help="label the fine-tuned planner (3cft) of this fold: needs --served-build, and runs "
+        "only this fold's pool problems (all of them by default) or development problems",
+    )
     args = parser.parse_args()
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
-    selected = list(dict.fromkeys(args.problems)) or pool
+    folds = pool_folds(registry)
+    if args.fold is not None:
+        if args.served_build is None:
+            parser.error("--fold labels a served fine-tuned planner, so it needs --served-build")
+        fold_pool = [i for i in pool if folds[i] == args.fold]
+        selected = list(dict.fromkeys(args.problems)) or fold_pool
+        # a problem is never sampled by an adapter trained on it
+        outside = [i for i in selected if i in pool and folds[i] != args.fold]
+        if outside:
+            parser.error(f"not in fold {args.fold}: {', '.join(outside)}")
+    else:
+        selected = list(dict.fromkeys(args.problems)) or pool
+    arm = "3cft" if args.fold is not None else "3c"
+    out_dir = FT_OUT_DIR if args.fold is not None else OUT_DIR
+    prefix = f"oracle3cft-fold{args.fold}" if args.fold is not None else "oracle"
     others = [i for i in selected if i not in pool and i not in development]
     if others:
         parser.error(f"not pool or development problems: {', '.join(others)}")
@@ -389,9 +418,10 @@ def main() -> int:
     try:
         for problem_id in selected:
             # read before start_run, so a model that is not loaded stops with no touch (#161)
-            build = read_build(args.model, args.base_url)
+            key = os.environ.get(API_KEY_ENV)
+            build = build_for(args.model, args.base_url, args.served_build, args.fold, key)
             now = datetime.now(UTC)
-            run_id = f"oracle-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+            run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
             namespace = logged_namespace(problem_id)
             # start_run refuses a pool run before its touch unless this is the problem's namespace
             run = start_run(
@@ -404,7 +434,7 @@ def main() -> int:
                 now,
                 namespace=namespace,
             )
-            orch = new_orchestrator(results_dir=OUT_DIR / run_id)
+            orch = new_orchestrator(results_dir=out_dir / run_id)
             prob = orch.probs.get_problem_instance(problem_id)
             check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
             result, candidates, first, injected = asyncio.run(
@@ -417,7 +447,7 @@ def main() -> int:
                     retriever,
                     args.candidates,
                     args.seed,
-                    OUT_DIR / run_id,
+                    out_dir / run_id,
                 )
             )
             manifest = Manifest(
@@ -451,10 +481,12 @@ def main() -> int:
                         )
                     },
                     "seeds": [c.seed for c in candidates],
-                    "baseline": "3c",
+                    "baseline": arm,
+                    # 3cft: the fold whose adapter served the run, None for the untuned planner
+                    "fold": args.fold,
                 },
             )
-            path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
+            path = write_manifest(manifest, run, out_dir, registry, TOUCH_LOG)
             # the planner's defaults and the chat settings; plan's k is the retrieval depth, not K
             defaults = inspect.signature(plan).parameters
             transcript = (
@@ -468,7 +500,7 @@ def main() -> int:
                 **dataclasses.asdict(chat),
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
                 "retrieval_k": defaults["k"].default,
-                "baseline": "3c",
+                "baseline": arm,
             }
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
@@ -498,7 +530,7 @@ def main() -> int:
                 problem_id,
                 clean=clean[namespace],
                 injected=injected,
-                results_dir=OUT_DIR / run_id,
+                results_dir=out_dir / run_id,
                 records=records,
             )
             labels = label_problem(
@@ -529,7 +561,7 @@ def main() -> int:
     finally:
         forward.terminate()
     totals = summarize(written)
-    summary_path = OUT_DIR / f"oracle_summary-{stamp}.json"
+    summary_path = out_dir / f"oracle_summary-{stamp}.json"
     summary_path.write_text(json.dumps(totals, indent=2, sort_keys=True))
     print(json.dumps(totals, indent=2, sort_keys=True))
     print(f"summary {summary_path}")

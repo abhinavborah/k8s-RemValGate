@@ -418,7 +418,9 @@ records, ranking its own K candidates by log-probability. `scripts/export_baseli
 writes each fold's held-out scoring input from the same 16 labels files, logging one touch per pool
 problem. `scripts/baseline5_kaggle.py` trains and scores one fold on a GPU notebook, and
 `scripts/summarize_baseline5.py` gives the rankings, coverage curves and top-1 results beside
-baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md).
+baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md). The fine-tuned planner
+itself, served from the GPU host as the 3cft arm, is in
+[docs/finetuned_planner.md](docs/finetuned_planner.md).
 
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one

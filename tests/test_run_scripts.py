@@ -49,7 +49,7 @@ def test_baseline_7_runs_on_the_pool_as_3c_told_to_escalate_when_unsure():
     # #165 runs baseline 7 in one interleaved batch with 3a to 3c
     assert "7" in _tuple("BASELINES") and "7" in _tuple("PLANNER")
     # 3c's retrieval configuration (iii)
-    assert "('2', '3c', '7', *ABLATION)" in ast.unparse(_function(POOL, "retrievers"))
+    assert "('2', '3c', '3cft', '7', *ABLATION)" in ast.unparse(_function(POOL, "retrievers"))
     # run_one passes baseline == "7" to diagnose, and diagnose hands its flag on to plan
     assert _keyword(_function(POOL, "run_one"), "diagnose", "escalate_when_unsure") == (
         "baseline == '7'"
@@ -77,3 +77,38 @@ def test_a_pool_result_records_the_flag_and_why_a_plan_has_no_command():
     text = ast.unparse(_function(POOL, "run_one"))
     assert "'stop': stop" in text and "'escalation': escalation" in text
     assert "'escalate_when_unsure': baseline == '7'" in text
+
+
+def test_the_fine_tuned_arm_is_3c_with_its_folds_server():
+    # #159: 3cft shares 3c's retrieval and planner path and differs only in the served model
+    assert "3cft" in _tuple("BASELINES") and "3cft" in _tuple("PLANNER")
+    assert "'3cft'" in ast.unparse(_function(POOL, "retrievers"))
+    run_one = _function(POOL, "run_one")
+    text = ast.unparse(run_one)
+    # the fold's server and record are chosen before start_run, so a wrong server stops first
+    assert text.index("args.folds.get(problem_id, args.dev_fold)") < text.index("start_run(")
+    assert text.index("build_for(MODEL, server['base_url'], server['served_build'], fold, key)") < (
+        text.index("start_run(")
+    )
+    assert "base_url=server['base_url']" in text
+    # the manifest records which fold's adapter served the run
+    assert "'fold': fold" in text
+    main = ast.unparse(_function(POOL, "main"))
+    assert "3cft on development problems needs --dev-fold" in main
+    assert "3cft needs --fold-servers" in main
+
+
+def test_fold_servers_needs_all_four_folds():
+    text = ast.unparse(_function(POOL, "fold_servers"))
+    assert "[0, 1, 2, 3]" in text
+
+
+def test_the_fine_tuned_labels_never_sample_a_problem_with_its_own_adapter():
+    main = ast.unparse(_function(LABELS, "main"))
+    # --fold needs a served build and refuses a pool problem of another fold
+    assert "--fold labels a served fine-tuned planner, so it needs --served-build" in main
+    assert "folds[i] != args.fold" in main and "not in fold" in main
+    # the arm and the fold are recorded, and the labels go to their own folder and run ids
+    assert "'baseline': arm" in main and "'fold': args.fold" in main
+    assert "FT_OUT_DIR if args.fold is not None else OUT_DIR" in main
+    assert "oracle3cft-fold" in main

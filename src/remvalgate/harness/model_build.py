@@ -13,6 +13,17 @@ the hub's presencePenalty is recorded but no longer applied): the `config` field
 `model.yaml`, and the per-model override LM Studio keeps, if any.
 
 Not reported by `lms ps`: GPU offload. It is left out rather than guessed.
+
+A model served by llama.cpp's llama-server on another host (the fine-tuned planner on a GPU host,
+#159) has no LM Studio to read. Its build comes from a record file written on that host when the
+server starts (the llama.cpp commit, the GGUF file and its SHA-256, quantization, context length,
+GPU and server arguments, and which fold's adapter the GGUF was merged from), checked against
+what the running server reports at /props: the loaded file's name, the context length and the build.
+The record's fold must be the fold the run asks for, so a held-out problem is never served by an
+adapter trained on it; the untuned control's record has no fold and no adapter.
+`scripts/serve_on_gpu_host.sh` starts a server and writes its record, hashing the files it
+serves. The endpoint (a tunnel address that changes on every restart) is recorded per run and is
+not part of build_key.
 """
 
 import hashlib
@@ -20,13 +31,28 @@ import json
 import re
 import socket
 import subprocess
+import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from urllib.parse import urlsplit
 
 APP_PLIST = "/Applications/LM Studio.app/Contents/Info"
 # fields that differ between runs of one build, so they do not take part in build_key
-_PER_RUN = frozenset({"model_file"})
+_PER_RUN = frozenset({"model_file", "endpoint"})
+# the fields a llama-server record file must give, all of which enter build_key
+SERVED_FIELDS = (
+    "llama_cpp_commit",
+    "host",
+    "gpu",
+    "model_file_name",
+    "model_sha256",
+    "quantization",
+    "context_length",
+    "server_args",
+)
+# present in every record, null for the untuned control: the fold whose adapter was merged into
+# the GGUF and the SHA-256 of that adapter's weights
+FOLD_FIELDS = ("fold", "adapter_sha256")
 _ENGINE = re.compile(r"^(llama\.cpp-\S+@\S+)\s+✓\s+GGUF", re.MULTILINE)
 _COMMIT = re.compile(r"CLI commit:\s*(\S+)")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -198,6 +224,79 @@ def read_build(
         "model_sha256": _sha256(path),
         "server_defaults": _server_defaults(model_key, home),
     }
+
+
+def _get_props(base_url: str, api_key: str | None) -> dict:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    root = base_url.removesuffix("/").removesuffix("/v1")
+    request = urllib.request.Request(f"{root}/props", headers=headers)
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.load(response)
+
+
+def read_served_build(
+    model_key: str,
+    base_url: str,
+    record: Path,
+    get_props: Callable[[str, str | None], dict] = _get_props,
+    api_key: str | None = None,
+    fold: int | None = None,
+) -> dict:
+    """The build of model_key served by llama-server at base_url, from its record file.
+
+    fold is the fold the run uses, None for the untuned control. Raises RuntimeError when the
+    record lacks a field, names another fold, or the running server does not match it (another
+    GGUF file, context length or llama.cpp build), so a run never starts on a server that is not
+    the recorded one.
+    """
+    served = json.loads(Path(record).read_text(encoding="utf-8"))
+    missing = [f for f in SERVED_FIELDS if not served.get(f)]
+    missing += [f for f in FOLD_FIELDS if f not in served]
+    if missing:
+        raise RuntimeError(f"{record} lacks {missing}")
+    if served["fold"] != fold:
+        raise RuntimeError(f"{record} serves fold {served['fold']}, the run uses fold {fold}")
+    if (served["fold"] is None) != (served["adapter_sha256"] is None):
+        raise RuntimeError(f"{record}: a fold needs its adapter's SHA-256, the control has neither")
+    props = get_props(base_url, api_key)
+    loaded = Path(props.get("model_path") or "").name
+    n_ctx = (props.get("default_generation_settings") or {}).get("n_ctx")
+    build_info = str(props.get("build_info") or "")
+    if loaded != served["model_file_name"]:
+        raise RuntimeError(
+            f"the server loaded {loaded!r}, the record names {served['model_file_name']!r}"
+        )
+    if n_ctx != served["context_length"]:
+        raise RuntimeError(
+            f"the server's context is {n_ctx}, the record gives {served['context_length']}"
+        )
+    if served["llama_cpp_commit"][:7] not in build_info:
+        raise RuntimeError(f"the server's build {build_info!r} is not {served['llama_cpp_commit']}")
+    return {
+        "server": "llama-server",
+        "endpoint": base_url,
+        "model_key": model_key,
+        "build_info": build_info,
+        **{f: served[f] for f in (*SERVED_FIELDS, *FOLD_FIELDS)},
+    }
+
+
+def build_for(
+    model_key: str,
+    base_url: str,
+    served_build: Path | None,
+    fold: int | None = None,
+    api_key: str | None = None,
+) -> dict:
+    """The build of a run: a llama-server's record file when given, else this host's LM Studio.
+
+    The one rule both run scripts use, so they pick the build the same way.
+    """
+    if served_build is None:
+        if fold is not None:
+            raise RuntimeError(f"fold {fold} is served by a GPU host, so it needs a record file")
+        return read_build(model_key, base_url)
+    return read_served_build(model_key, base_url, served_build, api_key=api_key, fold=fold)
 
 
 def build_key(manifest: Mapping) -> str:

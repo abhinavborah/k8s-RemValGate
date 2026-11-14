@@ -120,6 +120,8 @@ class Step:
     # the request's length in tokens as the server counted it, so a run shows how near the
     # context limit it came; None when the server reports none
     prompt_tokens: int | None = None
+    # requests sent for this reply: 1, or more when a dropped connection was retried
+    attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -160,6 +162,8 @@ class Candidate:
     logprob: float | None = None
     # the command as the reply held it when a stray closing brace was stripped, None otherwise
     raw_command: str | None = None
+    # requests sent for this reply: 1, or more when a dropped connection was retried
+    attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -446,6 +450,7 @@ def plan(
                             "final",
                             *_cost(completion),
                             completion.prompt_tokens,
+                            attempts=completion.attempts,
                         )
                     )
                     raw_command = None
@@ -477,6 +482,7 @@ def plan(
                             "escalate",
                             *_cost(completion),
                             completion.prompt_tokens,
+                            attempts=completion.attempts,
                         )
                     )
                     return Plan(
@@ -522,6 +528,7 @@ def plan(
                 observation,
                 *_cost(completion),
                 completion.prompt_tokens,
+                attempts=completion.attempts,
             )
         )
         messages.append({"role": "user", "content": observation})
@@ -622,6 +629,7 @@ def sample(
                 *_cost(completion),
                 completion.logprob,
                 raw_command,
+                attempts=completion.attempts,
             )
         )
     return tuple(candidates)

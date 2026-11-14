@@ -135,7 +135,7 @@ from remvalgate.baselines.untuned import pool_untuned_retriever, untuned_retriev
 from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import check_chain
 from remvalgate.harness.cluster_state import changed
-from remvalgate.harness.folds import fault_type
+from remvalgate.harness.folds import fault_type, pool_folds
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
     MAX_R,
@@ -146,14 +146,14 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
-from remvalgate.harness.model_build import read_build
+from remvalgate.harness.model_build import build_for
 from remvalgate.harness.oracle import DATABASE_TYPES
 from remvalgate.harness.outcome import classify, single_action_result
 from remvalgate.harness.protocol import interleaved
 from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest_services
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
-from remvalgate.planner.chat import OpenAIChat
+from remvalgate.planner.chat import API_KEY_ENV, OpenAIChat
 from remvalgate.planner.loop import DEFAULT_TOOLS, plan, task_text
 from remvalgate.planner.telemetry import preview
 from remvalgate.retrieval.fixed import development_retriever, pool_retriever
@@ -162,8 +162,11 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
 CONTEXT = "kind-kind"
-BASELINES = ("1", "2", "3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly")
-PLANNER = ("3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly")
+BASELINES = ("1", "2", "3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly", "3cft")
+PLANNER = ("3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly", "3cft")
+# the fine-tuned planner (#159): 3c's configuration with the problem's own fold's merged adapter,
+# served by llama-server on the GPU host (--fold-servers); the only difference from 3c is the
+# model, so a problem is never served by a model trained on it
 # the ablation without interactive tools keeps read-only exec_shell (proposal version 2, VI)
 NOTOOLS_TOOLS = frozenset({"exec_shell"})
 # the arms of the 2 by 2 tool ablation besides 3c (tools, no bundle): their tools and whether the
@@ -326,12 +329,25 @@ def retrievers(baselines: list[str], pool: bool, registry) -> dict:
     iii = None
     chosen = {}
     for b in baselines:
-        if b in ("2", "3c", "7", *ABLATION):
+        if b in ("2", "3c", "3cft", "7", *ABLATION):
             iii = iii or (pool_retriever if pool else development_retriever)(registry)
             chosen[b] = iii
         elif b in ("3a", "3b"):
             chosen[b] = (pool_untuned_retriever if pool else untuned_retriever)(b, registry)
     return chosen
+
+
+def fold_servers(path: Path | None) -> dict[int, dict]:
+    """The --fold-servers file: fold to base_url and the Path of its served_build record."""
+    if path is None:
+        return {}
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    servers = {
+        int(f): {"base_url": s["base_url"], "served_build": Path(s["served_build"])}
+        for f, s in raw.items()
+    }
+    check(sorted(servers) == [0, 1, 2, 3], f"{path}: expected folds 0 to 3, got {sorted(servers)}")
+    return servers
 
 
 def main() -> int:
@@ -346,12 +362,34 @@ def main() -> int:
         "--seed", type=int, action="append", help="repeatable (default 1000 and 1001, #161)"
     )
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
+    parser.add_argument(
+        "--served-build",
+        type=Path,
+        help="record file of a llama-server on another host (model_build.read_served_build); "
+        "without it the server must be this host's LM Studio",
+    )
+    parser.add_argument(
+        "--fold-servers",
+        type=Path,
+        help="JSON file mapping each fold to the base_url and served_build record of its "
+        "fine-tuned planner, needed by 3cft",
+    )
+    parser.add_argument(
+        "--dev-fold",
+        type=int,
+        choices=range(4),
+        help="the fold whose fine-tuned planner serves 3cft on development problems, which are "
+        "in no fold's training data (a dry run before the pool)",
+    )
     args = parser.parse_args()
     baselines = list(dict.fromkeys(args.baseline))
     seeds = list(dict.fromkeys(args.seed or [SEED, SEED + 1]))
     if len(seeds) > MAX_R:
         parser.error(f"at most {MAX_R} seeds, the most a manifest records")
     args.seeds = seeds
+    args.servers = fold_servers(args.fold_servers) if "3cft" in baselines else {}
+    if "3cft" in baselines and not args.servers:
+        parser.error("3cft needs --fold-servers")
     uses_model = any(b in PLANNER for b in baselines)
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for the planner arms")
@@ -362,6 +400,9 @@ def main() -> int:
     others = [i for i in selected if i not in pool and i not in development]
     if others:
         parser.error(f"not pool or development problems: {', '.join(others)}")
+    if "3cft" in baselines and any(i in development for i in selected) and args.dev_fold is None:
+        parser.error("3cft on development problems needs --dev-fold")
+    args.folds = pool_folds(registry)
     if any(i in pool for i in selected) and any(i in development for i in selected):
         parser.error("pool and development problems run apart, so a summary is never mixed")
     # AIOpsLab's injectors run kubectl in the current context, the checks here in kind-kind
@@ -420,8 +461,23 @@ def main() -> int:
 
 
 def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes) -> dict:
-    # read before start_run, so a model that is not loaded stops the run before its touch (#161)
-    build = read_build(MODEL, args.base_url) if baseline in PLANNER else {}
+    fold = None
+    if baseline == "3cft":
+        # a pool problem gets its own fold's model; a development problem the --dev-fold one
+        fold = args.folds.get(problem_id, args.dev_fold)
+        server = args.servers[fold]
+        chat = dataclasses.replace(chat, base_url=server["base_url"])
+        key = os.environ.get(API_KEY_ENV)
+        # read before start_run, so a server that is not the recorded one stops the run first
+        build = build_for(MODEL, server["base_url"], server["served_build"], fold, key)
+    else:
+        # read before start_run, so a model that is not loaded stops the run before its touch
+        key = os.environ.get(API_KEY_ENV)
+        build = (
+            build_for(MODEL, args.base_url, args.served_build, None, key)
+            if baseline in PLANNER
+            else {}
+        )
     now = datetime.now(UTC)
     prefix = baseline if baseline in ABLATION else f"baseline{baseline}"
     run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
@@ -541,6 +597,8 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
                 "baseline": baseline,
                 # the key run_planner_dev.py records for baseline 7
                 "escalate_when_unsure": baseline == "7",
+                # 3cft: the fold whose adapter served the run, None for every other arm
+                "fold": fold,
             }
             if baseline in PLANNER
             else {"baseline": baseline}
