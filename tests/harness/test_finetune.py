@@ -71,6 +71,15 @@ def test_a_missing_or_repeated_run_is_refused():
         compare(rows + rows[:1], POOL)
 
 
+def test_one_seed_or_no_rows_is_refused():
+    base = set(POOL[:6])
+    one = _rows("3c", base, seeds=(1000,)) + _rows("3cft", base | set(POOL[6:11]), seeds=(1000,))
+    with pytest.raises(ValueError, match="expected seeds"):
+        compare(one, POOL)
+    with pytest.raises(ValueError, match="no rows"):
+        compare(_rows("3cft", base), POOL)
+
+
 def _manifest(arm, problem, asked, served):
     return {
         "run_id": f"{arm}-{problem}",
@@ -121,3 +130,16 @@ def test_candidate_yield_counts_working_mixed_and_recoverable():
         "mixed": True,
         "recoverable": True,
     }
+
+
+def test_a_control_from_another_server_is_refused():
+    folds = {"p00": 0, "p01": 1}
+    pod = {"server": "llama-server", "host": "gpu host", "endpoint": "a"}
+    tuned = _manifest("3cft", "p00", 0, 0)
+    tuned["model_build"] = {**pod, "fold": 0, "adapter_sha256": "x", "model_sha256": "y"}
+    control = _manifest("3c", "p01", None, None)
+    control["model_build"] = {**pod, "endpoint": "b", "fold": None, "adapter_sha256": None}
+    check_folds([tuned, control], folds)
+    control["model_build"] = {"server": "lmstudio", "host": "run host", "fold": None}
+    with pytest.raises(ValueError, match="different builds"):
+        check_folds([tuned, control], folds)

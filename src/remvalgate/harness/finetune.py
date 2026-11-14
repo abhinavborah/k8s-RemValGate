@@ -16,6 +16,7 @@ top pick's outcome, the working candidates of K, mixed outcomes and whether the 
 recoverable (top pick fails, another candidate works).
 """
 
+import json
 from collections.abc import Mapping, Sequence
 
 from remvalgate.harness.g3 import _complete, combine_seeds, meets_min_gain, top_pick_solved
@@ -24,6 +25,11 @@ from remvalgate.harness.outcome import Outcome
 from remvalgate.harness.stats import bonett_price, mcnemar_midp
 
 UNTUNED, FINE_TUNED = "3c", "3cft"
+SEEDS = (1000, 1001)
+# the build fields that differ between the fold servers and the control by design; the rest
+# (server, host, GPU, llama.cpp, quantization, context, arguments) must match, as #161 asks
+FOLD_BUILD = frozenset({"fold", "adapter_sha256", "model_file_name", "model_sha256"})
+PER_RUN = frozenset({"endpoint", "model_file"})
 
 
 def _recovered(rows: Sequence[Mapping]) -> dict[str, bool]:
@@ -31,9 +37,20 @@ def _recovered(rows: Sequence[Mapping]) -> dict[str, bool]:
 
 
 def check_folds(manifests: Sequence[Mapping], folds: Mapping[str, int]) -> None:
-    """Refuse a 3cft run served by another fold's model, or a 3c run served by a fold's model.
+    """Refuse a 3cft run served by another fold's model, a 3c run served by a fold's model, and
+    any run whose build differs from the others' apart from the fold fields (another server, such as
+    an LM Studio control, is never paired with 3cft).
 
-    Reads `sampling.fold` and the served build's `fold` from each manifest. Raises ValueError."""
+    Reads `sampling.fold` and `model_build` from each manifest. Raises ValueError."""
+    shared: dict[str, str] = {}
+    for m in manifests:
+        build = m.get("model_build") or {}
+        key = json.dumps(
+            {k: v for k, v in build.items() if k not in FOLD_BUILD | PER_RUN}, sort_keys=True
+        )
+        shared.setdefault(key, m["run_id"])
+    if len(shared) > 1:
+        raise ValueError(f"the runs were served by different builds: {sorted(shared.values())}")
     for m in manifests:
         arm = m["sampling"]["baseline"]
         served = (m.get("model_build") or {}).get("fold")
@@ -68,9 +85,14 @@ def compare(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:
     """The paired comparison of 3cft with 3c, per seed and with the seeds combined.
 
     rows are result rows of the two arms; every pool problem must have one row per arm and seed,
-    and both arms the same seeds. Raises ValueError otherwise."""
+    and both arms must hold seeds 1000 and 1001 (#161), no more and no fewer. Raises ValueError
+    otherwise."""
     rows = [r for r in rows if r["baseline"] in (UNTUNED, FINE_TUNED)]
-    seeds = sorted({r["seed"] for r in rows})
+    for arm in (UNTUNED, FINE_TUNED):
+        have = tuple(sorted({r["seed"] for r in rows if r["baseline"] == arm}))
+        if have != SEEDS:
+            raise ValueError(f"{arm}: expected seeds {SEEDS}, got {have or 'no rows'}")
+    seeds = list(SEEDS)
     out: dict = {"seeds": {}}
     for seed in seeds:
         by_arm = {}

@@ -9,20 +9,21 @@ are read from the transcripts by hand. This covers #165 step 1 (224 runs, 7 arms
 
 Each run is put in one class, in this order: recovered; escalated by the planner; turn cap with no
 final answer; a final answer with no command; the command refused by the allow-list; the command
-applied and not recovering. The diagnosis is scored against the problem's fault type and target
+admitted but not sent, because it could not be sent unchanged; the command applied and not
+recovering. The diagnosis is scored against the problem's fault type and target
 service (`rag_ablation.score`).
 
 Runs per arm, both seeds (32 each):
 
-| Arm | Recovered | Refused | Applied, not recovered | Turn cap | Escalated |
-|---|---|---|---|---|---|
-| 3a | 8 | 15 | 5 | 4 | 0 |
-| 3b | 12 | 12 | 6 | 2 | 0 |
-| 3c | 15 | 10 | 4 | 3 | 0 |
-| 7 | 15 | 1 | 6 | 7 | 3 |
-| toolsbundle | 19 | 7 | 5 | 1 | 0 |
-| kubectlonly | 17 | 6 | 3 | 6 | 0 |
-| notools | 20 | 5 | 7 | 0 | 0 |
+| Arm | Recovered | Refused | Admitted, not sent | Applied, not recovered | Turn cap | Escalated |
+|---|---|---|---|---|---|---|
+| 3a | 8 | 15 | 0 | 5 | 4 | 0 |
+| 3b | 12 | 12 | 0 | 6 | 2 | 0 |
+| 3c | 15 | 10 | 0 | 4 | 3 | 0 |
+| 7 | 15 | 1 | 0 | 6 | 7 | 3 |
+| toolsbundle | 19 | 7 | 1 | 4 | 1 | 0 |
+| kubectlonly | 17 | 6 | 0 | 3 | 6 | 0 |
+| notools | 20 | 5 | 0 | 7 | 0 | 0 |
 
 Refusal reasons: FLAG_DENIED 23, SHELL_METACHAR 18, VERB_NOT_ALLOWED 12, RESOURCE_NOT_ALLOWED 2,
 OUT_OF_SANDBOX 1, over the 56 refused runs of all arms.
@@ -41,9 +42,11 @@ Diagnosis, runs per arm:
 
 ## What fails
 
-1. **The allow-list refuses the fix more often than the planner misdiagnoses.**
+1. **Over all arms, the allow-list refuses the fix more often than the planner misdiagnoses:** 56
+   refused runs against 37 with a wrong fault type or service. Per arm this holds for 3a, 3b, 3c,
+   toolsbundle and notools, not for baseline 7 (1 refused, 3 wrong) or kubectlonly (6 and 7).
    - Refusal is the largest failure class for 3a, 3b and 3c (15, 12 and 10 of 32 runs).
-   - It is also the largest class on the 4 MongoDB problems: 37 of their 56 runs. Of the rest, 13 were applied without recovering, 3 escalated, 2 reached the turn cap, and 1 recovered (baseline 7, `user_unregistered_mongodb-mitigation-1`, seed 1000).
+   - It is also the largest class on the 4 MongoDB problems: 37 of their 56 runs. Of the rest, 12 were applied without recovering, 1 was admitted and not sent (toolsbundle, `user_unregistered_mongodb-mitigation-2`, seed 1001: a command ending in a double quote does not survive the parser), 3 escalated, 2 reached the turn cap, and 1 recovered (baseline 7, `user_unregistered_mongodb-mitigation-1`, seed 1000).
    - The refused commands carry the login, but use methods the allow-list does not admit: `adminCommand`, `dropUser`, `updateOne` with `$set`, `sh -c` scripts. The admitted methods are `getSiblingDB`, `createUser`, `grantRolesToUser`, `getUser` and `getUsers`.
    - No MongoDB candidate of the run 3 labels works (`docs/oracle_labels.md`).
 2. **On TargetPortMisconfig the planner names the wrong service.** All 6 problem and seed pairs where notools recovered and 3c did not are TargetPortMisconfig problems.

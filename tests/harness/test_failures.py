@@ -15,6 +15,9 @@ def test_each_run_gets_one_class_in_order():
     assert classify(refused) == "refused"
     applied = {"outcome": F, "stop": "final", "command": "kubectl x", "allow_list": "admitted"}
     assert classify(applied) == "applied, not recovered"
+    # admitted but not sent unchanged: the row records sent false and a note
+    assert classify({**applied, "outcome": E, "sent": False}) == "admitted, not sent"
+    assert classify({**applied, "sent": True}) == "applied, not recovered"
 
 
 def test_the_diagnosis_is_scored_against_type_and_service():

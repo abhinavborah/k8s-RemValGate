@@ -423,8 +423,9 @@ itself, served from the GPU host as the 3cft arm, is in
 [docs/finetuned_planner.md](docs/finetuned_planner.md).
 
 `scripts/summarize_finetune.py` is the primary analysis (story E9-S5, #56): 3cft against the 3c
-control, per seed and with both seeds, against the threshold committed with gate G3
-([docs/primary_analysis.md](docs/primary_analysis.md)). The ablations of every capability are
+control, per seed and with both seeds, against the minimum gain of gate G3, whose use for this
+comparison is pending group confirmation (#56); see
+[docs/primary_analysis.md](docs/primary_analysis.md). The ablations of every capability are
 collected in [docs/ablations.md](docs/ablations.md) (#57). `scripts/failure_cases.py` classifies why
 each planner run failed (#58, [docs/failure_analysis.md](docs/failure_analysis.md)).
 

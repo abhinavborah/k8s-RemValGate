@@ -144,3 +144,20 @@ member reports and after the failed headroom check, to fine-tune the planner as 
 ablation: the per-fold adapters trained here are merged, converted to GGUF Q8_0 and served on the
 same model server (#161), and the fine-tuned planner samples its own candidates (#159) and runs end
 to end against 3c (#55). Baseline 5 is still scored and reported beside it, with the bound above.
+
+Result, 2026-11-14 (reported on #165): baseline 5 solves 7.0 of 16, the same as 3c's top pick in
+the labelling run (7), inside the bound above. On the one recoverable problem it ranks a failing
+candidate first.
+
+- Model: `Qwen/Qwen3.5-4B` at revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, bf16, LoRA r 16,
+  alpha 32, dropout 0.05 on the attention and MLP projections, 3 epochs, learning rate 1e-4, one
+  adapter per fold.
+- Host: an NVIDIA A100-SXM4-80GB on the GPU host, folds 0 to 3 started 2026-11-14 at 07:32, 07:40,
+  07:46 and 07:54 UTC, 0.07 to 0.13 GPU hours per fold.
+- Inputs: the export of 2026-11-14 at `56a572e` and the held-out files
+  `heldout-baseline5-fold<f>-20261114t072203z.json`.
+- Files: `scores-baseline5-fold<f>-*.json` (one per fold, in `scores.tar.gz`, SHA-256
+  `eb5f3ffa6c12fbce347eb1539adc02a3cacd2f16844b871ab789caa7bebe1d8a`) and the summary of
+  `scripts/summarize_baseline5.py` (SHA-256
+  `c57fb7489130e8541542323f5b6b87cae7ea4d3eaad73fdf89f02d74101ec5c4`). They are kept with the
+  step 3 run logs and go to the shared drive with the step 3 archive.

@@ -3,7 +3,8 @@
 Reads result files of scripts/run_baselines_pool.py, each next to its manifest and transcript, and
 prints per arm the class of every run, the allow-list reasons and the diagnosis classes
 (src/remvalgate/harness/failures.py), then one line per pool problem with each arm's classes at
-each seed, so the problems where arms disagree can be read by hand.
+each seed, so the problems where arms disagree can be read by hand. It reads finished runs only:
+no rollout runs, so no touch is logged.
 
     uv run python scripts/failure_cases.py runs/baselines_pool/<run id>.result.json ...
 """

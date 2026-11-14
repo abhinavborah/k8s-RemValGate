@@ -2,8 +2,9 @@
 
 A run is put in one class by its result row and transcript, in this order: recovered; escalated
 by the planner (baseline 7); turn cap reached with no final answer; a final answer with no
-command; the command refused by the allow-list (with the reason); the command applied and not
-recovering (ineffective or harmful). Beside the class, the diagnosis is scored against the
+command; the command refused by the allow-list (with the reason); the command admitted but not
+sent, because it could not be sent unchanged (the row's `sent` is false); the command applied and
+not recovering (ineffective or harmful). Beside the class, the diagnosis is scored against the
 problem's fault type and target service with rag_ablation.score: none, wrong fault type, wrong
 service, or right. The classes are derived, not judged; the qualitative examples in
 docs/failure_analysis.md are read from the transcripts by hand.
@@ -21,6 +22,7 @@ CLASSES = (
     "turn cap",
     "no command",
     "refused",
+    "admitted, not sent",
     "applied, not recovered",
 )
 
@@ -37,6 +39,8 @@ def classify(row: Mapping) -> str:
         return "no command"
     if row.get("allow_list") not in (None, "admitted"):
         return "refused"
+    if row.get("sent") is False:
+        return "admitted, not sent"
     return "applied, not recovered"
 
 

@@ -32,8 +32,9 @@ not bound by that count.
 
 ## Reported beside the claim
 
-- Baseline 5, the fine-tuned ranking over 3c's candidates: 7.0 of 16, the same as 3c's top pick
-  in the labelling run ([baseline5.md](baseline5.md)).
+- Baseline 5, the fine-tuned ranking over 3c's candidates: 7.0 of 16 on 2026-11-14, the same as
+  3c's top pick in the labelling run ([baseline5.md](baseline5.md), the result and its run record
+  at the end of the 2026-11-14 section).
 - The candidates of both planners labelled by execution (#159 against #165 step 2): per problem
   the top pick's outcome, the working candidates of K, mixed outcomes and recoverable problems.
 
