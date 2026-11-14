@@ -38,7 +38,9 @@ them, by the `--no-retrieval` option (#180).
 The top pick fails without retrieval on 5 problems it solves with it, and on none the other way.
 Problems with no candidates (turn cap): 1 with retrieval, 4 without. Descriptive, with no test. The
 labels with retrieval ran 15:12 to 17:12 IST and these 21:41 to 23:11 IST, not interleaved (#161),
-so cluster drift is a confound beside retrieval; the top pick is compared at seed 0 only.
+so cluster drift is a confound beside retrieval; the top pick is compared at seed 0 only. Each fold
+and the dry run were recorded with asciinema (`r34.tar.gz`) beside the timestamped pod watch
+(`r34_20261114.pods.log`), both on the shared drive.
 
 ## Tool calling
 
