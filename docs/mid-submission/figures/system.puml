@@ -1,0 +1,35 @@
+@startuml system
+skinparam shadowing false
+skinparam defaultFontSize 12
+skinparam rectangle {
+  RoundCorner 8
+  BorderColor #444444
+}
+
+rectangle "Fault injection\nAIOpsLab on kind" as F #C6E6C6
+rectangle "Retrieval\nper-fold corpus\n(stub only)" as R #FAE6A0
+rectangle "Planner (#106, merged)\nQwen3.5-4B, 4 tools\nK = 8 candidates\none command per run today" as P #FAE6A0
+rectangle "Allow-list and\nnamespace check" as A #C6E6C6
+rectangle "Gate\nLoRA scorer + threshold\n(to build)" as G #FFFFFF
+rectangle "Snapshot, apply,\n120 s settle,\nharm and readiness check" as S #C6E6C6
+rectangle "Escalate to human" as E #FFFFFF
+rectangle "Restore and escalate" as X #FFFFFF
+rectangle "Recovered" as OK #FFFFFF
+rectangle "Evaluator\noutcome classifier, metrics,\nmanifest, touch log" as EV #C6E6C6
+
+F -right-> R
+R -right-> P
+P -right-> A
+A -right-> G
+G -down-> S : clears threshold
+G -right-> E : below threshold
+S -right-> X : check fails
+S -down-> OK : passes
+EV .right.> S
+
+legend right
+  green: built
+  yellow: stub or partial
+  white: to build or an outcome
+endlegend
+@enduml
