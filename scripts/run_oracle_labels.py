@@ -44,9 +44,16 @@ Outputs go to runs/oracle/, which git ignores, and to the shared drive:
 A run finished in two parts is summarized with scripts/summarize_oracle_labels.py, which needs no
 cluster.
 
+--fold labels the fine-tuned planner (3cft) of that fold instead (#159), into runs/oracle_3cft/.
+With --no-retrieval as well (#34, R4.5), it runs the same planner with retrieval configuration (i),
+none, as baseline 3a has it, into runs/oracle_3cft_noret/ with run ids oracle3cftnoret-fold<f>-...,
+so the two sets never mix. Everything else (seed, K, server, prompt and sampling) is as without the
+flag, so retrieval is the only difference. The configuration is recorded in the manifest and the
+transcript.
+
     uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>" \
         [--model qwen/qwen3.5-4b|qwen/qwen3.5-9b] [--no-thinking] [--candidates K] [--seed S] \
-        [--base-url URL] [problem id ...]
+        [--base-url URL] [--served-build FILE --fold F [--no-retrieval]] [problem id ...]
 
 The 9B runs on development problems only: a run of it on the pool would log evaluation-set
 touches, and is a separate decision.
@@ -73,6 +80,7 @@ from run_planner_dev import prometheus_port_forward, remove_workload, start_work
 from summarize_oracle_labels import summarize
 
 from remvalgate.aiopslab_pin import pinned_commit
+from remvalgate.baselines.untuned import pool_untuned_retriever, untuned_retriever
 from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check_chain, load_policy
 from remvalgate.harness.cluster_state import changed, normalise
@@ -111,6 +119,8 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "oracle"
 # the fine-tuned planner's labels (#159), kept apart so no glob of runs/oracle mixes the two sets
 FT_OUT_DIR = ROOT / "runs" / "oracle_3cft"
+# the fine-tuned planner without retrieval (#34), apart from both
+NORET_OUT_DIR = ROOT / "runs" / "oracle_3cft_noret"
 SCRATCH = ROOT / "runs" / "oracle_scratch"
 CONTEXT = "kind-kind"
 POLICY = load_policy(DEFAULT_POLICY_PATH)
@@ -354,7 +364,14 @@ def main() -> int:
         help="label the fine-tuned planner (3cft) of this fold: needs --served-build, and runs "
         "only this fold's pool problems (all of them by default) or development problems",
     )
+    parser.add_argument(
+        "--no-retrieval",
+        action="store_true",
+        help="the fine-tuned planner with retrieval configuration (i), none (#34): needs --fold",
+    )
     args = parser.parse_args()
+    if args.no_retrieval and args.fold is None:
+        parser.error("--no-retrieval runs the fine-tuned planner, so it needs --fold")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
@@ -371,8 +388,13 @@ def main() -> int:
     else:
         selected = list(dict.fromkeys(args.problems)) or pool
     arm = "3cft" if args.fold is not None else "3c"
-    out_dir = FT_OUT_DIR if args.fold is not None else OUT_DIR
-    prefix = f"oracle3cft-fold{args.fold}" if args.fold is not None else "oracle"
+    retrieval = "i" if args.no_retrieval else "iii"
+    if args.no_retrieval:
+        out_dir, prefix = NORET_OUT_DIR, f"oracle3cftnoret-fold{args.fold}"
+    elif args.fold is not None:
+        out_dir, prefix = FT_OUT_DIR, f"oracle3cft-fold{args.fold}"
+    else:
+        out_dir, prefix = OUT_DIR, "oracle"
     others = [i for i in selected if i not in pool and i not in development]
     if others:
         parser.error(f"not pool or development problems: {', '.join(others)}")
@@ -391,8 +413,13 @@ def main() -> int:
     check(current == CONTEXT, f"current kubectl context is {current!r}, expected {CONTEXT!r}")
     check(not config.get("qualitative_eval"), "set qualitative_eval: false in aiopslab/config.yml")
     check(config.get("k8s_host") == "kind", "set k8s_host: kind in aiopslab/config.yml")
-    # configuration (iii), loaded once: the models take a while to load
-    retriever = (pool_retriever if selected[0] in pool else development_retriever)(registry)
+    on_pool = selected[0] in pool
+    if args.no_retrieval:
+        # configuration (i), baseline 3a's: the same fold assignment, nothing retrieved
+        retriever = (pool_untuned_retriever if on_pool else untuned_retriever)("3a", registry)
+    else:
+        # configuration (iii), loaded once: the models take a while to load
+        retriever = (pool_retriever if on_pool else development_retriever)(registry)
     # the settings of baseline 3c in scripts/run_planner_dev.py
     chat = OpenAIChat(
         model=args.model,
@@ -484,6 +511,8 @@ def main() -> int:
                     "baseline": arm,
                     # 3cft: the fold whose adapter served the run, None for the untuned planner
                     "fold": args.fold,
+                    # the retrieval configuration: iii, or i (none) for #34
+                    "retrieval": retrieval,
                 },
             )
             path = write_manifest(manifest, run, out_dir, registry, TOUCH_LOG)
@@ -500,6 +529,7 @@ def main() -> int:
                 **dataclasses.asdict(chat),
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
                 "retrieval_k": defaults["k"].default,
+                "retrieval": retrieval,
                 "baseline": arm,
             }
             path.with_suffix(".transcript.json").write_text(

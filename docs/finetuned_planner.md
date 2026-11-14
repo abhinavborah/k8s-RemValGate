@@ -59,6 +59,14 @@ host's LM Studio are a separate configuration and are reported apart.
   default) and refuses a pool problem of another fold (#159). Its labels go to
   `runs/oracle_3cft/`, with run ids `oracle3cft-fold<f>-...`, so no glob of `runs/oracle/` mixes
   them with the untuned labels.
+- Adding `--no-retrieval` runs the same labelling with retrieval configuration (i), none, as
+  baseline 3a has it (#34, R4.5). The seed, K, server, record, prompt and sampling are as without
+  the flag, so retrieval is the only difference from #159's labels. Its labels go to
+  `runs/oracle_3cft_noret/`, with run ids `oracle3cftnoret-fold<f>-...`, and the manifest's
+  `sampling.retrieval` and the transcript's `config.retrieval` record `i` (or `iii` without the
+  flag; #159's files predate the field and ran with `iii`). The flag needs `--fold`. The group
+  agreed to run #34 on 2026-11-14, as a group member reports; it is descriptive only, with no
+  threshold.
 
 ## Checks before the pool runs (2026-11-14)
 

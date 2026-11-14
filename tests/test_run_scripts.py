@@ -110,5 +110,17 @@ def test_the_fine_tuned_labels_never_sample_a_problem_with_its_own_adapter():
     assert "folds[i] != args.fold" in main and "not in fold" in main
     # the arm and the fold are recorded, and the labels go to their own folder and run ids
     assert "'baseline': arm" in main and "'fold': args.fold" in main
-    assert "FT_OUT_DIR if args.fold is not None else OUT_DIR" in main
-    assert "oracle3cft-fold" in main
+    assert "FT_OUT_DIR, f'oracle3cft-fold{args.fold}'" in main
+    assert "OUT_DIR, 'oracle'" in main
+
+
+def test_the_labels_without_retrieval_differ_from_3cft_in_retrieval_only():
+    # #34: --no-retrieval needs --fold, uses 3a's configuration (i) and keeps its own folder and ids
+    main = ast.unparse(_function(LABELS, "main"))
+    assert "--no-retrieval runs the fine-tuned planner, so it needs --fold" in main
+    assert "(pool_untuned_retriever if on_pool else untuned_retriever)('3a', registry)" in main
+    assert "NORET_OUT_DIR, f'oracle3cftnoret-fold{args.fold}'" in main
+    # recorded in the manifest's sampling and in the transcript's config
+    assert main.count("'retrieval': retrieval") == 2
+    # the seed, K, server and record are the same arguments as without the flag
+    assert "build_for(args.model, args.base_url, args.served_build, args.fold, key)" in main
