@@ -422,6 +422,12 @@ baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md). The fine
 itself, served from the GPU host as the 3cft arm, is in
 [docs/finetuned_planner.md](docs/finetuned_planner.md).
 
+`scripts/summarize_finetune.py` is the primary analysis (story E9-S5, #56): 3cft against the 3c
+control, per seed and with both seeds, against the threshold committed with gate G3
+([docs/primary_analysis.md](docs/primary_analysis.md)). The ablations of every capability are
+collected in [docs/ablations.md](docs/ablations.md) (#57). `scripts/failure_cases.py` classifies why
+each planner run failed (#58, [docs/failure_analysis.md](docs/failure_analysis.md)).
+
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
 slice, one model and one sampling setup, applies the allow-list again to every sampled candidate in
