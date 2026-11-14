@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 
 from aiopslab.paths import config
+from aiopslab.service.shell import Shell
 from aiopslab.session import Session
 
 from remvalgate.baselines import BaselineAction
@@ -42,6 +43,7 @@ from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, load_policy
 from remvalgate.harness.allowlist import check_chain as admit
 from remvalgate.harness.cluster_state import changed, normalise
+from remvalgate.harness.fix_output import capture_failed_output
 from remvalgate.harness.harm import SETTLE_SECONDS, detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import DEFAULT_REGISTRY_PATH, Slice, load_registry
 from remvalgate.harness.outcome import Outcome, classify, single_action_result
@@ -143,7 +145,10 @@ async def apply(
     orch.session.start()
     reply = await orch.ask_agent("Please take the next action")
     require(reply == action, f"the agent replied {reply!r}")
-    response = credentials.redact(await orch.ask_env(reply))
+    # a failed fix keeps its stdout and stderr; the diagnosis tool calls are not affected
+    with capture_failed_output(Shell):
+        raw = await orch.ask_env(reply)
+    response = credentials.redact(raw)
     orch.session.end()
     if strict:
         require(not response.startswith(("[ERROR]", "Error", "Failed")), response)
