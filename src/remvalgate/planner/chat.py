@@ -12,10 +12,19 @@ parameter (read 2026-10-31), so it likely returns none and the sum is None. The 
 gives -9999.0 for a token outside the top 20, a value that is not a log-probability, so a reply
 with such a token also gets None. Whether a thinking model's sum covers its thinking was not
 checked.
+
+A server reached over a network (the GPU host of the fine-tuned planner, behind a tunnel) can
+drop a connection or answer 5xx. Such a call is retried up to `attempts` times; the request
+carries a fixed seed, so a retry asks for the same reply, and each retry is printed. A 4xx is
+never retried. When REMVALGATE_PLANNER_API_KEY is set, it is sent as a bearer token; it is read
+from the environment only, never stored.
 """
 
+import http.client
 import json
+import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -24,6 +33,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
+# a dropped or cut connection; a 5xx is an HTTPError and handled apart
+_DROPPED = (urllib.error.URLError, http.client.HTTPException, TimeoutError, ConnectionError)
+
+API_KEY_ENV = "REMVALGATE_PLANNER_API_KEY"
+# seconds to wait before the second and later attempts
+BACKOFF = (5.0, 15.0)
 
 Message = Mapping[str, str]
 
@@ -69,6 +84,7 @@ class OpenAIChat:
     # a thinking turn can use most of this before any content appears
     max_tokens: int = 4096
     timeout: float = 300.0
+    attempts: int = 3
 
     def request_body(
         self, messages: Sequence[Message], seed: int | None = None, logprobs: bool = False
@@ -92,18 +108,31 @@ class OpenAIChat:
     def complete(
         self, messages: Sequence[Message], seed: int | None = None, logprobs: bool = False
     ) -> Completion:
-        request = urllib.request.Request(
-            f"{self.base_url}/chat/completions",
-            json.dumps(self.request_body(messages, seed, logprobs)).encode(),
-            {"Content-Type": "application/json"},
-        )
-        start = time.perf_counter()
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                data = json.load(response)
-        except urllib.error.HTTPError as error:
-            # the status line alone does not say why a server refused the request
-            raise RuntimeError(f"{error}: {error.read().decode(errors='replace')[:500]}") from error
+        headers = {"Content-Type": "application/json"}
+        key = os.environ.get(API_KEY_ENV)
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        body = json.dumps(self.request_body(messages, seed, logprobs)).encode()
+        for attempt in range(1, self.attempts + 1):
+            request = urllib.request.Request(f"{self.base_url}/chat/completions", body, headers)
+            start = time.perf_counter()
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    data = json.load(response)
+                break
+            except urllib.error.HTTPError as error:
+                text = error.read().decode(errors="replace")[:500]
+                if error.code < 500 or attempt == self.attempts:
+                    # the status line alone does not say why a server refused the request
+                    raise RuntimeError(f"{error}: {text}") from error
+                reason = f"{error.code}"
+            except _DROPPED as error:
+                if attempt == self.attempts:
+                    raise
+                reason = type(error).__name__
+            wait = BACKOFF[min(attempt, len(BACKOFF)) - 1]
+            print(f"planner request retry {attempt}/{self.attempts - 1}: {reason}", file=sys.stderr)
+            time.sleep(wait)
         seconds = time.perf_counter() - start
         # a server may leave a think block in the content, and it never belongs in the history
         text = _THINK.sub("", data["choices"][0]["message"].get("content") or "").strip()
