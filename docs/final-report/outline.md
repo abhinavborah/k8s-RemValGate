@@ -43,7 +43,7 @@ and date for every reported result.
 | 1, 2 | fault-type rule, retrieval only | from step 1 | `docs/baselines_pool.md` |
 | 3a, 3b, 3c | untuned planner, retrieval (i), (ii), (iii) | 2, 6, 6 of 16 at both seeds | `docs/rag_ablation.md` |
 | 5 | fine-tuned ranking over 3c's candidates | 7.0 of 16 | `docs/baseline5.md` |
-| 6 | prompted judge over 3c's candidates | pending (#185) | `docs/primary_analysis.md` |
+| 6 | prompted judge over 3c's candidates | 8 of 16, 3 escalated (#185) | `docs/primary_analysis.md` |
 | 7 | 3c told to escalate when unsure | 3 of 16 | `docs/baselines_pool.md` |
 
 ## 5. The headroom check and why the gate was not trained
@@ -101,7 +101,7 @@ and date for every reported result.
   SXM 80 GB for step 3 and #34 (2026-11-14). Dates per result from the manifests.
 - GPU: one A100 pod, about 12.7 hours at $2.19 per hour (training, merging, serving); training
   0.07 to 0.13 GPU hours per fold.
-- Archives and checksums on the shared drive; the touch log; the replay (#145).
+- Archives and checksums on the shared drive (`rerun165_step3_20261114/`: step 3, #34, baseline 6, baseline 5 scores, GPU host logs, adapters), listed in `docs/primary_analysis.md`; the touch log; the replay (#145).
 - Source: `docs/compute.md`, `docs/finetuned_planner.md`, the manifests.
 
 ## 9. Conclusion
@@ -114,7 +114,5 @@ and date for every reported result.
 
 ## Still to fill
 
-- Baseline 6 result (#185, then #182).
 - #59 and #73 results.
-- Shared drive paths and sizes for the step 3 and #34 archives.
 - Final page and format requirements, if the course states them.
