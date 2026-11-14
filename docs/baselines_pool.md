@@ -231,7 +231,8 @@ After the failed check, the group agreed on 2026-11-14, as a group member report
 planner anyway as an exploratory ablation, so that each capability has an experiment. That decision
 was made after these results and is disclosed as such; R6.6 says no training follows a failed check.
 The ablation is the fine-tuned planner run end to end against 3c (#159, #55). Baselines 5 and 6
-only rerank 3c's candidates, so the recoverable count bounds them at 1 problem.
+only rerank 3c's candidates, so the recoverable count bounds their gain over 3c's top pick at 1
+problem.
 
 Files: on the shared drive under `k8s-RemValGate/run-logs/rerun165_step1_20261113/` (the 672 run
 files, the recording, the stdout log and the pod watch, `step1.tar.gz`, 49096674 bytes, SHA-256
