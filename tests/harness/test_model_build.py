@@ -139,3 +139,60 @@ def test_the_build_is_read_before_the_touch_in_both_run_scripts():
     for name in ("run_baselines_pool.py", "run_oracle_labels.py"):
         text = (scripts / name).read_text(encoding="utf-8")
         assert 0 < text.index("read_build(") < text.index("start_run(\n"), name
+
+
+SERVED = {
+    "llama_cpp_commit": "61dbf49228c8a96b72e40c89d93cb7c003411f8c",
+    "host": "gpu-host-1",
+    "gpu": "NVIDIA A100-SXM4-80GB",
+    "model_file_name": "fold0-q8_0.gguf",
+    "model_sha256": "ab" * 32,
+    "quantization": "Q8_0",
+    "context_length": 32768,
+    "server_args": ["--jinja", "-c", "32768"],
+}
+PROPS = {
+    "model_path": "/root/work/fold0-q8_0.gguf",
+    "default_generation_settings": {"n_ctx": 32768},
+    "build_info": "b9999-61dbf49",
+}
+
+
+def _served(tmp_path, record=SERVED, props=PROPS, url="https://a.example/v1"):
+    from remvalgate.harness.model_build import read_served_build
+
+    path = tmp_path / "served.json"
+    path.write_text(json.dumps(record))
+    return read_served_build("qwen/qwen3.5-4b", url, path, get_props=lambda u, k: props)
+
+
+def test_a_served_build_records_the_record_and_the_server(tmp_path):
+    build = _served(tmp_path)
+    assert build["server"] == "llama-server"
+    assert build["model_sha256"] == "ab" * 32
+    assert build["build_info"] == "b9999-61dbf49"
+
+
+def test_a_served_build_refuses_a_server_that_differs_from_its_record(tmp_path):
+    for change in (
+        {"model_path": "/root/work/fold1-q8_0.gguf"},
+        {"default_generation_settings": {"n_ctx": 16384}},
+        {"build_info": "b1-0000000"},
+    ):
+        with pytest.raises(RuntimeError):
+            _served(tmp_path, props={**PROPS, **change})
+
+
+def test_a_served_build_refuses_an_incomplete_record(tmp_path):
+    with pytest.raises(RuntimeError, match="lacks"):
+        _served(tmp_path, record={k: v for k, v in SERVED.items() if k != "model_sha256"})
+
+
+def test_the_endpoint_is_not_part_of_the_build_key(tmp_path):
+    from remvalgate.harness.model_build import build_key
+
+    a = _served(tmp_path, url="https://a.example/v1")
+    b = _served(tmp_path, url="https://b.example/v1")
+    assert build_key({"model_build": a}) == build_key({"model_build": b})
+    c = _served(tmp_path, record={**SERVED, "model_sha256": "cd" * 32})
+    assert build_key({"model_build": a}) != build_key({"model_build": c})
