@@ -1,4 +1,7 @@
-"""Stories per epic by state at the end of 2026-10-30. Run: uv run --with matplotlib python progress.py"""
+"""Stories per epic by state at the end of 2026-10-30.
+
+Run: uv run --with matplotlib python progress.py
+"""
 
 import matplotlib
 
@@ -25,7 +28,8 @@ pr = [e[2] for e in EPICS][::-1]
 rest = [e[3] for e in EPICS][::-1]
 ax.barh(names, done, color="#3c78aa", label="done")
 ax.barh(names, pr, left=done, color="#96bee1", label="open PR")
-ax.barh(names, rest, left=[d + p for d, p in zip(done, pr)], color="#ebebeb", edgecolor="#777777", label="remaining")
+left = [d + p for d, p in zip(done, pr, strict=True)]
+ax.barh(names, rest, left=left, color="#ebebeb", edgecolor="#777777", label="remaining")
 ax.set_xlabel("stories")
 ax.legend(loc="upper center", bbox_to_anchor=(0.45, -0.2), ncol=3, frameon=False)
 for spine in ("top", "right"):
