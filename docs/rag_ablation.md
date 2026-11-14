@@ -146,3 +146,24 @@ The planner prompt of these runs told the planner that logs, metrics and traces 
 kubectl". That advice steers the planner away from the telemetry its tools fetch; #163 removes it,
 so arms that differ in their tools get the same text otherwise. #163 also writes the ticket time
 (the injection time) into every task. The results here stay as they were run and are superseded by the rerun of #165.
+
+## Added on 2026-11-14: results of the rerun
+
+From #165 step 1 (`ffc2af6`, interleaved, seeds 1000 and 1001), by
+`scripts/summarize_rag_ablation.py`. Counts with rates and Wilson 95 percent intervals, reported and
+not tested (R9.4).
+
+| Baseline | Seed | With a diagnosis | Fault type | Fault type and service | Recovered |
+|---|---|---|---|---|---|
+| 3a, none | 1000 | 14 of 16 | 13 of 16, 0.81 [0.57, 0.93] | 12 of 16, 0.75 [0.51, 0.90] | 5 of 16, 0.31 [0.14, 0.56] |
+| 3a, none | 1001 | 14 of 16 | 10 of 16, 0.62 [0.39, 0.82] | 10 of 16, 0.62 [0.39, 0.82] | 3 of 16, 0.19 [0.07, 0.43] |
+| 3b, dense | 1000 | 16 of 16 | 13 of 16, 0.81 [0.57, 0.93] | 10 of 16, 0.62 [0.39, 0.82] | 6 of 16, 0.38 [0.18, 0.61] |
+| 3b, dense | 1001 | 14 of 16 | 13 of 16, 0.81 [0.57, 0.93] | 9 of 16, 0.56 [0.33, 0.77] | 6 of 16, 0.38 [0.18, 0.61] |
+| 3c, dense plus reranker | 1000 | 16 of 16 | 15 of 16, 0.94 [0.72, 0.99] | 11 of 16, 0.69 [0.44, 0.86] | 7 of 16, 0.44 [0.23, 0.67] |
+| 3c, dense plus reranker | 1001 | 13 of 16 | 13 of 16, 0.81 [0.57, 0.93] | 13 of 16, 0.81 [0.57, 0.93] | 8 of 16, 0.50 [0.28, 0.72] |
+
+Discordant problems, recovered (n12 / n21): 3a vs 3b 2 / 3 and 0 / 3, 3a vs 3c 2 / 4 and 0 / 5,
+3b vs 3c 0 / 1 and 0 / 2, at seeds 1000 and 1001. Retrieval never lost a problem 3a recovered at
+seed 1001; at seed 1000 the pairs go both ways.
+
+The results above stay as they were run and are superseded by these.
