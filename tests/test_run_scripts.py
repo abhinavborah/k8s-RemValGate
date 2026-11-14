@@ -124,3 +124,18 @@ def test_the_labels_without_retrieval_differ_from_3cft_in_retrieval_only():
     assert main.count("'retrieval': retrieval") == 2
     # the seed, K, server and record are the same arguments as without the flag
     assert "build_for(args.model, args.base_url, args.served_build, args.fold, key)" in main
+
+
+def test_confirmation_and_singleton_run_2_and_3c_over_the_held_out_corpus():
+    # in no fold, so no fine-tuned build and no fold corpus (BRD 1.20)
+    held_out = next(
+        n
+        for n in _tree(POOL).body
+        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "HELD_OUT_BASELINES"
+    )
+    assert "'2', '3c'" in ast.unparse(held_out.value)
+    source = ast.unparse(_function(POOL, "retrievers"))
+    assert "held_out_retriever(registry)" in source
+    main = ast.unparse(_function(POOL, "main"))
+    # the slice is opened only after every check of the run, by the one call
+    assert main.index("open_confirmation(") > main.index("prometheus_port_forward(")

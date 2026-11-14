@@ -43,6 +43,8 @@ from remvalgate.retrieval.stub import STUB_CORPUS
 
 FIXED_PATH = Path(__file__).with_name("fixed.json")
 DEV_KEY = -1
+# the corpus key of the problems outside the pool (confirmation slice and singleton types)
+HELD_OUT_KEY = -2
 # the touch log's format, so timestamps compare as strings
 TIMESTAMP = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -137,3 +139,25 @@ def pool_retriever(
         for fold in sorted(set(assignment.values()))
     }
     return configuration_iii(assignment, corpora, models=models, device=device)
+
+
+def held_out_retriever(
+    registry: Registry, *, models: tuple[Encode, Score] | None = None, device: str | None = None
+) -> DenseRerank:
+    """(iii) for the confirmation slice and the singleton types, which are in no fold: every pool
+    incident, then every runbook entry, as the deployed system would retrieve (BRD 1.20). The
+    corpus holds no record of these problems, since none was authored for them (log_authoring)."""
+    held_out = [i for i, s in registry.slices.items() if s in (Slice.CONFIRMATION, Slice.SINGLETON)]
+    if not held_out:
+        raise ValueError("the slice registry holds no confirmation or singleton problem")
+    incidents = sorted(pool_incidents(registry), key=lambda e: e.entry_id)
+    corpus = [*incidents, *sorted(RUNBOOK, key=lambda e: e.entry_id)]
+    leaked = sorted({e.entry_id for e in corpus} & set(held_out))
+    if leaked:
+        raise ValueError(f"the held-out corpus holds records of held-out problems: {leaked}")
+    return configuration_iii(
+        dict.fromkeys(held_out, HELD_OUT_KEY),
+        {HELD_OUT_KEY: corpus},
+        models=models,
+        device=device,
+    )

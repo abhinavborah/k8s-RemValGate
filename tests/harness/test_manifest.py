@@ -28,6 +28,7 @@ from remvalgate.harness.manifest import (
     log_creation,
     log_fixture,
     logged_namespace,
+    open_confirmation,
     read_manifest,
     read_touches,
     require_touch,
@@ -960,10 +961,10 @@ def test_seal_record_without_its_seal_touches_refused(tmp_path, touches):
 
 
 def test_confirmation_run_refused_even_when_sealed(tmp_path):
-    # opened once, at the end (R9.6): until that path exists, no run touches the slice
+    # opened once, at the end (R9.6): until open_confirmation runs, no run touches the slice
     repo = _repo(tmp_path)
     log = repo / "runs" / "touch_log.jsonl"
-    with pytest.raises(RunRefused, match="opened once"):
+    with pytest.raises(RunRefused, match="not opened yet"):
         start_run("run-0001", CONF, _registry(tmp_path), log, repo, PIN, NOW, checksum=_sum)
     assert _runs(log) == []
 
@@ -1134,3 +1135,62 @@ def test_logged_manifest_without_a_cluster_namespace_refused(tmp_path):
             _registry(tmp_path),
             log,
         )
+
+
+def _open(tmp_path, repo=None, now=NOW):
+    repo = repo or _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    opened = open_confirmation(_registry(tmp_path), log, repo, PIN, now, checksum=_sum)
+    return opened, log, repo
+
+
+def test_confirmation_run_refused_before_the_slice_is_opened(tmp_path):
+    with pytest.raises(RunRefused, match="not opened yet"):
+        _start(tmp_path, CONF)
+
+
+def test_open_confirmation_appends_one_open_touch_per_id(tmp_path):
+    opened, log, _ = _open(tmp_path)
+    assert opened == "2026-10-27T10:15:00Z"
+    assert _runs(log) == [
+        {
+            "problem_id": CONF,
+            "run_id": f"open-{CONF}-20261027t101500z",
+            "slice": "confirmation",
+            "timestamp": opened,
+        }
+    ]
+
+
+def test_confirmation_is_opened_once(tmp_path):
+    _, log, repo = _open(tmp_path)
+    before = log.read_bytes()
+    with pytest.raises(RunRefused, match="opened once"):
+        _open(tmp_path, repo=repo, now=NOW + timedelta(hours=1))
+    assert log.read_bytes() == before
+
+
+def test_open_confirmation_refuses_a_dirty_tree_and_a_broken_seal(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / "code.py").write_text("x = 2\n")
+    with pytest.raises(RunRefused, match="uncommitted"):
+        _open(tmp_path, repo=repo)
+    repo = _repo(tmp_path / "second")
+    log = repo / "runs" / "touch_log.jsonl"
+    with pytest.raises(RunRefused, match="changed since the seal"):
+        open_confirmation(_registry(tmp_path), log, repo, PIN, NOW, checksum=lambda i, c: "0" * 64)
+    assert _runs(log) == []
+
+
+def test_confirmation_runs_after_the_opening_up_to_max_r(tmp_path):
+    _, log, repo = _open(tmp_path)
+    for n in range(3):
+        start, _, _ = _start(tmp_path, CONF, run_id=f"run-000{n}", repo=repo)
+        assert start.slice is Slice.CONFIRMATION
+    with pytest.raises(RunRefused, match="already has 3 runs"):
+        _start(tmp_path, CONF, run_id="run-0009", repo=repo)
+
+
+def test_start_run_refuses_an_open_run_id(tmp_path):
+    with pytest.raises(RunRefused, match="open touches"):
+        _start(tmp_path, DEV, run_id="open-run-0001")

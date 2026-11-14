@@ -52,8 +52,14 @@ command is executed as 3c's is. Its run ids start with notools-; the rules and t
 with 3c are in docs/tool_ablation.md.
 
 Development problems run the same way with the synthetic stub corpus and no touch, as a dry run;
-one run takes pool or development ids, never both. A failed check stops the run: the files of the
-runs already finished stay, and the rest are run again by id, each with a new touch.
+one run takes the ids of one slice only. A failed check stops the run: the files of the runs
+already finished stay, and the rest are run again by id, each with a new touch.
+
+The confirmation slice (#59, R9.6) and the singleton types (#73, R9.5) run baselines 2 and 3c only,
+retrieving from every pool incident and the runbook, since they are in no fold (BRD 1.20). Their
+outputs go to runs/confirmation/ and runs/singleton/. The first run of the confirmation slice passes
+--open-confirmation, which opens it once after every check of the run; a later run of the slice
+is refused before the opening and after 3 runs of a problem.
 
 Outputs go to runs/baselines_pool/, which git ignores, and to the shared drive:
 
@@ -143,6 +149,7 @@ from remvalgate.harness.manifest import (
     Slice,
     load_registry,
     logged_namespace,
+    open_confirmation,
     start_run,
     write_manifest,
 )
@@ -156,11 +163,23 @@ from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
 from remvalgate.planner.chat import API_KEY_ENV, OpenAIChat
 from remvalgate.planner.loop import DEFAULT_TOOLS, plan, task_text
 from remvalgate.planner.telemetry import preview
-from remvalgate.retrieval.fixed import development_retriever, pool_retriever
+from remvalgate.retrieval.fixed import (
+    development_retriever,
+    held_out_retriever,
+    pool_retriever,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
+# the confirmation slice and the singleton types: in no fold, so no fine-tuned build; one output
+# folder each
+HELD_OUT = frozenset({Slice.CONFIRMATION, Slice.SINGLETON})
+HELD_OUT_BASELINES = frozenset({"2", "3c"})
+OUT_DIRS = {
+    Slice.CONFIRMATION: ROOT / "runs" / "confirmation",
+    Slice.SINGLETON: ROOT / "runs" / "singleton",
+}
 CONTEXT = "kind-kind"
 BASELINES = ("1", "2", "3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly", "3cft")
 PLANNER = ("3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly", "3cft")
@@ -324,8 +343,13 @@ async def diagnose_without_tools(
     return result, first, bundle, counts, injected
 
 
-def retrievers(baselines: list[str], pool: bool, registry) -> dict:
+def retrievers(baselines: list[str], slice_: Slice, registry) -> dict:
     """The retriever of each baseline that needs one, each model loaded once."""
+    if slice_ in HELD_OUT:
+        # baselines 2 and 3c only (HELD_OUT_BASELINES), over the whole pool corpus (BRD 1.20)
+        iii = held_out_retriever(registry) if {"2", "3c"} & set(baselines) else None
+        return {b: iii for b in baselines if b in ("2", "3c")}
+    pool = slice_ is Slice.POOL
     iii = None
     chosen = {}
     for b in baselines:
@@ -352,7 +376,18 @@ def fold_servers(path: Path | None) -> dict[int, dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("problems", nargs="*", help="pool or development ids (default: the pool)")
+    parser.add_argument(
+        "problems",
+        nargs="*",
+        help="pool, development, confirmation or singleton ids, one slice per run (default: the "
+        "pool)",
+    )
+    parser.add_argument(
+        "--open-confirmation",
+        action="store_true",
+        help="open the sealed confirmation slice before the runs (R9.6); refused if it was "
+        "opened before, so pass it once, on the first run of the slice",
+    )
     parser.add_argument(
         "--baseline", action="append", choices=BASELINES, required=True, help="repeatable"
     )
@@ -395,16 +430,23 @@ def main() -> int:
         parser.error("--model-version is needed for the planner arms")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
-    development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
     selected = list(dict.fromkeys(args.problems)) or pool
-    others = [i for i in selected if i not in pool and i not in development]
-    if others:
-        parser.error(f"not pool or development problems: {', '.join(others)}")
-    if "3cft" in baselines and any(i in development for i in selected) and args.dev_fold is None:
+    unknown = [i for i in selected if i not in registry.slices]
+    if unknown:
+        parser.error(f"not in the slice registry: {', '.join(unknown)}")
+    slices = {registry.slices[i] for i in selected}
+    if len(slices) > 1:
+        # one slice per run, so a summary is never mixed
+        parser.error(f"one slice per run, got {sorted(slices)}")
+    (args.slice,) = slices
+    development = [i for i in selected if args.slice is Slice.DEVELOPMENT]
+    if args.slice in HELD_OUT and set(baselines) - HELD_OUT_BASELINES:
+        parser.error(f"{args.slice} problems run baselines {sorted(HELD_OUT_BASELINES)} only")
+    if args.open_confirmation and args.slice is not Slice.CONFIRMATION:
+        parser.error("--open-confirmation is for confirmation problems only")
+    if "3cft" in baselines and development and args.dev_fold is None:
         parser.error("3cft on development problems needs --dev-fold")
     args.folds = pool_folds(registry)
-    if any(i in pool for i in selected) and any(i in development for i in selected):
-        parser.error("pool and development problems run apart, so a summary is never mixed")
     # AIOpsLab's injectors run kubectl in the current context, the checks here in kind-kind
     current = subprocess.run(
         ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
@@ -412,7 +454,7 @@ def main() -> int:
     check(current == CONTEXT, f"current kubectl context is {current!r}, expected {CONTEXT!r}")
     check(not config.get("qualitative_eval"), "set qualitative_eval: false in aiopslab/config.yml")
     check(config.get("k8s_host") == "kind", "set k8s_host: kind in aiopslab/config.yml")
-    retriever = retrievers(baselines, selected[0] in pool, registry)
+    retriever = retrievers(baselines, args.slice, registry)
     # the settings of the labelling run (scripts/run_oracle_labels.py), apart from the seed
     chat = OpenAIChat(
         model=MODEL,
@@ -426,7 +468,8 @@ def main() -> int:
         # a missing or unsafe password variable stops the run before anything is touched
         credentials.values()
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    args.out = OUT_DIRS.get(args.slice, OUT_DIR)
+    args.out.mkdir(parents=True, exist_ok=True)
     # the tools write files to the current directory (get_traces and get_metrics do)
     os.chdir(SCRATCH)
     for namespace in namespaces:
@@ -436,6 +479,10 @@ def main() -> int:
     print(f"cluster {CONTEXT}: {nodes} nodes, {len(selected)} problems, baselines {baselines}")
     forward = prometheus_port_forward() if uses_model else None
     try:
+        if args.open_confirmation:
+            # after every check and the port-forward, so a run that cannot start never opens it
+            opened = open_confirmation(registry, TOUCH_LOG, ROOT, pinned_commit(ROOT))
+            print(f"confirmation slice opened at {opened}", flush=True)
         for seed, problem_id, baseline in interleaved(seeds, selected, baselines):
             row = run_one(
                 baseline,
@@ -486,7 +533,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     run = start_run(
         run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now, namespace=namespace
     )
-    results_dir = OUT_DIR / run_id
+    results_dir = args.out / run_id
     orch = new_orchestrator(results_dir=results_dir)
     prob = orch.probs.get_problem_instance(problem_id)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
@@ -604,7 +651,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             else {"baseline": baseline}
         ),
     )
-    path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
+    path = write_manifest(manifest, run, args.out, registry, TOUCH_LOG)
     path.with_suffix(".transcript.json").write_text(
         json.dumps(transcript, indent=2, sort_keys=True, default=str)
     )

@@ -6,9 +6,10 @@ written, the AIOpsLab commit is not pinned, the work tree has changes git does n
 run id is already in the log. write_manifest checks the entry again and compares the manifest
 with what start_run recorded, so a run without an entry gets no manifest.
 
-Every confirmation-slice run is refused: the slice is opened once, at the end (R9.6), by a run
-path not added yet. A pool or singleton run, and that path when it exists, is refused until the
-confirmation slice is sealed (gate G1):
+The confirmation slice is opened once, at the end (R9.6): open_confirmation checks the seal and
+appends one open touch per id at one time, and refuses a second opening. A confirmation-slice run
+is refused until the slice is opened, and after MAX_R runs of the same problem. A pool, singleton
+or confirmation run is refused until the confirmation slice is sealed (gate G1):
 seal_confirmation writes the seal record beside the touch log and a seal touch per id, and
 start_run checks that both cover the registry's confirmation ids and that each checksum still
 matches.
@@ -56,6 +57,8 @@ Checksum = Callable[[str, str], str]
 # the most repeats (seeds) a run may record
 MAX_R = 3
 _MAX_R = MAX_R
+# run id prefixes of touches that are not runs
+_RESERVED = ("create-", "seal-", "corpus-", "fixture-", "open-")
 
 
 class Slice(StrEnum):
@@ -350,11 +353,17 @@ def start_run(
         raise RunRefused("run ids starting with corpus- are kept for authoring touches")
     if run_id.startswith("fixture-"):
         raise RunRefused("run ids starting with fixture- are kept for fixture touches")
+    if run_id.startswith("open-"):
+        raise RunRefused("run ids starting with open- are kept for open touches")
     slice_ = _slice_of(problem_id, registry)
-    # the slice is opened once, at the end (R9.6); no run path opens it yet
-    if slice_ is Slice.CONFIRMATION:
-        raise RunRefused("the confirmation slice is opened once, at the end, by its own run path")
     log_path = Path(log_path)
+    # the slice is opened once, at the end (R9.6), by open_confirmation
+    if slice_ is Slice.CONFIRMATION:
+        runs = [e["run_id"] for e in _sound_touches(log_path) if e["problem_id"] == problem_id]
+        if not any(r.startswith("open-") for r in runs):
+            raise RunRefused(f"{problem_id!r}: the confirmation slice is not opened yet")
+        if sum(not r.startswith(_RESERVED) for r in runs) >= MAX_R:
+            raise RunRefused(f"{problem_id!r} already has {MAX_R} runs in this opening")
     try:
         commit, dirty = git_state(repo, log_path)
     except (OSError, subprocess.CalledProcessError) as error:
@@ -603,6 +612,40 @@ def seal_confirmation(
         }
         _append_touch(log_path, entry)
     return seal
+
+
+def open_confirmation(
+    registry: Registry,
+    log_path: str | Path,
+    repo: str | Path,
+    aiopslab_commit: str,
+    now: datetime | None = None,
+    checksum: Checksum | None = None,
+) -> str:
+    """Open the sealed confirmation slice once (R9.6): one open touch per id at one time.
+
+    Refused if the slice was opened before, the tree has uncommitted changes, or the seal does not
+    hold (check_seal). Nothing is written when it is refused. Returns the opening time.
+    """
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    ids = _confirmation_ids(registry)
+    log_path = Path(log_path)
+    if any(e["run_id"].startswith("open-") for e in _sound_touches(log_path)):
+        raise RunRefused("the confirmation slice is already opened, and it is opened once")
+    _, dirty = git_state(repo, log_path)
+    if dirty:
+        raise RunRefused("opening needs a tree with no uncommitted changes")
+    check_seal(registry, log_path, aiopslab_commit, checksum)
+    opened = now.strftime(_TIMESTAMP)
+    for problem_id in ids:
+        entry = {
+            "problem_id": problem_id,
+            "run_id": _stamped_run_id("open", problem_id, now),
+            "slice": Slice.CONFIRMATION,
+            "timestamp": opened,
+        }
+        _append_touch(log_path, entry)
+    return opened
 
 
 def write_manifest(

@@ -13,6 +13,7 @@ from remvalgate.retrieval.fixed import (
     check_fixed,
     configuration_iii,
     development_retriever,
+    held_out_retriever,
     pool_retriever,
     settings,
 )
@@ -174,5 +175,24 @@ def test_pool_retriever_serves_each_pool_problem_from_the_fold_that_holds_it_out
         training = {i for i, f in assignment.items() if f != fold}
         assert {h.entry.entry_id for h in hits} == training | runbook
     for problem_id in (DEV, conf):
+        with pytest.raises(RetrieverRefused):
+            retriever.retrieve("pods pending", problem_id, 3)
+
+
+def test_held_out_retriever_serves_confirmation_and_singleton_from_the_whole_pool(monkeypatch):
+    pool = [f"synth-{stem}-{i}" for stem in ("revoke_auth", "scale_pod_zero") for i in range(4)]
+    conf, single = "p-synth-confirmation", "p-synth-singleton"
+    slices = {DEV: Slice.DEVELOPMENT, conf: Slice.CONFIRMATION, single: Slice.SINGLETON}
+    registry = Registry(slices=slices | dict.fromkeys(pool, Slice.POOL), placeholder=None)
+    monkeypatch.setattr(
+        "remvalgate.retrieval.fixed.pool_incidents",
+        lambda registry: [_incident(p) for p in pool_ids(registry)],
+    )
+    retriever = held_out_retriever(registry, models=MODELS)
+    every = set(pool) | {e.entry_id for e in RUNBOOK}
+    for problem_id in (conf, single):
+        hits = retriever.retrieve("pods pending", problem_id, 100)
+        assert {h.entry.entry_id for h in hits} == every
+    for problem_id in (DEV, pool[0]):
         with pytest.raises(RetrieverRefused):
             retriever.retrieve("pods pending", problem_id, 3)
