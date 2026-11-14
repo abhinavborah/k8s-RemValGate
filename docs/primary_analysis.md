@@ -54,12 +54,11 @@ whose served model is not its problem's fold (or a control served by a fold's mo
 ## Results
 
 #165 step 3, run 2026-11-14 from a clean checkout at `f434ca2`: the #159 labels 15:12 to 17:12 IST,
-then the 64 batch runs, started 17:12 to 21:27 IST and ended 21:32 IST (16:02 UTC); the result was
-read at 21:33 IST. The batch covers 16 problems, 2 arms and seeds 1000 and 1001, served by
-llama.cpp `61dbf49` on one A100 SXM 80 GB host (the base Qwen3.5-4B Q8_0 for 3c, each fold's merged
-GGUF for 3cft). Every manifest was checked: clean commit, the right build per arm by SHA-256, the
+then the 64 batch runs, started 17:12 to 21:27 IST and ended 21:32 IST (16:02 UTC). The batch
+covers 16 problems, 2 arms and seeds 1000 and 1001, served by llama.cpp `61dbf49` on one A100 SXM
+80 GB host (the base Qwen3.5-4B Q8_0 for 3c, each fold's merged GGUF for 3cft). Every manifest was checked: clean commit, the right build per arm by SHA-256, the
 problem's own fold for 3cft, one touch per run. The threshold was confirmed on #56 and the labels
-adopted (#181) before the batch ended and before its result was read; see Threshold.
+adopted (#181) before the batch ended; see Threshold.
 
 | | 3c | 3cft | wins (only 3cft) | losses (only 3c) | mid-p | Bonett-Price 95% |
 |---|---|---|---|---|---|---|
