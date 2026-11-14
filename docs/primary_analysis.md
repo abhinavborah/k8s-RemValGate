@@ -88,6 +88,12 @@ Reported beside it:
   ([baseline5.md](baseline5.md)). It ran on 2026-11-15 from `1b07912`, the commit of #185 before its
   review, on this host's LM Studio (Qwen3.5-4B Q8_0, SHA-256 `c3fc7bca...e028`), thinking on,
   temperature 0, threshold 0; the judge is the planner's model, so the two share a model family.
+  Its other request settings were the `OpenAIChat` defaults at that commit (top_p 0.8, top_k 20,
+  presence_penalty 1.5, max_tokens 4096, seed 0), and it judged on 2026-11-15; the manifests of
+  that run predate the fields that record these (#185). Applying the checks #185 added since (the
+  whole pool once, the labels with `check_run`, the seeds against the manifests) to the same 16 runs
+  passes, and the picks recomputed from the saved scores are the same on all 16, so the result
+  stands without a second run.
   Files: `runs/baseline6/` and `runs/recordings/b6_pool_20261115.*`.
 - The labelling runs are one draw at seed 0, so their top-pick counts (7 and 8) are descriptive and
   not the claim.
