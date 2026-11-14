@@ -96,9 +96,19 @@ Run notes: one planner retry in the fold 1 labels (`RemoteDisconnected`, recover
 a fixed seed). The batch was paused once between two runs (17:17 to 17:41 IST) for a network change
 on the run host; no run was cut. Each labelling fold and the batch were recorded with asciinema
 (`runs/recordings/rerun165_step3_*.cast`, with their stdout logs) beside a timestamped pod watch
-(`rerun165_step3_20261114.pods.log`); all are in the archive below. Files: `step3.tar.gz` (SHA-256
-`12200ed8f809e75dd35f4cb101177e7d6cc32482ca7887a3678051d6bc80292b`), to be uploaded to the shared
-drive.
+(`rerun165_step3_20261114.pods.log`); all are in the archive below.
+
+Files, on the shared drive under `k8s-RemValGate/run-logs/rerun165_step3_20261114/`, each with its
+SHA-256 (a `.sha256` file beside the first three):
+
+| File | Bytes | SHA-256 | Holds |
+|---|---|---|---|
+| `step3.tar.gz` | 12436550 | `12200ed8f809e75dd35f4cb101177e7d6cc32482ca7887a3678051d6bc80292b` | the 64 batch runs, the #159 labels, the step 3 recordings and pod watch, R5.4, the touch log |
+| `r34.tar.gz` | 2185174 | `af4e3ab15baeac87d6e4ce7eeeddf3441e95bf1f6129e3844e5cda82d5247f5b` | the #34 labels and recordings |
+| `b6.tar.gz` | 18298 | `3dd462f23b5c113d79204c6d32322ff6716439516d3d1d8fd305433d7d5138c0` | the baseline 6 manifests, results, summary and recording |
+| `scores.tar.gz` | 4572 | `eb5f3ffa6c12fbce347eb1539adc02a3cacd2f16844b871ab789caa7bebe1d8a` | the baseline 5 scores, one file per fold |
+| `podlogs3.tar.gz` | 286966 | `3b95b430740547cd751cdabb305d828b9895f1282e51227f14db3c9f5f9eb250` | the GPU host's server and tunnel logs and served records |
+| `adapters.tar` | 339937280 | `db17a79f4bbed27df064df455d4998a360aa632a6b5b2be83f3ce2b241fa48c2` | the 4 per-fold LoRA adapters |
 
 ## Limits
 

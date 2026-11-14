@@ -109,4 +109,6 @@ Runs per arm, both seeds (32 each), #165 step 3:
 uv run python scripts/failure_cases.py runs/baselines_pool/<run id>.result.json ...
 ```
 
-with the 224 result files of #165 step 1 (shared drive, `rerun165_step1_20261113/step1.tar.gz`).
+with the 224 result files of #165 step 1 (shared drive, `rerun165_step1_20261113/step1.tar.gz`), or
+the 64 of step 3 (`rerun165_step3_20261114/step3.tar.gz`, the `baseline3c-` and `baseline3cft-`
+result files stamped after `20261114t0943`).
