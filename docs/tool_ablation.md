@@ -363,9 +363,12 @@ Discordant problems per pair, first against second (n12: only the first, n21: on
 | tools without bundle: 3c vs kubectlonly | 1 / 2 | 2 / 3 | 4 / 3 | 6 / 2 |
 | both: 3c vs notools | 0 / 4 | 1 / 2 | 0 / 5 | 3 / 3 |
 
-Reading: the bundle arms diagnose the service more often at both seeds. On recovery the bundle arms
-lead 3c by 3 or 4 problems at seed 1000 and by 0 or 1 at seed 1001. Recovery moves by 1 to 4
-problems per pair, within one seed's noise: 3c alone recovers 7 at seed 1000, 8 at seed 1001 and 6
-at both, so 3 problems change between its two seeds. The longest prompts were 21168 tokens (toolsbundle) and 18348
+Reading: on fault type and service, toolsbundle is ahead of 3c at both seeds (14 and 15 against
+11 and 13), and notools at seed 1000 only (16 against 11, then 13 against 13). On recovery both
+bundle arms lead 3c by 3 or 4 problems at seed 1000 and by 1 at seed 1001. The net change per pair
+ranges from 0 to 4 problems (the table above). These are counts, reported and not tested (R9.4).
+For scale only: 3c alone recovers 7 at seed 1000, 8 at seed 1001 and 6 at both, so 3 problems
+change between its two seeds, and one pair (3c against notools at seed 1000, 0 / 4) changes by
+more than that. The longest prompts were 21168 tokens (toolsbundle) and 18348
 (3c), under the context of 32768. The first run's result of 2026-11-08 to 2026-11-11 (3c against
 notools only) is superseded by this one.

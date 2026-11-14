@@ -221,6 +221,12 @@ Headroom, `scripts/summarize_g3.py` over the 16 new labels and the 32 rows of 3c
 The results of 2026-11-08 above (3c, the headroom check) stay as they were run and are superseded
 by these.
 
+Criterion 4 of #165, #32 and #35: the query change of #164 was applied to the intrinsic retrieval
+metrics on 2026-11-12, which recomputed #32 with the chosen query form
+(`docs/intrinsic_retrieval.md`, "Added on 2026-11-12: the query form"). #35 is not affected:
+configuration (iii) was fixed under gate G5 before any query was scored, and the query change does
+not change it.
+
 After the failed check, the group agreed on 2026-11-14, as a group member reports, to fine-tune the
 planner anyway as an exploratory ablation, so that each capability has an experiment. That decision
 was made after these results and is disclosed as such; R6.6 says no training follows a failed check.
