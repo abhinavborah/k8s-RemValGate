@@ -295,6 +295,7 @@ with a full `model_build`.
   `252`, so the cause is not in the record (#174).
 
 Run 2's labels above stay as they were run and are superseded by run 3. Files on the shared drive
-under `k8s-RemValGate/run-logs/rerun165_step2_20261114/`: `step2.tar.gz` (3220135 bytes) with its
-SHA-256 file, holding the manifest, transcript and labels of every problem, the summary, the stdout
-log, the terminal recording and the pod watch.
+under `k8s-RemValGate/run-logs/rerun165_step2_20261114/`: `step2.tar.gz` (3220135 bytes, SHA-256
+`abe668ed809e4ae39785b0a30faf65d6bf4562aa375cfdac9d08c71722df7d4f`) with its SHA-256 file, holding
+the manifest, transcript and labels of every problem, the summary, the stdout log, the terminal
+recording and the pod watch.

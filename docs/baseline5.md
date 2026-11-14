@@ -134,8 +134,10 @@ above changes with them:
 - 3c's top pick solves 7, and 1 problem is recoverable (`k8s_target_port-misconfig-mitigation-2`).
   A ranking over the K can solve between 5 and 8: it can gain at most that one problem and lose at
   most the two others with a rejected candidate.
-- The longest prompts of the rerun are about 18000 tokens for 3c and 21168 for toolsbundle, far
-  above the T4 range in Limits, so baseline 5 needs a card of compute capability 8.0 or newer.
+- Baseline 5 scores 3c's labelled candidates with the labelling run's messages, so the length that
+  decides its card is the export report's `baseline5_length`, not the planner runs' prompts: at
+  most 17124 tokens over the 4 folds (export of 2026-11-14 at `56a572e`). That is far above the T4
+  range in Limits, so baseline 5 needs a card of compute capability 8.0 or newer.
 
 Baseline 5 is therefore not the fine-tuning ablation. The group agreed on 2026-11-14, as a group
 member reports and after the failed headroom check, to fine-tune the planner as an exploratory
