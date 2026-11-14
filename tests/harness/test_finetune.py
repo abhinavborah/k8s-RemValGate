@@ -1,6 +1,6 @@
 import pytest
 
-from remvalgate.harness.finetune import candidate_yield, check_folds, compare
+from remvalgate.harness.finetune import candidate_yield, check_folds, claim, compare
 from remvalgate.harness.oracle import Label, ProblemLabels
 from remvalgate.harness.outcome import Outcome
 from remvalgate.harness.stats import mcnemar_midp
@@ -37,8 +37,6 @@ def test_a_tie_is_falsified_and_a_small_gain_is_not_supported():
 
 
 def test_the_three_labels_at_their_edges():
-    from remvalgate.harness.finetune import claim
-
     assert claim(5, 0) == claim(7, 1) == claim(9, 1) == "supported"
     assert claim(1, 0) == claim(4, 0) == claim(2, 1) == claim(6, 1) == "not supported"
     assert claim(0, 0) == claim(1, 1) == claim(0, 1) == claim(9, 2) == claim(3, 5) == "falsified"

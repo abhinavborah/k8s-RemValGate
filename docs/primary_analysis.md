@@ -35,9 +35,8 @@ counts at n = 16:
 That threshold was committed for the gate against baseline 5. On #56, two group members confirmed
 the threshold and the both-seeds rule for this comparison (2026-11-14, 13:00 and 14:24 UTC). The
 three labels were proposed in the 14:24 UTC comment and adopted in #181 at 15:48 UTC by a third
-group member, before the batch of #165 step 3 ended (16:02 UTC) and before its result was read
-(16:03 UTC). No further group member has confirmed the labels on #56; the result is falsified
-under the labels and under the earlier two-way wording alike.
+group member, before the batch of #165 step 3 ended (16:02 UTC), so before any result of it
+existed. No further group member has confirmed the labels on #56.
 
 The two-sided McNemar mid-p (#21) and the Bonett-Price interval for the paired difference (#21)
 are reported beside the claim and do not decide it. Each seed's counts are descriptive.

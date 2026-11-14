@@ -10,7 +10,7 @@ to the combined counts at n = 16: the claim is supported only with at least 5 wi
 or at least 7 wins and 1 loss. It is falsified by two or more losses whatever the wins, or by no
 more wins than losses. Anything else (1 to 4 wins with no loss, 2 to 6 wins with 1 loss) is "not
 supported": a gain too small for 16 problems to separate from noise, which is not evidence of no
-effect. The threshold was confirmed on #56 and the labels adopted before the result was read
+effect. The threshold was confirmed on #56 and the labels adopted before the batch of #165 ended
 (docs/primary_analysis.md). The mid-p and the interval are reported beside it, and each seed's
 counts are descriptive.
 
