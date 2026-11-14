@@ -174,9 +174,8 @@ def score_runs(
             raise ValueError(f"{transcript_path}: the seeds differ from the manifest's")
         labels_bytes = _labels_path(transcript_path).read_bytes()
         labels = json.loads(labels_bytes)
-        check_run(
-            Run(dataclasses.asdict(source), transcript, labels, sha256(labels_bytes).hexdigest())
-        )
+        labels_sha256 = sha256(labels_bytes).hexdigest()
+        check_run(Run(dataclasses.asdict(source), transcript, labels, labels_sha256))
         scores, record = score_problem(transcript, labels, namespace, chat=chat)
         judged_at = now()
         manifest = dataclasses.replace(
@@ -200,7 +199,13 @@ def score_runs(
             },
         )
         path = write_manifest(manifest, run, out_dir, registry, touch_log)
-        record |= {"run_id": run_id, "source_run_id": source.run_id}
+        # the bytes each result was read from, as training_data.read_run records them
+        record |= {
+            "run_id": run_id,
+            "source_run_id": source.run_id,
+            "transcript_sha256": sha256(transcript_path.read_bytes()).hexdigest(),
+            "labels_sha256": labels_sha256,
+        }
         out = {"record": record, "scores": [dataclasses.asdict(s) for s in scores]}
         path.with_suffix(".baseline6.json").write_text(json.dumps(out, indent=2))
         records.append(record)

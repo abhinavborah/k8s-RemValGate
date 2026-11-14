@@ -313,3 +313,27 @@ def test_a_run_that_sampled_nothing_is_not_touched(env):
     assert [t["problem_id"] for t in _b6_touches(env)] == [POOL_A]
     rec = {r["problem_id"]: r for r in summary["records"]}
     assert rec[POOL_B]["escalated"] and not rec[POOL_B]["solved"]
+
+
+def test_seeds_that_disagree_with_the_manifest_keep_the_touch_and_write_no_summary(env):
+    a = _run_files(env, POOL_A, "pool", [(0, FIX, None)], [R], seeds=[5])
+    b = _run_files(env, POOL_B, "pool", [(0, FIX, None)], [R])
+    with pytest.raises(ValueError, match="differ from the manifest"):
+        _score(env, [a, b], FakeChat([0.9, 0.9]))
+    assert [t["problem_id"] for t in _b6_touches(env)] == [POOL_A]
+    assert not env["out"].exists() or not list(env["out"].glob("baseline6-summary-*"))
+
+
+def test_each_result_names_the_bytes_it_read(env):
+    a = _run_files(env, POOL_A, "pool", [(0, FIX, None)], [R])
+    b = _run_files(env, POOL_B, "pool", [(0, FIX, None)], [R])
+    summary, _ = _score(env, [a, b], RecordedChat([0.9, 0.9]))
+    rec = {r["problem_id"]: r for r in summary["records"]}[POOL_A]
+    assert (
+        rec["transcript_sha256"]
+        == hashlib.sha256(a.with_suffix(".transcript.json").read_bytes()).hexdigest()
+    )
+    assert (
+        rec["labels_sha256"]
+        == hashlib.sha256(a.with_suffix(".labels.json").read_bytes()).hexdigest()
+    )
