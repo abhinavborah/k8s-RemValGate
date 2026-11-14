@@ -4,8 +4,7 @@ Story E9-S6 (#57). One page for the ablation of each capability the research que
 counts with rates and no significance test (R9.4). The runs are those of #165, from one commit,
 interleaved, at seeds 1000 and 1001, on the 16 pool problems, except where a section says
 otherwise (R5.4 and the retrieval ablation of the fine-tuned planner are labelling runs at seed 0).
-The fine-tuning ablation is the
-primary analysis ([primary_analysis.md](primary_analysis.md)).
+The fine-tuning comparison is in [primary_analysis.md](primary_analysis.md).
 
 ## Recovered problems, every arm
 

@@ -81,6 +81,14 @@ Reported beside it:
 | 3cft labels (#159, seed 0) | 8 | 7 | 1 | 0 |
 
 - Baseline 5 solves 7.0 of 16 ([baseline5.md](baseline5.md)).
+- Baseline 6, the prompted judge over the same 3c candidates (#183), solves 8 of 16 and escalates on
+  3 (database problems whose candidates the allow-list refused, so nothing was scored). It ranks a
+  working candidate first on the one recoverable problem (`k8s_target_port-misconfig-mitigation-2`)
+  and loses none of 3c's 7, so it reaches the upper end of the bound of 5 to 8
+  ([baseline5.md](baseline5.md)). It ran on 2026-11-15 from `1b07912`, the commit of #183 before its
+  review, on this host's LM Studio (Qwen3.5-4B Q8_0, SHA-256 `c3fc7bca...e028`), thinking on,
+  temperature 0, threshold 0; the judge is the planner's model, so the two share a model family.
+  Files: `runs/baseline6/` and `runs/recordings/b6_pool_20261115.*`.
 - The labelling runs are one draw at seed 0, so their top-pick counts (7 and 8) are descriptive and
   not the claim.
 
