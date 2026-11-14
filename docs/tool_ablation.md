@@ -335,3 +335,40 @@ bundle helps. Two arms are added so each factor is varied alone:
 All 4 arms run in the interleaved batch of #165, at 2 seeds, with the fixes of #162, #163 and #164
 and the protocol of #161. The run above stays as the first run and is superseded by that batch; the
 log rule of the bundle stays as it is, chosen after the dry run, as disclosed above.
+
+## Added on 2026-11-14: results of the 2 by 2
+
+From the interleaved batch of #165 step 1 (`ffc2af6`, seeds 1000 and 1001, 16 pool problems per
+arm and seed), by `scripts/summarize_tool_ablation.py`. Counts with rates and Wilson 95 percent
+intervals; the ablation is reported, not tested (R9.4).
+
+| Arm | Seed | Fault type | Fault type and service | Recovered |
+|---|---|---|---|---|
+| 3c | 1000 | 15 of 16, 0.94 [0.72, 0.99] | 11 of 16, 0.69 [0.44, 0.86] | 7 of 16, 0.44 [0.23, 0.67] |
+| 3c | 1001 | 13 of 16, 0.81 [0.57, 0.93] | 13 of 16, 0.81 [0.57, 0.93] | 8 of 16, 0.50 [0.28, 0.72] |
+| toolsbundle | 1000 | 15 of 16, 0.94 [0.72, 0.99] | 14 of 16, 0.88 [0.64, 0.97] | 10 of 16, 0.62 [0.39, 0.82] |
+| toolsbundle | 1001 | 16 of 16, 1.00 [0.81, 1.00] | 15 of 16, 0.94 [0.72, 0.99] | 9 of 16, 0.56 [0.33, 0.77] |
+| kubectlonly | 1000 | 10 of 16, 0.62 [0.39, 0.82] | 10 of 16, 0.62 [0.39, 0.82] | 8 of 16, 0.50 [0.28, 0.72] |
+| kubectlonly | 1001 | 11 of 16, 0.69 [0.44, 0.86] | 9 of 16, 0.56 [0.33, 0.77] | 9 of 16, 0.56 [0.33, 0.77] |
+| notools | 1000 | 16 of 16, 1.00 [0.81, 1.00] | 16 of 16, 1.00 [0.81, 1.00] | 11 of 16, 0.69 [0.44, 0.86] |
+| notools | 1001 | 16 of 16, 1.00 [0.81, 1.00] | 13 of 16, 0.81 [0.57, 0.93] | 9 of 16, 0.56 [0.33, 0.77] |
+
+Discordant problems per pair, first against second (n12: only the first, n21: only the second):
+
+| Pair | Recovered, 1000 | Recovered, 1001 | Fault type and service, 1000 | Fault type and service, 1001 |
+|---|---|---|---|---|
+| bundle with tools: 3c vs toolsbundle | 1 / 4 | 0 / 1 | 1 / 4 | 1 / 3 |
+| bundle without tools: kubectlonly vs notools | 0 / 3 | 2 / 2 | 0 / 6 | 0 / 4 |
+| tools with bundle: toolsbundle vs notools | 1 / 2 | 1 / 1 | 0 / 2 | 2 / 0 |
+| tools without bundle: 3c vs kubectlonly | 1 / 2 | 2 / 3 | 4 / 3 | 6 / 2 |
+| both: 3c vs notools | 0 / 4 | 1 / 2 | 0 / 5 | 3 / 3 |
+
+Reading: on fault type and service, toolsbundle is ahead of 3c at both seeds (14 and 15 against
+11 and 13), and notools at seed 1000 only (16 against 11, then 13 against 13). On recovery both
+bundle arms lead 3c by 3 or 4 problems at seed 1000 and by 1 at seed 1001. The net change per pair
+ranges from 0 to 4 problems (the table above). These are counts, reported and not tested (R9.4).
+For scale only: 3c alone recovers 7 at seed 1000, 8 at seed 1001 and 6 at both, so 3 problems
+change between its two seeds, and one pair (3c against notools at seed 1000, 0 / 4) changes by
+more than that. The longest prompts were 21168 tokens (toolsbundle) and 18348
+(3c), under the context of 32768. The first run's result of 2026-11-08 to 2026-11-11 (3c against
+notools only) is superseded by this one.

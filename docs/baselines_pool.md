@@ -181,3 +181,59 @@ From #161, for every run after this date:
   labels, `docs/oracle_labels.md`) have no `model_build`, so they are not compared with the reruns.
 - The build names the base URL and the host, and `read_build` refuses a base URL that is not this
   host's LM Studio server. Manifests record `r` as the number of seeds of the run.
+
+## Added on 2026-11-14: the rerun of #165 and the second headroom check
+
+The rerun of #165 ran 3a, 3b, 3c, 7 and the three tool ablation arms (`toolsbundle`, `kubectlonly`,
+`notools`) on the 16 pool problems at seeds 1000 and 1001, interleaved, with the fixes of #162,
+#163 and #164 and the protocol of #161: 224 runs from `ffc2af6`, 2026-11-13 00:30 to 19:14 UTC,
+touches 313 to 536. Every manifest is `dirty: false` with a full `model_build` and
+`sampling.presence_penalty` 1.5. The oracle labels were then rerun from the same commit
+([oracle_labels.md](oracle_labels.md), run 3).
+
+Recovered problems of 16:
+
+| Arm | seed 1000 | seed 1001 | both seeds |
+|---|---|---|---|
+| 3a | 5 | 3 | 2 |
+| 3b | 6 | 6 | 6 |
+| 3c | 7 | 8 | 6 |
+| 7 | 7 | 8 | 3 |
+| toolsbundle | 10 | 9 | 8 |
+| kubectlonly | 8 | 9 | 7 |
+| notools | 11 | 9 | 9 |
+
+No arm recovers 7 problems at both seeds: the 4 MongoDB problems and
+`k8s_target_port-misconfig-mitigation-3`, `pool-k8s_target_port-misconfig-mitigation-5` and
+`pool-k8s_target_port-misconfig-mitigation-6`. Baseline 7 escalated 3 times in its 32 runs.
+
+Headroom, `scripts/summarize_g3.py` over the 16 new labels and the 32 rows of 3c:
+
+- 3c's top pick solves 7 of 16, below the stop rule of 12.
+- 1 problem is recoverable (`k8s_target_port-misconfig-mitigation-2`), against the 5 needed. The
+  check fails again: the first labels gave 0.
+- R: the labelling run solved 7 and 3c, with its two seeds combined by the rule of #56 (recovered
+  only when both seeds recover), solved 6, with 1 flip: `pool-k8s_target_port-misconfig-mitigation-4`,
+  recovered at seed 1001 and not at seed 1000. Under #161 every compared system runs at 2 seeds,
+  so this R check no longer sets the number of runs.
+- Minimum gain, two-sided McNemar mid-p below 0.05 at n = 16: 5 wins with 0 losses, or 7 with 1.
+
+The results of 2026-11-08 above (3c, the headroom check) stay as they were run and are superseded
+by these.
+
+Criterion 4 of #165, #32 and #35: the query change of #164 was applied to the intrinsic retrieval
+metrics on 2026-11-12, which recomputed #32 with the chosen query form
+(`docs/intrinsic_retrieval.md`, "Added on 2026-11-12: the query form"). #35 is not affected:
+configuration (iii) was fixed under gate G5 before any query was scored, and the query change does
+not change it.
+
+After the failed check, the group agreed on 2026-11-14, as a group member reports, to fine-tune the
+planner anyway as an exploratory ablation, so that each capability has an experiment. That decision
+was made after these results and is disclosed as such; R6.6 says no training follows a failed check.
+The ablation is the fine-tuned planner run end to end against 3c (#159, #55). Baselines 5 and 6
+only rerank 3c's candidates, so the recoverable count bounds them at 1 problem.
+
+Files: on the shared drive under `k8s-RemValGate/run-logs/rerun165_step1_20261113/` (the 672 run
+files, the recording, the stdout log and the pod watch, `step1.tar.gz`, 49096674 bytes, SHA-256
+`71f43c442a6c774983b4feddb75ef8ee98a0ca7ec4b0bd0b263c14777af5bb07`) and
+`k8s-RemValGate/run-logs/rerun165_step2_20261114/` (the headroom check's output and input lists).

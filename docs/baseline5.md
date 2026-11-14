@@ -121,3 +121,24 @@ result traces to the touch log.
   (`scripts/smoke_qwen.py`).
 - The BRD still names the gate as what baseline 5 is compared against (O1, R9.3). Which system
   takes that place is a group decision to record in the BRD.
+
+## Added on 2026-11-14: the labels of the rerun, and what is fine-tuned
+
+The labels were rerun in #165 ([oracle_labels.md](oracle_labels.md), run 3), and the bound in Limits
+above changes with them:
+
+- Every candidate works on 5 problems, none works on 8, and on 3 some work while every other
+  candidate was rejected by the allow-list: 6 of 8 on
+  `pool-assign_to_non_existent_node_social_net-mitigation-3`, 5 of 8 on
+  `pool-k8s_target_port-misconfig-mitigation-4`, 2 of 8 on `k8s_target_port-misconfig-mitigation-2`.
+- 3c's top pick solves 7, and 1 problem is recoverable (`k8s_target_port-misconfig-mitigation-2`).
+  A ranking over the K can solve between 5 and 8: it can gain at most that one problem and lose at
+  most the two others with a rejected candidate.
+- The longest prompts of the rerun are about 18000 tokens for 3c and 21168 for toolsbundle, far
+  above the T4 range in Limits, so baseline 5 needs a card of compute capability 8.0 or newer.
+
+Baseline 5 is therefore not the fine-tuning ablation. The group agreed on 2026-11-14, as a group
+member reports and after the failed headroom check, to fine-tune the planner as an exploratory
+ablation: the per-fold adapters trained here are merged, converted to GGUF Q8_0 and served on the
+same model server (#161), and the fine-tuned planner samples its own candidates (#159) and runs end
+to end against 3c (#55). Baseline 5 is still scored and reported beside it, with the bound above.
