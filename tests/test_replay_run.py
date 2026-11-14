@@ -32,7 +32,8 @@ def test_parts_in_order_with_refusal():
         "c": 1,
         "candidates": [
             {"seed": 0, "command": "kubectl scale ...", "rejection": None, "outcome": "RECOVERED"},
-            {"seed": 1, "command": "kubectl delete ns x", "rejection": "verb not allowed"},
+            {"seed": 1, "command": "kubectl delete ns x", "rejection": "allow-list: FLAG_DENIED"},
+            {"seed": 2, "command": None, "rejection": "Expecting ',' delimiter"},
         ],
         "plan": {"command": "kubectl scale ...", "outcome": "RECOVERED", "rejection": None},
     }
@@ -40,10 +41,27 @@ def test_parts_in_order_with_refusal():
     assert [title[0] for title, _ in parts] == list("123456")
     text = dict(parts)
     assert "ScalePod" in text["1. Injected fault"] and "seed 1000" in text["1. Injected fault"]
-    assert "refused: verb not allowed" in text["4. Candidates"]
-    assert "2 candidates, 1 refused" in text["4. Candidates"]
+    assert "[refused: FLAG_DENIED]" in text["4. Candidates"]
+    assert "[reply not parsed: Expecting ',' delimiter]" in text["4. Candidates"]
+    assert text["4. Candidates"].endswith("3 candidates, 1 refused by the allow-list, 1 not parsed")
     assert "kubectl scale" in text["5. Chosen action or escalation"]
     assert "RECOVERED" in text["6. Outcome"] and "n = 2, c = 1" in text["6. Outcome"]
+
+    # a plan refused by the allow-list shows its reason once, without the prefix
+    refused = labels | {"plan": {"command": "kubectl x", "rejection": "allow-list: FLAG_DENIED"}}
+    chosen = dict(replay.stages(MANIFEST, transcript, refused, {}))[
+        "5. Chosen action or escalation"
+    ]
+    assert "allow-list: FLAG_DENIED (stop: final)" in chosen
+    assert "allow-list: allow-list" not in chosen
+
+    # a run of the fine-tuned arm names its fold and the served model file
+    ft = MANIFEST | {
+        "sampling": {"baseline": "3cft", "fold": 2},
+        "model_build": {"server": "llama-server", "model_file_name": "planner-fold2.gguf"},
+    }
+    fault = dict(replay.stages(ft, transcript, labels, {}))["1. Injected fault"]
+    assert "fold 2" in fault and "served by llama-server, model planner-fold2.gguf" in fault
 
 
 def test_escalation_from_a_result_row():
@@ -78,3 +96,8 @@ def test_cut_of_a_batch_recording(tmp_path):
     )
     assert replay.slice_pods(pods, start, end, tmp_path / "a.pods.log") == 1
     assert (tmp_path / "a.pods.log").read_text() == "2026-11-10T14:00:12Z MODIFIED b\n"
+
+    # a pod watch that ends before the run covers none of it: no file is written
+    pods.write_text("2026-11-10T14:00:05Z ADDED a\n")
+    assert replay.slice_pods(pods, start, end, tmp_path / "none.pods.log") == 0
+    assert not (tmp_path / "none.pods.log").exists()

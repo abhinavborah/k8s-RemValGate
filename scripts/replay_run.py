@@ -35,6 +35,7 @@ from remvalgate.harness.folds import fault_type
 
 SUFFIXES = (".transcript.json", ".labels.json", ".result.json")
 SHOWN_LINES = 12  # lines of the first observation shown
+ALLOW_LIST = "allow-list: "  # the prefix of a rejection by the allow-list
 
 
 def _load(manifest_path: Path, suffix: str) -> dict:
@@ -48,9 +49,24 @@ def _head(text: str, lines: int = SHOWN_LINES) -> str:
     return "\n".join(rows[:lines] + ([f"... ({more} more lines)"] if more > 0 else []))
 
 
+def _rejection(c: dict) -> tuple[str, str] | None:
+    """(kind, reason) of a rejected candidate or plan, or None when it was not rejected.
+
+    The planner writes an allow-list refusal as "allow-list: <reason>"; any other rejection is
+    the parser's message on a reply that held no command, or why an admitted command was not sent.
+    """
+    rejection = c.get("rejection")
+    if not rejection:
+        return None
+    if rejection.startswith(ALLOW_LIST):
+        return "refused", rejection.removeprefix(ALLOW_LIST)
+    return ("reply not parsed" if c.get("command") is None else "not sent"), rejection
+
+
 def _candidate(number: int, c: dict) -> str:
     # an oracle label has an outcome; a transcript candidate has only the allow-list verdict
-    state = f"refused: {c['rejection']}" if c.get("rejection") else c.get("outcome") or "admitted"
+    rejected = _rejection(c)
+    state = ": ".join(rejected) if rejected else c.get("outcome") or "admitted"
     if c.get("duplicate_of") is not None:
         state += f" (same command as candidate {c['duplicate_of'] + 1})"
     return f"{number}. [{state}] seed {c.get('seed')}\n   {c.get('command')}"
@@ -69,6 +85,14 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
         f" ({manifest.get('model_version')}), seed {manifest.get('seed')},"
         f" K = {manifest.get('k')}, R = {manifest.get('r')}"
     )
+    if sampling.get("fold") is not None:  # the fine-tuned arm: the fold whose adapter answered
+        fault += f", fold {sampling['fold']}"
+    build = manifest.get("model_build") or {}
+    if build:  # a llama-server record names the model file, an LM Studio one the model key
+        fault += (
+            f"\nserved by {build.get('server')},"
+            f" model {build.get('model_file_name') or build.get('model_key')}"
+        )
 
     first = transcript.get("first_observation")
     if first is None:  # baselines 1 and 2 keep a list of observations
@@ -94,8 +118,13 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
     candidates = labels.get("candidates") or transcript.get("candidates") or []
     if candidates:
         listed = "\n".join(_candidate(i, c) for i, c in enumerate(candidates, 1))
-        refused = sum(bool(c.get("rejection")) for c in candidates)
-        listed += f"\n\n{len(candidates)} candidates, {refused} refused by the allow-list"
+        kinds = [k for k, _ in filter(None, map(_rejection, candidates))]
+        listed += (
+            f"\n\n{len(candidates)} candidates, {kinds.count('refused')} refused by the allow-list"
+        )
+        for kind, shown in (("reply not parsed", "not parsed"), ("not sent", "not sent")):
+            if kind in kinds:
+                listed += f", {kinds.count(kind)} {shown}"
     elif labels:
         listed = "no candidates were sampled, since the plan gave no diagnosis"
     else:
@@ -106,7 +135,8 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
     stop = result.get("stop") or transcript.get("stop")
     escalation = result.get("escalation") or transcript.get("escalation")
     verdict = transcript.get("verdict") or {}
-    refusal = plan.get("rejection") or verdict.get("reason")
+    kind, reason = _rejection(plan) or (None, None)
+    refusal = (reason if kind == "refused" else None) or verdict.get("reason")
     if result.get("allow_list") not in (None, "admitted"):
         refusal = result["allow_list"]
     if escalation or stop == "escalate" or command is None:
@@ -114,6 +144,7 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
         chosen += f"\n{escalation}" if escalation else ""
     else:
         chosen = f"{command}\nallow-list: {refusal or 'admitted'} (stop: {stop})"
+        chosen += f"\nnot sent: {reason}" if kind == "not sent" else ""
 
     outcome = f"outcome {plan.get('outcome') or result.get('outcome') or 'none, nothing applied'}"
     if labels:
@@ -183,7 +214,10 @@ def slice_cast(cast: Path, start: float, end: float, out: Path) -> int:
 
 
 def slice_pods(pods: Path, start: float, end: float, out: Path) -> int:
-    """Write the pod watch lines stamped in [start, end) to out. Returns the number written."""
+    """Write the pod watch lines stamped in [start, end) to out. Returns the number written.
+
+    Writes no file when no line falls in the window: the watch did not cover this run.
+    """
     kept = []
     for line in pods.read_text("utf-8", errors="replace").splitlines():
         try:
@@ -192,7 +226,8 @@ def slice_pods(pods: Path, start: float, end: float, out: Path) -> int:
             continue
         if start <= at < end:
             kept.append(line)
-    out.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    if kept:
+        out.write_text("\n".join(kept) + "\n", encoding="utf-8")
     return len(kept)
 
 
@@ -217,7 +252,11 @@ def main() -> int:
     start, end = window(args.manifest)
     if args.pods:
         out = args.manifest.with_suffix(".pods.log")
-        print(f"\n{slice_pods(args.pods, start, end, out)} pod watch lines written to {out}")
+        count = slice_pods(args.pods, start, end, out)
+        if count:
+            print(f"\n{count} pod watch lines written to {out}")
+        else:
+            print(f"\n{args.pods} does not cover this run's time window, so no file was written")
     if args.cast:
         out = args.manifest.with_suffix(".cast")
         count = slice_cast(args.cast, start, end, out)
