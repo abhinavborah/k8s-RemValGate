@@ -43,7 +43,7 @@ and date for every reported result.
 | 1, 2 | fault-type rule, retrieval only | from step 1 | `docs/baselines_pool.md` |
 | 3a, 3b, 3c | untuned planner, retrieval (i), (ii), (iii) | 2, 6, 6 of 16 at both seeds | `docs/rag_ablation.md` |
 | 5 | fine-tuned ranking over 3c's candidates | 7.0 of 16 | `docs/baseline5.md` |
-| 6 | prompted judge over 3c's candidates | pending (#183) | `docs/primary_analysis.md` |
+| 6 | prompted judge over 3c's candidates | pending (#185) | `docs/primary_analysis.md` |
 | 7 | 3c told to escalate when unsure | 3 of 16 | `docs/baselines_pool.md` |
 
 ## 5. The headroom check and why the gate was not trained
@@ -114,7 +114,7 @@ and date for every reported result.
 
 ## Still to fill
 
-- Baseline 6 result (#183, then #182).
+- Baseline 6 result (#185, then #182).
 - #59 and #73 results.
 - Shared drive paths and sizes for the step 3 and #34 archives.
 - Final page and format requirements, if the course states them.
