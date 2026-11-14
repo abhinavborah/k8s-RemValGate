@@ -1,7 +1,10 @@
 # Primary analysis: the fine-tuned planner against the untuned planner
 
 Story E9-S5 (#56). The claim compares the fine-tuned planner's top pick with the untuned planner's
-(baseline 3c), per pool problem, as recovered or not.
+(baseline 3c), per pool problem, as recovered or not. It is a pre-specified exploratory comparison:
+its rule was fixed before its result, but the decision to fine-tune the planner was taken after the
+failed headroom check (BRD 1.17, R6.6), so it is reported beside the primary claim and never in
+place of it.
 
 ## What is compared
 
@@ -18,10 +21,16 @@ Story E9-S5 (#56). The claim compares the fine-tuned planner's top pick with the
 
 The threshold is the minimum gain committed with gate G3 (#53, R6.6,
 [baselines_pool.md](baselines_pool.md), `harness.g3.meets_min_gain`), applied to the combined
-counts at n = 16: the claim is supported only with 5 wins and 0 losses, or 7 wins and 1 loss
-against 3c. Two or more losses falsify it whatever the wins, and anything else falsifies it too.
+counts at n = 16:
+
+- **Supported:** at least 5 wins with no loss, or at least 7 wins with exactly 1 loss.
+- **Falsified:** 2 or more losses whatever the wins, or no more wins than losses.
+- **Not supported:** anything else (1 to 4 wins with no loss, 2 to 6 wins with 1 loss). This is a
+  gain too small for 16 problems to separate from noise, not evidence of no effect.
+
 That threshold was committed for the gate against baseline 5. Applying it to this comparison
-(3cft against 3c) is proposed and pending group confirmation (#56), and is disclosed as such.
+(3cft against 3c), with these three labels, was confirmed on #56 by two group members on
+2026-11-14, before the batch of #165 step 3 ended and before its result was read.
 
 The two-sided McNemar mid-p (#21) and the Bonett-Price interval for the paired difference (#21)
 are reported beside the claim and do not decide it. Each seed's counts are descriptive.

@@ -7,9 +7,11 @@ pick recovers each pool problem. Both ran on the same server, interleaved, at th
 with the Bonett-Price interval for the difference (3cft minus 3c, as the second system minus the
 first). The threshold is the minimum gain of gate G3 (#53, R6.6, `g3.meets_min_gain`), applied
 to the combined counts at n = 16: the claim is supported only with 5 wins and 0 losses, or 7 wins
-and 1 loss; two or more losses falsify it whatever the wins. Applying it to this comparison is
-pending group confirmation (#56). The mid-p and the interval are reported beside it, and each
-seed's counts are descriptive.
+and 1 loss. It is falsified by two or more losses whatever the wins, or by no more wins than
+losses. Anything else (1 to 4 wins with no loss, 2 to 6 wins with 1 loss) is "not supported": a
+gain too small for 16 problems to separate from noise, which is not evidence of no effect. The
+rule and its labels were confirmed on #56 before the result was read. The mid-p and the interval
+are reported beside it, and each seed's counts are descriptive.
 
 The candidates of each planner, labelled by execution, are summarised beside it: per problem the
 top pick's outcome, the working candidates of K, mixed outcomes and whether the problem is
@@ -81,6 +83,15 @@ def _pair(untuned: dict[str, bool], tuned: dict[str, bool], problems: Sequence[s
     }
 
 
+def claim(wins: int, losses: int) -> str:
+    """supported, falsified or not supported, from the combined wins and losses (#56)."""
+    if meets_min_gain(wins, losses):
+        return "supported"
+    if losses >= 2 or wins <= losses:
+        return "falsified"
+    return "not supported"
+
+
 def compare(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:
     """The paired comparison of 3cft with 3c, per seed and with the seeds combined.
 
@@ -107,7 +118,7 @@ def compare(rows: Sequence[Mapping], pool: Sequence[str]) -> dict:
         for arm in (UNTUNED, FINE_TUNED)
     }
     out["both_seeds"] = _pair(by_arm[UNTUNED], by_arm[FINE_TUNED], sorted(pool))
-    out["claim"] = "supported" if out["both_seeds"]["meets_min_gain"] else "falsified"
+    out["claim"] = claim(out["both_seeds"]["n21"], out["both_seeds"]["n12"])
     out["per_problem"] = {
         p: {UNTUNED: by_arm[UNTUNED][p], FINE_TUNED: by_arm[FINE_TUNED][p]} for p in sorted(pool)
     }
