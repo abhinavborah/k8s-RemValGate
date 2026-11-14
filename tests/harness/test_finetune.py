@@ -1,6 +1,6 @@
 import pytest
 
-from remvalgate.harness.finetune import candidate_yield, check_folds, compare
+from remvalgate.harness.finetune import candidate_yield, check_folds, claim, compare
 from remvalgate.harness.oracle import Label, ProblemLabels
 from remvalgate.harness.outcome import Outcome
 from remvalgate.harness.stats import mcnemar_midp
@@ -28,12 +28,18 @@ def test_five_wins_and_no_loss_at_both_seeds_supports_the_claim():
     assert 0 < low < high
 
 
-def test_a_tie_or_a_small_gain_is_falsified():
+def test_a_tie_is_falsified_and_a_small_gain_is_not_supported():
     base = set(POOL[:6])
     assert compare(_rows("3c", base) + _rows("3cft", base), POOL)["claim"] == "falsified"
-    # 4 wins with no loss: below the minimum gain of 5
+    # 4 wins with no loss: below the minimum gain of 5, a gain the test cannot confirm
     gain = compare(_rows("3c", base) + _rows("3cft", base | set(POOL[6:10])), POOL)
-    assert gain["both_seeds"]["n21"] == 4 and gain["claim"] == "falsified"
+    assert gain["both_seeds"]["n21"] == 4 and gain["claim"] == "not supported"
+
+
+def test_the_three_labels_at_their_edges():
+    assert claim(5, 0) == claim(7, 1) == claim(9, 1) == "supported"
+    assert claim(1, 0) == claim(4, 0) == claim(2, 1) == claim(6, 1) == "not supported"
+    assert claim(0, 0) == claim(1, 1) == claim(0, 1) == claim(9, 2) == claim(3, 5) == "falsified"
 
 
 def test_two_losses_falsify_whatever_the_wins():
