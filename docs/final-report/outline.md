@@ -25,6 +25,10 @@ and date for every reported result.
   retrieval configuration (iii), the allow-list check, execution with rollback and the recovery
   check.
 - One figure, carried from the mid-report and updated (no gate in the loop).
+- The model chooses the next step in one place only, the planner's diagnosis loop: each turn it
+  picks the next read-only tool call or gives its diagnosis and one command. Retrieval, the
+  allow-list, execution and reset, harm detection and the outcome classes run the same procedure
+  whatever the fault.
 - Sources: README, `docs/brd.md`, `docs/finetuned_planner.md`.
 
 ## 3. Data and evaluation protocol
@@ -50,6 +54,9 @@ and date for every reported result.
 
 - G3 failed twice: 0 and then 1 recoverable problem, against 5 needed.
 - Consequence: no selector over the untuned candidates can gain more than 1 problem.
+- The design assumed the validity gate, a learned scorer that applies the top admitted candidate
+  only above a threshold (BRD R8.1), and it was never built (#46 and #49, closed as not planned):
+  the planner acts on its own command and the allow-list is the only check before it runs.
 - Sources: `docs/oracle_labels.md`, `docs/baselines_pool.md`, BRD R6.6 and 1.17.
 
 ## 6. Results
@@ -93,6 +100,11 @@ and date for every reported result.
 - Rollback scope (BRD R2): what the restore covers and what it cannot (database user state).
 - Judge and planner share a model family (baseline 6).
 - MongoDB command output not kept before #174.
+- The worst action is an admitted command that leaves a healthy workload unhealthy
+  (`APPLIED_HARMFUL`). The allow-list acts before execution and harm detection after it: none in
+  the 288 runs of #165 steps 1 and 3, 2 fine-tuned commands in the labels, both on one problem.
+- Harm detection sees pod status only, so it misses harm that leaves every pod healthy, such as
+  a changed Service port or selector.
 
 ## 8. Compute and reproducibility
 
@@ -102,6 +114,9 @@ and date for every reported result.
 - GPU: one A100 pod, about 12.7 hours at $2.19 per hour (training, merging, serving); training
   0.07 to 0.13 GPU hours per fold.
 - Archives and checksums on the shared drive (`rerun165_step3_20261114/`: step 3, #34, baseline 6, baseline 5 scores, GPU host logs, adapters), listed in `docs/primary_analysis.md`; the touch log; the replay (#145).
+- Model calls per episode: one planner call per turn, at most 16 by design, plus one retrieval.
+  Measured in step 3 on 32 episodes per arm: 3c 3 to 16 calls (median 11.5), 3cft 1 to 16
+  (median 16), no retries.
 - Source: `docs/compute.md`, `docs/finetuned_planner.md`, the manifests.
 
 ## 9. Conclusion
