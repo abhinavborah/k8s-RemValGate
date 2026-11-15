@@ -31,6 +31,24 @@ cd docs/final-report
 latexmk -pdf -interaction=nonstopmode -halt-on-error final-report.tex
 ```
 
+## Links
+
+| What | Link |
+|---|---|
+| Final report (PDF) | [docs/final-report/monkeysee-monkeydo-final-report.pdf](docs/final-report/monkeysee-monkeydo-final-report.pdf) |
+| Final report (LaTeX source) | [docs/final-report/](docs/final-report/) |
+| Mid-submission report (PDF) | [docs/mid-submission/monkey-see-monkey-do-mid-report.pdf](docs/mid-submission/monkey-see-monkey-do-mid-report.pdf) |
+| Run archives, transcripts and recordings (view-only) | <https://drive.google.com/drive/folders/1wL9GGsXx6s88FxRwUMHz1gBWZ_YaD1nd> |
+| Requirements, gates and decision log | [docs/brd.md](docs/brd.md) |
+| Main results | [docs/primary_analysis.md](docs/primary_analysis.md) |
+| Ablations | [docs/ablations.md](docs/ablations.md), [docs/rag_ablation.md](docs/rag_ablation.md), [docs/tool_ablation.md](docs/tool_ablation.md), [docs/intrinsic_retrieval.md](docs/intrinsic_retrieval.md) |
+| Failure analysis | [docs/failure_analysis.md](docs/failure_analysis.md) |
+| Baselines | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/baseline5.md](docs/baseline5.md) |
+| Confirmation slice and singleton check | [docs/confirmation_check.md](docs/confirmation_check.md), [docs/singleton_check.md](docs/singleton_check.md) |
+| Compute | [docs/compute.md](docs/compute.md) |
+| Issues and pull requests | <https://github.com/abhinavborah/k8s-RemValGate/issues>, <https://github.com/abhinavborah/k8s-RemValGate/pulls> |
+| AIOpsLab (benchmark, pinned as a submodule) | <https://github.com/microsoft/AIOpsLab>, paper <https://arxiv.org/abs/2501.06706> |
+
 ## Results
 
 Pool of 16 problems, seeds 1000 and 1001; "both seeds" counts a problem only if it recovered at
