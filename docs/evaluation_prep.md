@@ -4,8 +4,7 @@ Story E10-S5 (#64, BRD R10.5). Evaluations run 2026-11-16 to 2026-11-19. Every g
 be able to explain the design, the results, the limits and the claim, and to run the replay. This
 page is built from the merged result pages and the outline of the final report (#184); each number
 names the page it comes from. Nothing here is a new result. On 2026-11-15 the page was checked
-against the final report (#192 at `083daa9`, whose text equals `34b3684`); #192 is not merged
-yet. When the merged report (#62) differs from this page, the report wins.
+against the final report (#192 at `f8953a5`); #192 is not merged yet. When the merged report (#62) differs from this page, the report wins.
 
 Model for every result below unless a line says otherwise: Qwen3.5-4B (`qwen/qwen3.5-4b`), GGUF
 Q8_0. The fine-tuned models are built from base revision
@@ -123,11 +122,11 @@ problem the planner can solve (a turn cap; a refused `kubectl set`).
 
 | Baseline | What | Result | When and source |
 |---|---|---|---|
-| 1 | fault-type rule, no model | 8 of 16 | 2026-11-09, seed 1000 only, before the #165 fixes (#150, `docs/rag_ablation.md`) |
+| 1 | fault-type rule, no model | 8 of 16 | 2026-11-08 (UTC), seed 1000 only, before the #165 fixes (#150, `docs/rag_ablation.md`) |
 | 2 | retrieval only | 8 of 16 | same run as baseline 1 |
 | 3a, 3b, 3c | untuned planner; no retrieval, dense, dense plus reranker | 2, 6, 6 of 16 at both seeds | 2026-11-13, #165 step 1, LM Studio (`docs/ablations.md`) |
-| 5 | fine-tuned ranking over 3c's candidates | 7.0 of 16 | 2026-11-14 (`docs/baseline5.md`) |
-| 6 | prompted judge over 3c's candidates | 8 of 16, 3 escalated | 2026-11-15 (#185, `docs/primary_analysis.md`) |
+| 5 | fine-tuned ranking over 3c's candidates | 7 of 16 | 2026-11-14 (`docs/baseline5.md`) |
+| 6 | prompted judge over 3c's candidates | 8 of 16, 3 escalated | 2026-11-14 (UTC) (#185, `docs/primary_analysis.md`) |
 | 7 | 3c told to escalate when unsure | 3 of 16 at both seeds | #165 step 1 (`docs/baselines_pool.md`) |
 
 ### Capability ablations (`docs/ablations.md`, descriptive, no test)
@@ -166,9 +165,13 @@ problem the planner can solve (a turn cap; a refused `kubectl set`).
 - The fine-tuning comparison is exploratory: its rule was pre-specified, the decision to run it was
   post hoc. The BRD's primary claim (O1, the gate against baseline 5) was never tested and remains
   open (BRD 1.15, pending group confirmation).
-- Training data is small: 6 to 9 working records per fold, none for MongoDB.
-- Rollback covered Kubernetes objects only in every reported run; database user state was not
-  restored.
+- Training data is small: 6 to 9 working records per fold, none for MongoDB. They were sampled
+  while the held-out fold's past fixes were retrievable, one indirect path from the held-out
+  problems into training that would favour the fine-tuned planner.
+- Rollback covers Kubernetes objects: Services and Deployments, which hold the fault of 12 pool
+  problems. The database users of the 4 MongoDB problems are in no object, so only AIOpsLab's
+  recovery step, checked by the fault check, resets them; a database rollback built later was not
+  used in any reported run.
 - Baseline 6's judge shares the planner's model family, a confound, and it was not validated
   against human labels, so no Cohen's kappa is reported for it.
 - Tool use is scored by call validity and by its effect, not against a gold tool sequence: a fault
@@ -197,7 +200,7 @@ threshold and the both-seeds rule on #56, and the labels were adopted on #181 by
 member at 15:48 UTC, before the batch ended at 16:02 UTC.
 
 **Your no-model rule recovers 8 of 16 and your planner 6 or 7. Why build a planner?** Baselines 1
-and 2 ran once, at seed 1000, on 2026-11-09, before the fixes of #165, so they are not on the
+and 2 ran once, at seed 1000, on 2026-11-08 (UTC), before the fixes of #165, so they are not on the
 both-seeds unit and not from the same commit, so they are not directly comparable. The honest
 reading: on these five injected fault types a lookup by fault type is a strong baseline, and the
 planner has not been shown to beat it. The planner was meant to reach types a rule does not
@@ -225,7 +228,8 @@ before any evaluation run, and the confirmation slice was sealed and opened once
 exceptions: some settings were fixed after earlier pool runs had been read (the turn cap of 16,
 the 32768-token context, the database login note, and the fixes of the three shared defects, after
 which every planner arm was rerun together); and 17 early touch-log entries (16 corpus builds and
-one test fixture) were logged after their use.
+one test fixture) were logged after their use. One indirect path remains: each fold's training
+commands were sampled while the held-out fold's past fixes were retrievable.
 
 **What does the allow-list do, and is it too strict?** It admits a fixed set of verbs, flags,
 resources and MongoDB methods and refuses the rest with a reason. It is the largest failure class:
@@ -233,8 +237,8 @@ it refuses more fixes than the planner misdiagnoses, and it blocks every MongoDB
 proposes. Loosening it trades recovery for safety; we did not tune it on the pool.
 
 **What is the unsafe or unapproved action rate?** An unsafe action is an applied command that
-leaves a healthy workload unhealthy (APPLIED_HARMFUL, R2.4): none in the 288 runs of #165 steps 1
-and 3. In the labels, 0 of 73 untuned candidates and 0 of 10 untuned top picks with an outcome were
+leaves a healthy workload unhealthy (APPLIED_HARMFUL, R2.4): 0 of 141 applied commands in #165 step
+1 and 0 of 42 in step 3. In the labels, 0 of 73 untuned candidates and 0 of 10 untuned top picks with an outcome were
 harmful, against 1 of 88 and 1 of 12 for the fine-tuned planner, both on one problem, where an
 added `envFrom` left the new pods unable to start. An unapproved command is one the allow-list
 refuses: the planner proposed one in 71 of the 288 runs (24.7%; 56 of 224 in step 1, 15 of 64 in
@@ -384,7 +388,8 @@ They use methods and characters the allow-list does not admit (`adminCommand`, `
   `getUser`, `getUsers`); nothing ran.
 
 **Was the AssignNonExistentNode problem changed?** Yes. AIOpsLab's own problem has a fault check
-that skips the Pending pod the fault leaves, so it passes with the fault in place and a command
+that skips the Pending pod the fault leaves (it skips pods with no container status,
+`aiopslab/orchestrator/tasks/mitigation.py` at `576c3f0`), so it passes with the fault in place and a command
 that does nothing would count as a fix. The pool replaces it with an authored problem whose check
 also requires an available replica. Each authored problem was validated on the cluster: its check
 fails with the fault injected and passes after a known fix.
@@ -439,4 +444,4 @@ replay above plays any recorded run from its files.
 - [ ] Each group member answered every question in section 6 once, aloud, to another member.
 - [ ] Each group member can name the claim's numbers: 7, 5, 0 wins, 2 losses, mid-p 0.25.
 - [ ] The final report (#62) is checked against this page, and differences are fixed here
-  (#192 at `083daa9` checked on 2026-11-15; recheck once it is merged).
+  (#192 at `f8953a5` checked on 2026-11-15; recheck once it is merged).
