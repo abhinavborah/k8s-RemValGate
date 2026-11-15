@@ -17,6 +17,20 @@ Group project for Language Models and Agents (CL3410): [requirements](docs/brd.m
 [mid-submission report](docs/mid-submission/monkey-see-monkey-do-mid-report.pdf),
 [final report outline](docs/final-report/outline.md).
 
+## Status
+
+Complete. The final report, with the method and every result, is
+[docs/final-report/monkeysee-monkeydo-final-report.pdf](docs/final-report/monkeysee-monkeydo-final-report.pdf),
+built from the LaTeX source in [docs/final-report/](docs/final-report/).
+[Map from the report to the source](#map-from-the-report-to-the-source) below says where each of
+its numbers comes from. To build the PDF from its LaTeX source (TeX Live with pgfplots; no shell
+escape):
+
+```
+cd docs/final-report
+latexmk -pdf -interaction=nonstopmode -halt-on-error final-report.tex
+```
+
 ## Results
 
 Pool of 16 problems, seeds 1000 and 1001; "both seeds" counts a problem only if it recovered at
@@ -30,8 +44,8 @@ both ([#56]). Each linked page gives the runs, commits and per-problem tables.
 | Without the deterministic check | the check removes 44 of 128 untuned and 29 of 120 fine-tuned candidates | labelling runs, seed 0 | [ablations](docs/ablations.md) |
 | Headroom check ([gate G3](docs/brd.md#71-pre-registration-gates)) | 1 recoverable problem, 5 needed: failed (first run: 0) | [#165] step 2 labels | [baselines_pool](docs/baselines_pool.md) |
 | Baselines 1 (fault-type rule), 2 (retrieval only) | 8 of 16 each, seed 1000 | [#150] | [rag_ablation](docs/rag_ablation.md) |
-| Baseline 5 (fine-tuned ranking of 3c's candidates) | 7.0 of 16 | 2026-11-14 | [baseline5](docs/baseline5.md) |
-| Baseline 6 (prompted judge of 3c's candidates) | 8 of 16, 3 escalated | 2026-11-15 | [primary_analysis](docs/primary_analysis.md) |
+| Baseline 5 (fine-tuned ranking of 3c's candidates) | 7 of 16 | 2026-11-14 | [baseline5](docs/baseline5.md) |
+| Baseline 6 (prompted judge of 3c's candidates) | 8 of 16, 3 escalated | 2026-11-14 | [primary_analysis](docs/primary_analysis.md) |
 | Baseline 7 (3c told to escalate when unsure), both seeds | 3 of 16, 3 escalations in 32 runs | [#165] step 1 | [baselines_pool](docs/baselines_pool.md) |
 | Confirmation slice, 3c, opened once | 2 of 3 at seed 1000, 3 of 3 at seed 1001 | 2026-11-14 | [confirmation_check](docs/confirmation_check.md) |
 | Singleton fault types, 3c (descriptive) | none recovered; 3 of 5 types not run | 2026-11-15 | [singleton_check](docs/singleton_check.md) |
@@ -154,6 +168,29 @@ asciinema play --idle-time-limit 2 --speed 2 $B/<run id>.cast
 ([oracle_labels](docs/oracle_labels.md)) and `summarize_baseline5.py`
 ([baseline5](docs/baseline5.md)) read the labels and score files listed on those pages.
 
+Five other scripts read evaluation-set files, so each logs one touch per pool problem in
+`runs/touch_log.jsonl` and needs gate G1 and a clean tree: `ablate_no_check.py` (the allow-list
+ablation, from labelling-run manifests), `score_baseline6.py` (which also needs the model server),
+`export_training_data.py`, `export_baseline5_heldout.py` and `run_intrinsic_retrieval.py` (16
+touches, starts on call). Run these only to redo the study, not to check it: their outputs are in
+the archives and the result pages.
+
+### Map from the report to the source
+
+| Report item | Script | Result file |
+|---|---|---|
+| Headroom check (Methodology) | `summarize_g3.py` | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/oracle_labels.md](docs/oracle_labels.md) |
+| Runs table and compute | the run scripts in [Run order](#run-order) | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/primary_analysis.md](docs/primary_analysis.md), [docs/baseline5.md](docs/baseline5.md), [docs/finetuned_planner.md](docs/finetuned_planner.md), [docs/compute.md](docs/compute.md) |
+| Retrieval metrics (Hit@1, Hit@3, MRR, Recall@3) | `run_intrinsic_retrieval.py` | [docs/intrinsic_retrieval.md](docs/intrinsic_retrieval.md) |
+| Baselines table | `run_baselines_pool.py`, `summarize_g3.py`, `summarize_baseline5.py`, `score_baseline6.py` | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/baseline5.md](docs/baseline5.md), [docs/primary_analysis.md](docs/primary_analysis.md) |
+| Fine-tuning table | `summarize_finetune.py` | [docs/primary_analysis.md](docs/primary_analysis.md), [docs/finetuned_planner.md](docs/finetuned_planner.md) |
+| Failure classes table | `failure_cases.py` | [docs/failure_analysis.md](docs/failure_analysis.md) |
+| Call validity, harm in the labels, tokens and calls per episode | the command in failure_analysis.md, "Added on 2026-11-15" | [docs/failure_analysis.md](docs/failure_analysis.md), [docs/compute.md](docs/compute.md) |
+| Confirmation slice and singleton types | `run_baselines_pool.py` | [docs/confirmation_check.md](docs/confirmation_check.md), [docs/singleton_check.md](docs/singleton_check.md) |
+| Ablations table and recovery figure | `summarize_rag_ablation.py`, `summarize_tool_ablation.py` | [docs/ablations.md](docs/ablations.md), [docs/rag_ablation.md](docs/rag_ablation.md), [docs/tool_ablation.md](docs/tool_ablation.md) |
+| Deterministic check ablation | `ablate_no_check.py` | [docs/ablations.md](docs/ablations.md) |
+| System figure | the planner and harness code | `src/remvalgate/planner/`, `src/remvalgate/harness/` |
+
 ## 3. Rerun on a cluster
 
 A pool run appends to `runs/touch_log.jsonl` (rules below); development problems log no touch.
@@ -245,6 +282,58 @@ from a file in the repository:
 
 Each script's docstring and `--help` give its inputs, outputs and what it refuses. Outputs go
 under `runs/`, which git ignores; copy them to the shared drive with their SHA-256.
+
+A rerun is a new experiment, not the reported one. The confirmation slice is closed, so a rerun
+of it is refused by design. The report's pool runs were made in this order, with the planner
+(`qwen/qwen3.5-4b`, GGUF Q8_0) served in LM Studio by default and the retrieval group installed:
+
+1. Baselines 1 and 2, which use no model, ran first at seed 1000. Step 1 then ran the seven
+   planner arms at seeds 1000 and 1001 (the defaults), interleaved by problem:
+
+   ```
+   uv run python scripts/run_baselines_pool.py --baseline 1 --baseline 2 --seed 1000
+   uv run python scripts/run_baselines_pool.py --model-version "<format and quantization>" \
+       --baseline 3a --baseline 3b --baseline 3c --baseline 7 \
+       --baseline notools --baseline toolsbundle --baseline kubectlonly
+   ```
+
+2. Step 2, the oracle labels of 3c's candidates (seed 0 and K = 8 by default), then the headroom
+   check with `summarize_g3.py`:
+
+   ```
+   uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>"
+   ```
+
+3. Step 3, the fine-tuned planner. Export the per-fold training data and held-out files from the
+   labels (`export_training_data.py`, `export_baseline5_heldout.py`), train each fold on a GPU with
+   `baseline5_kaggle.py --train ... --heldout ... --out ...`, merge each adapter with
+   `merge_baseline5_adapter.py --base ... --adapter ... --out ...`, convert it with llama.cpp's
+   `convert_hf_to_gguf.py --outtype q8_0`, and serve each model on the GPU host with
+   `serve_on_gpu_host.sh <name> <gguf> <port> <host label> [<fold> <adapter folder>]`, which also
+   writes its record file. Then run both arms in one interleaved batch, the 3c control on the
+   untuned model served the same way (`--base-url` and `--served-build` name its server and
+   record; `--fold-servers` maps each fold to its fine-tuned server and record):
+
+   ```
+   uv run python scripts/run_baselines_pool.py --model-version "<format and quantization>" \
+       --baseline 3c --baseline 3cft --fold-servers <file> \
+       --served-build <base record> --base-url <base server>
+   ```
+
+   The fine-tuned labels come from
+   `run_oracle_labels.py --fold F --base-url <fold server> --served-build <record>`, with
+   `--no-retrieval` for the run without retrieval.
+
+4. Baseline 6 and the singleton types. Baseline 6 has the served model judge the step 2
+   candidates, reading the labelling manifests (it logs touches and needs the model server). The
+   singleton types run baselines 2 and 3c only; their ids are in
+   `src/remvalgate/harness/slices.json` ([docs/singleton_check.md](docs/singleton_check.md)).
+
+   ```
+   uv run python scripts/score_baseline6.py --model-version "<format and quantization>" runs/oracle/<run id>.json ...
+   uv run python scripts/run_baselines_pool.py --model-version "<format and quantization>" \
+       --baseline 2 --baseline 3c <singleton ids>
+   ```
 
 ## 4. Fine-tune and serve
 

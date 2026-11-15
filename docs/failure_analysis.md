@@ -112,3 +112,78 @@ uv run python scripts/failure_cases.py runs/baselines_pool/<run id>.result.json 
 with the 224 result files of #165 step 1 (shared drive, `rerun165_step1_20261113/step1.tar.gz`), or
 the 64 of step 3 (`rerun165_step3_20261114/step3.tar.gz`, the `baseline3c-` and `baseline3cft-`
 result files stamped after `20261114t0943`).
+
+## Added on 2026-11-15: call validity, harm in the labels and calls per episode
+
+Counts the final report gives, recomputed from the run archives (no cluster, no model, no touch).
+
+- **Call validity, #165 step 1** (224 runs, 2584 planner turns). 2538 replies are a JSON object
+  as the planner reads it (`_json_object` in `src/remvalgate/planner/loop.py`). Of these, 2337
+  are tool calls (neither `final` nor `escalate`), and 2294 of them (98.2 percent) name a tool the
+  arm offers with arguments valid under its schema; the other 43 were answered "unknown tool".
+  The read-only check refused 368 of the 2294 valid calls (16.0 percent): `command rejected` by
+  the allow-list, most often SHELL_METACHAR, or a verb other than `get` and `describe` during
+  diagnosis. No gold tool sequence exists for these problems, so this is validity, not accuracy.
+- **Completion tokens, #165 step 1**: 1034746 over the 224 runs.
+- **Calls per episode, #165 step 3**: one model call per turn. 3c used 3 to 16 (median 11.5) and
+  3cft 1 to 16 (median 16) over their 32 runs each.
+- **Harm in the labels.** Untuned (#165 step 2): 0 of the 73 candidates with an outcome and 0 of
+  the 10 top picks with an outcome were harmful. Fine-tuned (#159): 1 of 88 and 1 of 12, both on
+  `pool-k8s_target_port-misconfig-mitigation-4`, where a JSON patch added `envFrom` to a
+  Deployment and its new pod stayed Pending with `CreateContainerConfigError`.
+
+The archives are `rerun165_step1_20261113/step1.tar.gz`, `rerun165_step2_20261114/step2.tar.gz`
+(SHA-256 in [oracle_labels.md](oracle_labels.md)) and `rerun165_step3_20261114/step3.tar.gz` on
+the shared drive. Unpack each into `$D/step1`, `$D/step2` and `$D/step3` as in the README's
+level 2, then run from the repository root:
+
+```
+uv run python - "$D" <<'EOF'
+import glob, json, statistics, sys
+from remvalgate.planner.loop import _json_object  # the planner's own reply parser
+
+D = sys.argv[1]
+turns = replies = calls = valid = refused = tokens = 0
+for f in glob.glob(f"{D}/step1/runs/baselines_pool/*.transcript.json"):
+    for s in json.load(open(f))["steps"]:
+        turns += 1
+        tokens += s["completion_tokens"]
+        try:
+            obj = _json_object(s["reply"])
+        except ValueError:
+            continue
+        replies += 1
+        if "final" in obj or "escalate" in obj:
+            continue
+        calls += 1
+        obs = s["observation"]
+        read_only = obs.startswith(("Refused: command rejected", "Refused: diagnosis allows"))
+        valid += read_only or not obs.startswith("Refused")
+        refused += read_only
+print(f"step 1: {turns} turns, {replies} valid JSON, {valid} of {calls} tool calls valid, "
+      f"{refused} refused by the read-only check, {tokens} completion tokens")
+for arm in ("baseline3c", "baseline3cft"):
+    n = [len(json.load(open(f))["steps"])
+         for f in glob.glob(f"{D}/step3/runs/baselines_pool/{arm}-*.transcript.json")]
+    print(f"step 3 {arm}: {min(n)} to {max(n)} calls per episode, median {statistics.median(n)}")
+for name, pattern in (("untuned", "step2/runs/oracle/oracle-*.labels.json"),
+                      ("fine-tuned", "step3/runs/oracle_3cft/*.labels.json")):
+    cands, tops = [], []
+    for f in glob.glob(f"{D}/{pattern}"):
+        d = json.load(open(f))
+        cands += [c["outcome"] for c in d["candidates"] if c["outcome"]]
+        tops += [d["plan"]["outcome"]] if d["plan"] and d["plan"]["outcome"] else []
+    print(f"{name}: harmful {cands.count('APPLIED_HARMFUL')} of {len(cands)} candidates with an "
+          f"outcome, {tops.count('APPLIED_HARMFUL')} of {len(tops)} top picks with an outcome")
+EOF
+```
+
+Output on 2026-11-15:
+
+```
+step 1: 2584 turns, 2538 valid JSON, 2294 of 2337 tool calls valid, 368 refused by the read-only check, 1034746 completion tokens
+step 3 baseline3c: 3 to 16 calls per episode, median 11.5
+step 3 baseline3cft: 1 to 16 calls per episode, median 16.0
+untuned: harmful 0 of 73 candidates with an outcome, 0 of 10 top picks with an outcome
+fine-tuned: harmful 1 of 88 candidates with an outcome, 1 of 12 top picks with an outcome
+```

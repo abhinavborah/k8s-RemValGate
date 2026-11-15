@@ -405,3 +405,10 @@ archive and 689 for the log). SHA-256:
 |---|---|
 | `planner_runs_e5s1_fourtools_20261030.tar.gz` | `715caed66ce117d000309f688e2f907aaf9c3c316aa0840f427f82cdc459f7b0` |
 | `planner_fourtools_think_20261030_b.log` | `d1ceb28ddf268b5402ac43fba8882f98dd20f80af78c647b383cb710c1ad957d` |
+
+## Added on 2026-11-15: tokens and calls per episode of the reported runs
+
+#165 step 1 used 1034746 completion tokens over its 224 runs. In #165 step 3, 3c made 3 to 16
+model calls per episode (median 11.5) and 3cft 1 to 16 (median 16). The command that recomputes
+both from the run archives is in [failure_analysis.md](failure_analysis.md), under "Added on
+2026-11-15".

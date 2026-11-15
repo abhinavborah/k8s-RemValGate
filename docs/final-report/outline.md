@@ -2,9 +2,10 @@
 
 Outline of the final report, written while the last runs finish. The report itself is LaTeX in
 this folder, in the IEEEtran conference layout of the mid-submission report
-(`docs/mid-submission/`), with the same `refs.bib`. No page limit or template is known for the
-final report; this outline assumes the mid-report's length class. Each section names the pages
-and numbers it draws on, so the text can be written from them without new runs.
+(`docs/mid-submission/`), with a copy of its `refs.bib`. Format, as agreed in the group on
+2026-11-15: IEEE two-column (IEEEtran conference), under 8 pages, with figures, tables and charts.
+Each section names the pages and numbers it draws on, so the text can be written from them without
+new runs. The draft of the report is `final-report.tex` in this folder.
 
 R10.3 and #62 ask that the report state the falsifiable claim and whether it held, the limits
 (injected faults, small pool, exploratory checks, rollback scope), and the model name, version
@@ -75,7 +76,9 @@ and date for every reported result.
 
 - Retrieval, untuned: 3a 2, 3b 6, 3c 6. Fine-tuned (#34): top pick solves 8 with retrieval, 3
   without; working candidates 55 of 120 against 32 of 96; with the run-order confound.
-- Tool calling: the 2 by 2 of tools and the error bundle (`docs/tool_ablation.md`).
+- Tool calling: the 2 by 2 of tools and the error bundle (`docs/tool_ablation.md`). Recovered at
+  both seeds: 3c 6, kubectlonly 7, toolsbundle 8, notools 9 of 16 (`docs/ablations.md`), reported
+  and not tested (R9.4).
 - Deterministic check (R5.4): removes 34.4% of untuned and 24.2% of fine-tuned candidates.
 - Source: `docs/ablations.md`.
 
@@ -89,7 +92,13 @@ and date for every reported result.
 
 ### 6.4 Confirmation slice and singleton check
 
-- #59 and #73, run with 3c (proposed final system), no inferential weight. To be filled when run.
+- #59 and #73, run with 3c, no inferential weight. 3c as the system of both was confirmed by the
+  group after the slice was opened and before its outcomes were read (BRD 1.20, 1.23).
+- Confirmation slice (#59): opened once on 2026-11-14, 6 runs at seeds 1000 and 1001; recovered 5
+  of 6 runs, so 2 of 3 problems at both seeds (target_port at seed 1001 only); every command
+  admitted, none harmful; not the clean 3 of 3 that #59 frames (`docs/confirmation_check.md`, #188, merged).
+- Singleton check (#73): 0 of 8 runs recovered on 2 types (3c 0 of 4, baseline 2 0 of 4); 3 of the
+  5 types not run, for the reasons in BRD 1.22 (`docs/singleton_check.md`, #188, merged).
 
 ## 7. Limits
 
@@ -111,8 +120,11 @@ and date for every reported result.
 - Model: Qwen3.5-4B (revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`), GGUF Q8_0; LM Studio
   on the run host for steps 1 and 2 and baselines 1 to 3, 7 and 6; llama.cpp `61dbf49` on an A100
   SXM 80 GB for step 3 and #34 (2026-11-14). Dates per result from the manifests.
-- GPU: one A100 pod, about 12.7 hours at $2.19 per hour (training, merging, serving); training
-  0.07 to 0.13 GPU hours per fold.
+- GPU: one A100 SXM 80 GB; training 0.07 to 0.13 GPU hours per fold (`docs/baseline5.md`). The
+  pod's total hours and cost are not recorded in the repository, so the report leaves them out.
+- Harm counts: 0 of the 288 runs of steps 1 and 3 and 2 fine-tuned label candidates, both on
+  `pool-k8s_target_port-misconfig-mitigation-4`, counted from `step1.tar.gz` and `step3.tar.gz` on
+  the shared drive.
 - Archives and checksums on the shared drive (`rerun165_step3_20261114/`: step 3, #34, baseline 6, baseline 5 scores, GPU host logs, adapters), listed in `docs/primary_analysis.md`; the touch log; the replay (#145).
 - Model calls per episode: one planner call per turn, at most 16 by design, plus one retrieval.
   Measured in step 3 on 32 episodes per arm: 3c 3 to 16 calls (median 11.5), 3cft 1 to 16
@@ -129,5 +141,4 @@ and date for every reported result.
 
 ## Still to fill
 
-- #59 and #73 results.
-- Final page and format requirements, if the course states them.
+- The final tag of #63, named in section 8 once it is cut.
