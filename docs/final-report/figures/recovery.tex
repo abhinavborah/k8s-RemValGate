@@ -1,5 +1,5 @@
-% Recovered pool problems per arm, #165 step 1 (commit ffc2af6, 2026-11-13), from
-% docs/ablations.md. "Both seeds" counts a problem only when it recovered at seeds 1000 and 1001.
+% Recovered pool problems per arm, rerun step 1 (commit ffc2af6, 2026-11-13), from
+% docs/ablations.md and, for arm 7, docs/baselines_pool.md. "Both seeds" counts a problem only when it recovered at seeds 1000 and 1001.
 \begin{figure}[!t]
 \centering
 \begin{tikzpicture}
@@ -10,14 +10,14 @@
   xtick=data, x tick label style={font=\scriptsize,rotate=30,anchor=east},
   tick label style={font=\scriptsize}, label style={font=\scriptsize},
   legend style={font=\scriptsize,at={(0.02,0.98)},anchor=north west,draw=none,fill=none},
-  legend columns=3, enlarge x limits=0.08]
+  legend columns=3, area legend, enlarge x limits=0.08]
 \addplot[fill=cnot] coordinates {(3a,5) (3b,6) (3c,7) (7,7) (kubectlonly,8) (toolsbundle,10) (notools,11)};
 \addplot[fill=cpr] coordinates {(3a,3) (3b,6) (3c,8) (7,8) (kubectlonly,9) (toolsbundle,9) (notools,9)};
 \addplot[fill=cdone] coordinates {(3a,2) (3b,6) (3c,6) (7,3) (kubectlonly,7) (toolsbundle,8) (notools,9)};
 \legend{seed 1000, seed 1001, both seeds}
 \end{axis}
 \end{tikzpicture}
-\caption{Recovered pool problems per arm (\#165 step 1). The arms with the error bundle lead; the
-differences are reported, not tested (R9.4), and 3c alone changes on 3 problems between seeds.}
+\caption{Recovered pool problems per arm (rerun step 1). Counted at both seeds, both arms with
+the error bundle recover more problems than any arm without it.}
 \label{fig:recovery}
 \end{figure}

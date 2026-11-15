@@ -1,28 +1,29 @@
 % System of the final report: the planner acts on its own command, and the allow-list is the
-% only check before execution. No gate is in the loop (#46, #49 closed as not planned).
+% only check before execution. No gate is in the loop (the gate was not built).
 \begin{figure*}[!t]
 \centering
 \begin{tikzpicture}[
   font=\scriptsize,
-  box/.style={draw,rounded corners=2pt,minimum width=2.9cm,minimum height=1.15cm,align=center,text width=2.8cm,line width=0.5pt,fill=white},
+  box/.style={draw,rounded corners=2pt,minimum width=2.6cm,minimum height=1.15cm,align=center,text width=2.5cm,line width=0.5pt,fill=white},
   model/.style={box,fill=cpr},
   check/.style={box,fill=cbuilt},
+  lab/.style={font=\tiny,align=center,inner sep=1pt},
   arr/.style={-{Stealth[length=4pt]},line width=0.5pt}]
 \node[box]   (F)  at (0,0)     {Fault injection\\AIOpsLab on kind\\16 pool problems};
-\node[box]   (R)  at (3.5,0)   {Retrieval (iii)\\dense plus reranker\\per-fold corpus, $k=3$};
-\node[model] (P)  at (7,0)     {Planner, Qwen3.5-4B\\read-only tools,\\at most 16 turns,\\one command};
-\node[check] (A)  at (10.5,0)  {Allow-list and\\namespace check};
-\node[box]   (E)  at (14,0)    {Refused: escalated,\\nothing applied};
-\node[check] (S)  at (10.5,-2.6) {Apply, 120 s settle,\\harm detection,\\fault check};
-\node[box]   (OK) at (14,-2.6) {Recovered};
-\node[box]   (X)  at (7,-2.6)  {Not recovered\\(applied, ineffective\\or harmful); reset};
+\node[box]   (R)  at (3.75,0)  {Retrieval (iii)\\dense plus reranker\\per-fold corpus, $k=3$};
+\node[model] (P)  at (7.5,0)   {Planner, Qwen3.5-4B\\read-only tools,\\at most 16 turns,\\one command};
+\node[check] (A)  at (11.25,0) {Allow-list and\\namespace check};
+\node[box]   (E)  at (15,0)    {Refused:\\nothing applied};
+\node[check] (S)  at (11.25,-2.6) {Apply, 120 s settle,\\harm detection,\\fault check};
+\node[box]   (OK) at (15,-2.6) {Recovered};
+\node[box]   (X)  at (7.5,-2.6) {Not recovered\\(applied, ineffective\\or harmful); reset};
 \draw[arr] (F) to (R);
 \draw[arr] (R) to (P);
 \draw[arr] (P) to (A);
-\draw[arr] (A) to node[above] {refused} (E);
-\draw[arr] (A) to node[right] {admitted} (S);
-\draw[arr] (S) to node[above] {fault gone} (OK);
-\draw[arr] (S) to node[above] {fault remains} (X);
+\draw[arr] (A) to node[lab,above] {refused} (E);
+\draw[arr] (A) to node[lab,right] {admitted} (S);
+\draw[arr] (S) to node[lab,above] {fault\\gone} (OK);
+\draw[arr] (S) to node[lab,above] {fault\\remains} (X);
 \end{tikzpicture}
 \caption{The system as evaluated. The planner diagnoses with read-only tools and gives one command;
 the allow-list is the only check before it runs. The validity gate of the original design was not
