@@ -1,4 +1,5 @@
 import copy
+import json
 
 import pytest
 
@@ -55,7 +56,7 @@ def _harm(harmful, fault_remains):
     )
 
 
-def _apply(cluster, command=SCALE, fault_type="scale_pods_to_zero", *, passed, harm):
+def _apply(cluster, command=SCALE, fault_type="scale_pods_to_zero", *, passed, harm, mongo=None):
     def measure():
         cluster.calls.append("harm")
         return harm
@@ -76,6 +77,7 @@ def _apply(cluster, command=SCALE, fault_type="scale_pods_to_zero", *, passed, h
         measure_harm=measure,
         check=check,
         rolled_out=cluster.rolled_out,
+        mongo=mongo,
     )
 
 
@@ -199,3 +201,122 @@ def test_an_unknown_fault_type_is_refused_before_the_command_runs():
     with pytest.raises(ValueError, match="unknown fault type"):
         _apply(cluster, fault_type="network_delay", passed=True, harm=_harm(False, False))
     assert cluster.calls == []
+
+
+class Users:
+    """A MongoDB whose admin user loses its role when the command runs; a restore grants it."""
+
+    SAVED = [{"role": "readWrite", "db": "geo-db"}]
+
+    def __init__(self, calls):
+        self.roles, self.calls = list(self.SAVED), calls
+
+    def __call__(self, deployment, script):
+        if "grantRolesToUser" in script:
+            self.calls.append(f"mongo restore {deployment}")
+            self.roles = list(self.SAVED)
+            return ""
+        user = {"_id": "admin.admin", "user": "admin", "db": "admin", "roles": self.roles}
+        return "REMVALGATE_USER " + json.dumps(user) + "\n"
+
+
+def _revoking(cluster, users):
+    """The command also revokes the user's role, as a database fault's command may."""
+    original = cluster.run
+
+    def run(command):
+        users.roles = []
+        return original(command)
+
+    cluster.run = run
+
+
+@pytest.mark.parametrize("fault_type", ["revoke_auth", "storage_user_unregistered"])
+def test_a_database_fault_with_mongo_restores_the_users_after_a_failed_check(fault_type):
+    cluster = Cluster()
+    users = Users(cluster.calls)
+    _revoking(cluster, users)
+    execution = _apply(cluster, EXEC, fault_type, passed=False, harm=_harm(True, True), mongo=users)
+    assert execution.escalated and execution.restore.restored
+    # harm is measured before the restore, and no object was touched
+    assert cluster.calls.index("harm") < cluster.calls.index("mongo restore mongodb-geo")
+    assert "replace" not in cluster.calls
+    assert users.roles == Users.SAVED
+    assert classify(execution.result) is Outcome.APPLIED_HARMFUL
+
+
+def test_a_database_fault_with_mongo_also_restores_a_touched_deployment():
+    cluster = Cluster()
+    users = Users(cluster.calls)
+    _revoking(cluster, users)
+    execution = _apply(
+        cluster, SCALE, "revoke_auth", passed=False, harm=_harm(True, True), mongo=users
+    )
+    # the scale is put back too, so restored is not claimed for a change left in place
+    assert cluster.live[("Deployment", "media-service")]["spec"]["replicas"] == 0
+    assert "rollout media-service" in cluster.calls
+    assert users.roles == Users.SAVED
+    assert execution.restore.restored
+
+
+def test_a_database_fault_with_mongo_is_not_restored_when_the_object_restore_fails():
+    cluster = Cluster()
+    users = Users(cluster.calls)
+
+    def put(action, obj):
+        raise RuntimeError("replace failed")
+
+    cluster.put = put
+    execution = _apply(
+        cluster, SCALE, "revoke_auth", passed=False, harm=_harm(False, True), mongo=users
+    )
+    assert cluster.live[("Deployment", "media-service")]["spec"]["replicas"] == 1
+    assert not execution.restore.restored
+    assert execution.restore.errors == ("Deployment/media-service: replace failed",)
+    assert "Deployment/media-service" in execution.restore.changed
+
+
+@pytest.mark.parametrize("raises", ["run", "harm", "check"])
+def test_a_database_fault_with_mongo_restores_the_users_before_an_error(raises):
+    cluster = Cluster()
+    users = Users(cluster.calls)
+    _revoking(cluster, users)
+    revoking_run = cluster.run
+
+    def fail(name, then=None):
+        def call(*args):
+            if then is not None:
+                then(*args)
+            raise RuntimeError(f"{name} failed")
+
+        return call
+
+    if raises == "run":
+        cluster.run = fail("run", revoking_run)
+    with pytest.raises(RuntimeError, match=f"{raises} failed") as error:
+        apply_with_check(
+            EXEC,
+            "revoke_auth",
+            True,
+            policy=POLICY,
+            namespace=NS,
+            get=cluster.get,
+            put=cluster.put,
+            run=cluster.run,
+            measure_harm=fail("harm") if raises == "harm" else (lambda: _harm(False, True)),
+            check=fail("check") if raises == "check" else (lambda: False),
+            rolled_out=cluster.rolled_out,
+            mongo=users,
+        )
+    assert users.roles == Users.SAVED
+    assert any("restored True" in note for note in error.value.__notes__)
+
+
+def test_a_database_fault_with_mongo_keeps_a_change_that_passes_the_check():
+    cluster = Cluster()
+    users = Users(cluster.calls)
+    execution = _apply(
+        cluster, fault_type="revoke_auth", passed=True, harm=_harm(False, False), mongo=users
+    )
+    assert execution.restore is None
+    assert not any(c.startswith("mongo restore") for c in cluster.calls)
