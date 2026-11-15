@@ -52,6 +52,10 @@ Recovered: 0 of 8 runs (3c 0 of 4, baseline 2 0 of 4), on 2 singleton types.
 - 8 runs on 2 types: no rate is meaningful, and the result says only that neither arm handled
   these two faults here.
 - The fault-shows rules of the singleton types were first seen on the cluster in these runs.
+- `redeploy_without_PV` may not show its fault on this cluster at all (a reading of the code and
+  the cluster's configuration, not tested): its injector deletes the namespace and redeploys, and
+  every Hotel Reservation volume here is provisioned on demand with reclaim policy `Delete`, so the
+  volumes go with the namespace and the redeploy gets fresh ones.
 - No oracle labels exist for the singletons, so an escalation cannot be told apart from one with a
   working candidate (ESCALATED_UNLABELLED).
 - The run files are on the shared drive under `run-logs/singleton73_20261115/`, as
