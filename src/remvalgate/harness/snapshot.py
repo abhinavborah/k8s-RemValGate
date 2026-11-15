@@ -139,6 +139,18 @@ def restore(
         return RestoreResult(attempted=False, changed=())
     if fault_type not in IN_SCOPE:
         raise ValueError(f"unknown fault type {fault_type!r}")
+    return restore_objects(snapshot, get, put)
+
+
+def restore_objects(
+    snapshot: Snapshot,
+    get: Callable[[ObjectRef], dict | None],
+    put: Callable[[str, dict], None],
+) -> RestoreResult:
+    """Put the snapshot's objects back whatever the fault type, as restore does in scope.
+
+    For a database fault whose command also changed a Deployment or Service (execute.py).
+    """
     expected = dict(snapshot.objects)
     recreated = []
     errors = []
