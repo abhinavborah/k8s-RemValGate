@@ -52,8 +52,16 @@ command is executed as 3c's is. Its run ids start with notools-; the rules and t
 with 3c are in docs/tool_ablation.md.
 
 Development problems run the same way with the synthetic stub corpus and no touch, as a dry run;
-one run takes pool or development ids, never both. A failed check stops the run: the files of the
-runs already finished stay, and the rest are run again by id, each with a new touch.
+one run takes the ids of one slice only. A failed check stops the run: the files of the runs
+already finished stay, and the rest are run again by id, each with a new touch.
+
+The confirmation slice (#59, R9.6) and the singleton types (#73, R9.5) run baselines 2 and 3c only,
+retrieving from every pool incident and the runbook, since they are in no fold (BRD 1.20). Their
+outputs go to runs/confirmation/ and runs/singleton/. The run that passes --open-confirmation is
+the only run of the slice: it opens it once after every check of the run, closes it when it ends,
+even if it stopped early, and every later run of the slice is refused. Of the 5 singleton types,
+3 have a fault type (oracle.SINGLETON_TYPES) and run; the other 2 are refused before any touch
+(BRD 1.22).
 
 Outputs go to runs/baselines_pool/, which git ignores, and to the shared drive:
 
@@ -135,32 +143,45 @@ from remvalgate.baselines.untuned import pool_untuned_retriever, untuned_retriev
 from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import check_chain
 from remvalgate.harness.cluster_state import changed
-from remvalgate.harness.folds import fault_type, pool_folds
+from remvalgate.harness.folds import pool_folds
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
     MAX_R,
     Manifest,
     Slice,
+    close_confirmation,
     load_registry,
     logged_namespace,
+    open_confirmation,
     start_run,
     write_manifest,
 )
 from remvalgate.harness.model_build import build_for
-from remvalgate.harness.oracle import DATABASE_TYPES
+from remvalgate.harness.oracle import DATABASE_TYPES, problem_fault_type
 from remvalgate.harness.outcome import classify, single_action_result
 from remvalgate.harness.protocol import interleaved
+from remvalgate.harness.selection import HELD_OUT, selection
 from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest_services
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
 from remvalgate.planner.chat import API_KEY_ENV, OpenAIChat
 from remvalgate.planner.loop import DEFAULT_TOOLS, plan, task_text
 from remvalgate.planner.telemetry import preview
-from remvalgate.retrieval.fixed import development_retriever, pool_retriever
+from remvalgate.retrieval.fixed import (
+    development_retriever,
+    held_out_retriever,
+    pool_retriever,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
+# the confirmation slice and the singleton types: in no fold, so no fine-tuned build; one output
+# folder each
+OUT_DIRS = {
+    Slice.CONFIRMATION: ROOT / "runs" / "confirmation",
+    Slice.SINGLETON: ROOT / "runs" / "singleton",
+}
 CONTEXT = "kind-kind"
 BASELINES = ("1", "2", "3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly", "3cft")
 PLANNER = ("3a", "3b", "3c", "7", "notools", "toolsbundle", "kubectlonly", "3cft")
@@ -189,12 +210,12 @@ def observe_fault(prob, problem_id: str, clean) -> tuple[list, dict]:
     Returns the observations and the objects as the injection left them.
     """
     namespace = prob.namespace
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the database faults change MongoDB users, which these objects do not record
-        if fault_type(problem_id) not in DATABASE_TYPES:
+        if problem_fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
             check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
@@ -273,14 +294,14 @@ async def diagnose_without_tools(
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
         injected_at = int(time.time() * 1e6)
         # the database faults change MongoDB users, which these objects do not record
-        if fault_type(problem_id) not in DATABASE_TYPES:
+        if problem_fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
             check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
@@ -324,8 +345,13 @@ async def diagnose_without_tools(
     return result, first, bundle, counts, injected
 
 
-def retrievers(baselines: list[str], pool: bool, registry) -> dict:
+def retrievers(baselines: list[str], slice_: Slice, registry) -> dict:
     """The retriever of each baseline that needs one, each model loaded once."""
+    if slice_ in HELD_OUT:
+        # baselines 2 and 3c only (HELD_OUT_BASELINES), over the whole pool corpus (BRD 1.20)
+        iii = held_out_retriever(registry) if {"2", "3c"} & set(baselines) else None
+        return {b: iii for b in baselines if b in ("2", "3c")}
+    pool = slice_ is Slice.POOL
     iii = None
     chosen = {}
     for b in baselines:
@@ -352,7 +378,18 @@ def fold_servers(path: Path | None) -> dict[int, dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("problems", nargs="*", help="pool or development ids (default: the pool)")
+    parser.add_argument(
+        "problems",
+        nargs="*",
+        help="pool, development, confirmation or singleton ids, one slice per run (default: the "
+        "pool)",
+    )
+    parser.add_argument(
+        "--open-confirmation",
+        action="store_true",
+        help="open the sealed confirmation slice before the runs and close it when they end "
+        "(R9.6); the only run of the slice, so give every confirmation id and seed at once",
+    )
     parser.add_argument(
         "--baseline", action="append", choices=BASELINES, required=True, help="repeatable"
     )
@@ -394,17 +431,16 @@ def main() -> int:
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for the planner arms")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
-    development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
-    selected = list(dict.fromkeys(args.problems)) or pool
-    others = [i for i in selected if i not in pool and i not in development]
-    if others:
-        parser.error(f"not pool or development problems: {', '.join(others)}")
-    if "3cft" in baselines and any(i in development for i in selected) and args.dev_fold is None:
+    try:
+        selected, args.slice = selection(
+            args.problems, baselines, registry, open_confirmation=args.open_confirmation
+        )
+    except ValueError as error:
+        parser.error(str(error))
+    development = [i for i in selected if args.slice is Slice.DEVELOPMENT]
+    if "3cft" in baselines and development and args.dev_fold is None:
         parser.error("3cft on development problems needs --dev-fold")
     args.folds = pool_folds(registry)
-    if any(i in pool for i in selected) and any(i in development for i in selected):
-        parser.error("pool and development problems run apart, so a summary is never mixed")
     # AIOpsLab's injectors run kubectl in the current context, the checks here in kind-kind
     current = subprocess.run(
         ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
@@ -412,7 +448,7 @@ def main() -> int:
     check(current == CONTEXT, f"current kubectl context is {current!r}, expected {CONTEXT!r}")
     check(not config.get("qualitative_eval"), "set qualitative_eval: false in aiopslab/config.yml")
     check(config.get("k8s_host") == "kind", "set k8s_host: kind in aiopslab/config.yml")
-    retriever = retrievers(baselines, selected[0] in pool, registry)
+    retriever = retrievers(baselines, args.slice, registry)
     # the settings of the labelling run (scripts/run_oracle_labels.py), apart from the seed
     chat = OpenAIChat(
         model=MODEL,
@@ -426,7 +462,8 @@ def main() -> int:
         # a missing or unsafe password variable stops the run before anything is touched
         credentials.values()
     SCRATCH.mkdir(parents=True, exist_ok=True)
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    args.out = OUT_DIRS.get(args.slice, OUT_DIR)
+    args.out.mkdir(parents=True, exist_ok=True)
     # the tools write files to the current directory (get_traces and get_metrics do)
     os.chdir(SCRATCH)
     for namespace in namespaces:
@@ -435,7 +472,12 @@ def main() -> int:
     nodes = len(kubectl("get", "nodes", "-o", "name").stdout.split())
     print(f"cluster {CONTEXT}: {nodes} nodes, {len(selected)} problems, baselines {baselines}")
     forward = prometheus_port_forward() if uses_model else None
+    opened = None
     try:
+        if args.open_confirmation:
+            # after every check and the port-forward, so a run that cannot start never opens it
+            opened = open_confirmation(registry, TOUCH_LOG, ROOT, pinned_commit(ROOT))
+            print(f"confirmation slice opened at {opened}", flush=True)
         for seed, problem_id, baseline in interleaved(seeds, selected, baselines):
             row = run_one(
                 baseline,
@@ -454,6 +496,9 @@ def main() -> int:
                 left = changed(clean[ns].objects, objects(ns))
                 check(not left, f"{problem_id}: {ns} changed: {left}")
     finally:
+        # the slice is opened once: closed when this run ends, even if it stopped early
+        if opened is not None:
+            print(f"confirmation slice closed at {close_confirmation(registry, TOUCH_LOG)}")
         if forward is not None:
             forward.terminate()
     print("result: PASS")
@@ -486,7 +531,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
     run = start_run(
         run_id, problem_id, registry, TOUCH_LOG, ROOT, pinned_commit(ROOT), now, namespace=namespace
     )
-    results_dir = OUT_DIR / run_id
+    results_dir = args.out / run_id
     orch = new_orchestrator(results_dir=results_dir)
     prob = orch.probs.get_problem_instance(problem_id)
     check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
@@ -604,7 +649,7 @@ def run_one(baseline, problem_id, registry, clean, chat, retriever, args, nodes)
             else {"baseline": baseline}
         ),
     )
-    path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
+    path = write_manifest(manifest, run, args.out, registry, TOUCH_LOG)
     path.with_suffix(".transcript.json").write_text(
         json.dumps(transcript, indent=2, sort_keys=True, default=str)
     )
