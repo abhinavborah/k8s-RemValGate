@@ -68,7 +68,7 @@ def _candidate(number: int, c: dict) -> str:
     rejected = _rejection(c)
     state = ": ".join(rejected) if rejected else c.get("outcome") or "admitted"
     if c.get("duplicate_of") is not None:
-        state += f" (same command as candidate {c['duplicate_of'] + 1})"
+        state += f" (same command as seed {c['duplicate_of']})"  # the earlier candidate's seed
     return f"{number}. [{state}] seed {c.get('seed')}\n   {c.get('command')}"
 
 
@@ -153,7 +153,9 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
         chosen += f"\nreply not parsed: {reason}" if kind == "reply not parsed" else ""
     else:
         chosen = f"{command}\nallow-list: {refusal or 'admitted'} (stop: {stop})"
-        chosen += f"\nnot sent: {reason}" if kind == "not sent" else ""
+        # the pool runner keeps why an admitted command was not sent in the row's note
+        unsent = reason if kind == "not sent" else result.get("note")
+        chosen += f"\nnot sent: {unsent}" if unsent else ""
 
     outcome = f"outcome {plan.get('outcome') or result.get('outcome') or 'none, nothing applied'}"
     if labels:

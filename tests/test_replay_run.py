@@ -47,6 +47,10 @@ def test_parts_in_order_with_refusal():
     assert "kubectl scale" in text["5. Chosen action or escalation"]
     assert "RECOVERED" in text["6. Outcome"] and "n = 2, c = 1" in text["6. Outcome"]
 
+    # duplicate_of is the earlier candidate's seed, not its place in the list
+    dup = {"seed": 1001, "command": "kubectl x", "duplicate_of": 1000, "outcome": "RECOVERED"}
+    assert "(same command as seed 1000)" in replay._candidate(2, dup)
+
     # a plan refused by the allow-list shows its reason once, without the prefix
     refused = labels | {"plan": {"command": "kubectl x", "rejection": "allow-list: FLAG_DENIED"}}
     chosen = dict(replay.stages(MANIFEST, transcript, refused, {}))[
@@ -70,6 +74,19 @@ def test_escalation_from_a_result_row():
     assert "escalated to a human" in text["5. Chosen action or escalation"]
     assert "unsure" in text["5. Chosen action or escalation"]
     assert "NOT_SENT" in text["6. Outcome"]
+
+    # an admitted command that the pool runner could not send keeps its reason
+    unsent = {
+        "command": "kubectl x",
+        "stop": "final",
+        "allow_list": "admitted",
+        "note": "cannot be sent unchanged: quote",
+        "outcome": "NOT_SENT",
+    }
+    chosen = dict(replay.stages(MANIFEST, {"stop": "final"}, {}, unsent))
+    assert chosen["5. Chosen action or escalation"].endswith(
+        "allow-list: admitted (stop: final)\nnot sent: cannot be sent unchanged: quote"
+    )
 
     # a turn cap and a reply that held no command are not escalations
     capped = {"command": None, "stop": "turn_cap", "outcome": "NOT_SENT"}
