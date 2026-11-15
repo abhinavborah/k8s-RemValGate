@@ -8,7 +8,8 @@ deleted is created again. Only Deployments and Services are snapshotted: a pod t
 is recreated by its controller, and a ReplicaSet scaled by hand is set back by its Deployment.
 
 Faults whose state is not a Kubernetes object (RevokeAuth, UserUnregistered) are out of scope:
-restore does nothing for them and says so. The caller escalates and still runs harm detection.
+restore does nothing for them and says so. mongo_snapshot.py snapshots and restores their MongoDB
+users instead (#187); without it the caller escalates and still runs harm detection.
 
 The kubectl calls are injected, as in harm.py, so CI tests the logic without a cluster.
 """

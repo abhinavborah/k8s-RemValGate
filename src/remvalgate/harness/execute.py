@@ -20,6 +20,7 @@ import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+from remvalgate.harness import mongo_snapshot
 from remvalgate.harness.allowlist import Policy
 from remvalgate.harness.harm import HarmResult
 from remvalgate.harness.outcome import ProblemResult, applied_result
@@ -70,6 +71,7 @@ def apply_with_check(
     measure_harm: Callable[[], HarmResult],
     check: Callable[[], bool],
     rolled_out: Callable[[ObjectRef], None],
+    mongo: mongo_snapshot.Exec | None = None,
 ) -> Execution:
     """Snapshot, apply, measure harm, check, and restore and escalate on a failed check.
 
@@ -77,7 +79,9 @@ def apply_with_check(
     anything runs. run returns the exit code. measure_harm waits the settle window and returns
     detect_harm's result, with pre taken before this call. check runs readiness and the probes
     with no further settle window. rolled_out waits for a restored Deployment and raises
-    RuntimeError if it does not roll out. get and put are as in snapshot.restore.
+    RuntimeError if it does not roll out. get and put are as in snapshot.restore. mongo, given
+    for a database fault (RevokeAuth, UserUnregistered), snapshots and restores the MongoDB users
+    instead (mongo_snapshot.py, #187); without it such a fault escalates with no restore.
 
     Raises ValueError for a fault type in neither scope list, before the command runs. If run,
     measure_harm or check raises, the snapshot is restored and its Deployments waited for before
@@ -93,14 +97,19 @@ def apply_with_check(
         refs = None
     if fault_type in IN_SCOPE and refs:
         snapshot = take(namespace, refs, get)
-    can_restore = snapshot is not None and bool(snapshot.objects)
+    if fault_type in OUT_OF_SCOPE and mongo is not None:
+        # a failed read raises here, before the command runs
+        snapshot = mongo_snapshot.take(namespace, mongo)
+    can_restore = snapshot is not None and (
+        isinstance(snapshot, mongo_snapshot.UserSnapshot) or bool(snapshot.objects)
+    )
     try:
         exit_code = run(command)
         harm = measure_harm()
         passed = check()
     except BaseException as error:
         if can_restore:
-            restored, rollout_errors = _undo(fault_type, snapshot, get, put, rolled_out)
+            restored, rollout_errors = _undo(fault_type, snapshot, get, put, rolled_out, mongo)
             error.add_note(
                 f"snapshot restored before this error: restored {restored.restored}, "
                 f"changed {list(restored.changed)}, errors {list(restored.errors)}, "
@@ -109,7 +118,7 @@ def apply_with_check(
         raise
     restored, rollout_errors = None, []
     if not passed and can_restore:
-        restored, rollout_errors = _undo(fault_type, snapshot, get, put, rolled_out)
+        restored, rollout_errors = _undo(fault_type, snapshot, get, put, rolled_out, mongo)
     result = applied_result(harm, any_working_candidate, restore_attempted=restored is not None)
     if not passed:
         # an escalation is never recovered, also when nothing was restored
@@ -125,8 +134,12 @@ def apply_with_check(
     )
 
 
-def _undo(fault_type, snapshot, get, put, rolled_out) -> tuple[RestoreResult, list[str]]:
+def _undo(fault_type, snapshot, get, put, rolled_out, mongo) -> tuple[RestoreResult, list[str]]:
     """Restore the snapshot, then wait for each restored Deployment, recording any that fail."""
+    if isinstance(snapshot, mongo_snapshot.UserSnapshot):
+        # users only: no Deployment changed, so there is no rollout to wait for; restarting the
+        # client pods, as AIOpsLab's recovery does, is left to the caller
+        return mongo_snapshot.restore(fault_type, snapshot, mongo), []
     restored = restore(fault_type, snapshot, get, put)
     rollout_errors = []
     for ref in snapshot.objects:
