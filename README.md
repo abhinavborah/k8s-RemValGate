@@ -256,24 +256,26 @@ it. The four adapters are `adapters.tar` on the drive ([docs/baseline5.md](docs/
 
 ## Evaluation-set rules
 
-- **Slices.** `src/remvalgate/harness/slices.json` maps each problem to a slice: 16 pool problems
-  in 4 folds, 3 development problems, a 3-problem confirmation slice and 5 singleton types, which
-  are in no fold and no corpus and reported descriptively only
+- **Slices.** [`src/remvalgate/harness/slices.json`](src/remvalgate/harness/slices.json) maps each
+  problem to a slice: 16 pool problems in 4 folds, 3 development problems, a 3-problem confirmation
+  slice and 5 singleton types, which are in no fold and no corpus and reported descriptively only
   ([docs/problem_inventory.md](docs/problem_inventory.md)).
-- **Touch log.** `runs/touch_log.jsonl` (committed, append only, merged as a union) gets one line
-  per use of a pool, confirmation or singleton problem, and per creation, seal, authoring or
-  fixture touch, through `start_run` in `src/remvalgate/harness/manifest.py`.
+- **Touch log.** [`runs/touch_log.jsonl`](runs/touch_log.jsonl) (committed, append only, merged as
+  a union) gets one line per use of a pool, confirmation or singleton problem, and per creation,
+  seal, authoring or fixture touch, through `start_run` in
+  [`src/remvalgate/harness/manifest.py`](src/remvalgate/harness/manifest.py).
 - **Refusals.** A pool or singleton run is refused without a touch entry, with a run id already in
   the log, with an unpinned AIOpsLab, or with any uncommitted or untracked file. It is also refused
   until the confirmation slice is sealed ([gate G1](docs/brd.md#71-pre-registration-gates),
-  `runs/confirmation_seal.json`).
+  [`runs/confirmation_seal.json`](runs/confirmation_seal.json)).
 - **Confirmation slice.** Opened once on 2026-11-14 and closed on 2026-11-15: no further
   confirmation run is admitted ([docs/confirmation_check.md](docs/confirmation_check.md)).
 - **Retrieval configuration (iii)**, dense retrieval with a cross-encoder reranker
   ([BRD R4.2](docs/brd.md#e4-retrieval-capability-rag)), was fixed before any evaluation run
-  ([gate G5](docs/brd.md#71-pre-registration-gates)). `src/remvalgate/retrieval/fixed.json`
-  records it, and `configuration_iii` ([`fixed.py`](src/remvalgate/retrieval/fixed.py)) refuses to
-  build when the live settings differ, so a change needs a new entry with its reason.
+  ([gate G5](docs/brd.md#71-pre-registration-gates)).
+  [`src/remvalgate/retrieval/fixed.json`](src/remvalgate/retrieval/fixed.json) records it, and
+  `configuration_iii` in [`fixed.py`](src/remvalgate/retrieval/fixed.py) refuses to build when the
+  live settings differ, so a change needs a new entry with its reason.
 
 ## AIOpsLab pin and overlay
 
@@ -289,10 +291,16 @@ to `start_run` ([`manifest.py`](src/remvalgate/harness/manifest.py)). `pinned_co
 `HEAD`, not the checkout under `external/`, so a submodule moved by hand and not committed does
 not change it.
 
-New problems are in `src/remvalgate/overlay/` (known fixes in `fixes.py`) and exist only in an
-Orchestrator built with `remvalgate.overlay.new_orchestrator`, not in a bare `Orchestrator()`.
-`scripts/validate_overlay_problems.py` checks on a cluster that each fault breaks the eval and its
-known fix repairs it.
+New problems are in [`src/remvalgate/overlay/`](src/remvalgate/overlay/) (known fixes in
+[`fixes.py`](src/remvalgate/overlay/fixes.py)): the development problems
+([docs/development_problems.md](docs/development_problems.md)), the pool extension
+([docs/pool_extension.md](docs/pool_extension.md)), the pool variant of AssignNonExistentNode
+([docs/problem_inventory.md](docs/problem_inventory.md#pool-eval-override-for-row-11)) and the
+confirmation slice ([docs/confirmation_problems.md](docs/confirmation_problems.md)). They exist
+only in an AIOpsLab `Orchestrator` built with `remvalgate.overlay.new_orchestrator`, not in a bare
+`Orchestrator()`. [`scripts/validate_overlay_problems.py`](scripts/validate_overlay_problems.py)
+checks on a cluster that each problem's mitigation eval fails with its fault injected and passes
+after its known fix.
 
 Image digests of the verified runs ([BRD 7.3](docs/brd.md#73-reproducibility)); several tags are
 mutable, so a later pull can differ.
