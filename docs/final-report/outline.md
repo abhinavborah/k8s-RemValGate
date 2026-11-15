@@ -96,9 +96,9 @@ and date for every reported result.
   group after the slice was opened and before its outcomes were read (BRD 1.20, 1.23).
 - Confirmation slice (#59): opened once on 2026-11-14, 6 runs at seeds 1000 and 1001; recovered 5
   of 6 runs, so 2 of 3 problems at both seeds (target_port at seed 1001 only); every command
-  admitted, none harmful (`docs/confirmation_check.md`, from #188).
+  admitted, none harmful; not the clean 3 of 3 that #59 frames (`docs/confirmation_check.md`, #188, merged).
 - Singleton check (#73): 0 of 8 runs recovered on 2 types (3c 0 of 4, baseline 2 0 of 4); 3 of the
-  5 types not run, for the reasons in BRD 1.22 (`docs/singleton_check.md`, from #188).
+  5 types not run, for the reasons in BRD 1.22 (`docs/singleton_check.md`, #188, merged).
 
 ## 7. Limits
 
@@ -138,6 +138,4 @@ and date for every reported result.
 
 ## Still to fill
 
-- Recheck the #59 and #73 numbers against `docs/confirmation_check.md` and
-  `docs/singleton_check.md` once #188 merges.
 - The final tag of #63, named in section 8 once it is cut.

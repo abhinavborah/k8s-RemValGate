@@ -26,8 +26,7 @@
 \definecolor{cdone}{RGB}{60,120,170}
 \definecolor{cpr}{RGB}{150,190,225}
 
-\title{Can a Small Planner Fix Kubernetes Incidents? Retrieval, Tools and Fine-Tuning on
-AIOpsLab: Final Report}
+\title{A Validity Gate for Kubernetes Incident Remediation: Final Report}
 
 \author{%
 \begin{tabular}{@{}c@{\hspace{0.9em}}c@{\hspace{0.9em}}c@{\hspace{0.9em}}c@{}}
@@ -309,7 +308,8 @@ faulty one; every problem and seed that \code{notools} recovered and 3c did not 
 
 3c, the pre-specified system, ran on both. The confirmation slice was opened once, with 6 runs at
 the two seeds: 5 of 6 runs recovered, so 2 of 3 problems at both seeds (the TargetPortMisconfig
-problem recovered at one seed only); every command was admitted and none was harmful. On 2
+problem recovered at one seed only), not the clean 3 of 3 the plan framed; every command was
+admitted and none was harmful. On 2
 singleton types neither 3c nor retrieval only recovered any of 8 runs; of the other 3 types, one
 was run but its fault never showed, and two could not be run on this cluster. Neither result
 carries inferential weight.
