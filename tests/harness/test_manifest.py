@@ -22,6 +22,7 @@ from remvalgate.harness.manifest import (
     RunStart,
     Slice,
     check_seal,
+    close_confirmation,
     git_state,
     load_registry,
     log_authoring,
@@ -1189,6 +1190,38 @@ def test_confirmation_runs_after_the_opening_up_to_max_r(tmp_path):
         assert start.slice is Slice.CONFIRMATION
     with pytest.raises(RunRefused, match="already has 3 runs"):
         _start(tmp_path, CONF, run_id="run-0009", repo=repo)
+
+
+def test_confirmation_run_refused_after_the_slice_is_closed(tmp_path):
+    _, log, repo = _open(tmp_path)
+    _start(tmp_path, CONF, run_id="run-0001", repo=repo)
+    closed = close_confirmation(_registry(tmp_path), log, NOW + timedelta(hours=1))
+    assert _runs(log)[-1] == {
+        "problem_id": CONF,
+        "run_id": f"close-{CONF}-20261027t111500z",
+        "slice": "confirmation",
+        "timestamp": closed,
+    }
+    with pytest.raises(RunRefused, match="is closed"):
+        _start(tmp_path, CONF, run_id="run-0002", repo=repo)
+
+
+def test_close_confirmation_needs_an_open_slice_and_closes_once(tmp_path):
+    repo = _repo(tmp_path)
+    log = repo / "runs" / "touch_log.jsonl"
+    with pytest.raises(RunRefused, match="not opened"):
+        close_confirmation(_registry(tmp_path), log, NOW)
+    _, log, _ = _open(tmp_path, repo=repo)
+    close_confirmation(_registry(tmp_path), log, NOW)
+    before = log.read_bytes()
+    with pytest.raises(RunRefused, match="already closed"):
+        close_confirmation(_registry(tmp_path), log, NOW)
+    assert log.read_bytes() == before
+
+
+def test_start_run_refuses_a_close_run_id(tmp_path):
+    with pytest.raises(RunRefused, match="close touches"):
+        _start(tmp_path, DEV, run_id="close-run-0001")
 
 
 def test_start_run_refuses_an_open_run_id(tmp_path):

@@ -15,6 +15,9 @@ qualitative check with no test and no inferential weight: 3 problems, 6 runs.
 - Retrieval: configuration (iii) over every pool incident and the runbook, with no record of the
   confirmation problems (BRD 1.20).
 - The outcomes were first read on 2026-11-15, after the group agreed that this opening counts.
+- The slice was closed on 2026-11-15 at 07:36:50 UTC (one close touch per problem), after the
+  outcomes were read, so no further confirmation run is admitted. Runs that open the slice now
+  close it when they end.
 
 ## Results
 
@@ -24,8 +27,11 @@ qualitative check with no test and no inferential weight: 3 problems, 6 runs.
 | `conf-scale_pod_zero_social_net-mitigation-1` | recovered | recovered |
 | `conf-assign_to_non_existent_node_social_net-mitigation-1` | recovered | recovered |
 
-Recovered: 5 of 6 runs (seed 1000: 2 of 3, seed 1001: 3 of 3). Every run sent one command, the
-allow-list admitted each, and none was harmful (no newly unhealthy workload).
+Under the both-seeds rule of BRD 1.20 (#56), a problem counts only when it recovers at both seeds:
+2 of 3 problems, since `k8s_target_port` recovered at seed 1001 only. This is not the clean 3 of 3
+that #59 frames (p = 0.25). Per run, descriptively: 5 of 6 runs recovered (seed 1000: 2 of 3, seed
+1001: 3 of 3). Every run sent one command, the allow-list admitted each, and none was harmful (no
+newly unhealthy workload).
 
 - `scale_pod_zero`: `kubectl scale deployment social-graph-service --replicas=1` at both seeds.
 - `assign_to_non_existent_node`: a JSON patch that removes the Deployment's `nodeSelector`, at both

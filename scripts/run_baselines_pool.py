@@ -148,6 +148,7 @@ from remvalgate.harness.manifest import (
     MAX_R,
     Manifest,
     Slice,
+    close_confirmation,
     load_registry,
     logged_namespace,
     open_confirmation,
@@ -488,6 +489,7 @@ def main() -> int:
     nodes = len(kubectl("get", "nodes", "-o", "name").stdout.split())
     print(f"cluster {CONTEXT}: {nodes} nodes, {len(selected)} problems, baselines {baselines}")
     forward = prometheus_port_forward() if uses_model else None
+    opened = None
     try:
         if args.open_confirmation:
             # after every check and the port-forward, so a run that cannot start never opens it
@@ -511,6 +513,9 @@ def main() -> int:
                 left = changed(clean[ns].objects, objects(ns))
                 check(not left, f"{problem_id}: {ns} changed: {left}")
     finally:
+        # the slice is opened once: closed when this run ends, even if it stopped early
+        if opened is not None:
+            print(f"confirmation slice closed at {close_confirmation(registry, TOUCH_LOG)}")
         if forward is not None:
             forward.terminate()
     print("result: PASS")

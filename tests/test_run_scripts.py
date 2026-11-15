@@ -139,3 +139,6 @@ def test_confirmation_and_singleton_run_2_and_3c_over_the_held_out_corpus():
     main = ast.unparse(_function(POOL, "main"))
     # the slice is opened only after every check of the run, by the one call
     assert main.index("open_confirmation(") > main.index("prometheus_port_forward(")
+    # and closed when the run ends, inside the finally that follows the runs
+    assert main.index("close_confirmation(") > main.index("interleaved(")
+    assert "if opened is not None" in main

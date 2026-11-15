@@ -8,7 +8,8 @@ with what start_run recorded, so a run without an entry gets no manifest.
 
 The confirmation slice is opened once, at the end (R9.6): open_confirmation checks the seal and
 appends one open touch per id at one time, and refuses a second opening. A confirmation-slice run
-is refused until the slice is opened, and after MAX_R runs of the same problem. A pool, singleton
+is refused until the slice is opened, after MAX_R runs of the same problem, and after
+close_confirmation records that the opening's runs ended. A pool, singleton
 or confirmation run is refused until the confirmation slice is sealed (gate G1):
 seal_confirmation writes the seal record beside the touch log and a seal touch per id, and
 start_run checks that both cover the registry's confirmation ids and that each checksum still
@@ -58,7 +59,7 @@ Checksum = Callable[[str, str], str]
 MAX_R = 3
 _MAX_R = MAX_R
 # run id prefixes of touches that are not runs
-_RESERVED = ("create-", "seal-", "corpus-", "fixture-", "open-")
+_RESERVED = ("create-", "seal-", "corpus-", "fixture-", "open-", "close-")
 
 
 class Slice(StrEnum):
@@ -355,6 +356,8 @@ def start_run(
         raise RunRefused("run ids starting with fixture- are kept for fixture touches")
     if run_id.startswith("open-"):
         raise RunRefused("run ids starting with open- are kept for open touches")
+    if run_id.startswith("close-"):
+        raise RunRefused("run ids starting with close- are kept for close touches")
     slice_ = _slice_of(problem_id, registry)
     log_path = Path(log_path)
     # the slice is opened once, at the end (R9.6), by open_confirmation
@@ -362,6 +365,8 @@ def start_run(
         runs = [e["run_id"] for e in _sound_touches(log_path) if e["problem_id"] == problem_id]
         if not any(r.startswith("open-") for r in runs):
             raise RunRefused(f"{problem_id!r}: the confirmation slice is not opened yet")
+        if any(r.startswith("close-") for r in runs):
+            raise RunRefused(f"{problem_id!r}: the confirmation slice is closed")
         if sum(not r.startswith(_RESERVED) for r in runs) >= MAX_R:
             raise RunRefused(f"{problem_id!r} already has {MAX_R} runs in this opening")
     try:
@@ -646,6 +651,34 @@ def open_confirmation(
         }
         _append_touch(log_path, entry)
     return opened
+
+
+def close_confirmation(
+    registry: Registry, log_path: str | Path, now: datetime | None = None
+) -> str:
+    """Close the opened confirmation slice: one close touch per id at one time.
+
+    Called when the opening's runs end, so no run is admitted after its outcomes can be read.
+    Refused if the slice is not opened or is already closed; nothing is written then.
+    """
+    now = (now or datetime.now(UTC)).astimezone(UTC)
+    ids = _confirmation_ids(registry)
+    log_path = Path(log_path)
+    runs = [e["run_id"] for e in _sound_touches(log_path)]
+    if not any(r.startswith("open-") for r in runs):
+        raise RunRefused("the confirmation slice is not opened, so it cannot be closed")
+    if any(r.startswith("close-") for r in runs):
+        raise RunRefused("the confirmation slice is already closed")
+    closed = now.strftime(_TIMESTAMP)
+    for problem_id in ids:
+        entry = {
+            "problem_id": problem_id,
+            "run_id": _stamped_run_id("close", problem_id, now),
+            "slice": Slice.CONFIRMATION,
+            "timestamp": closed,
+        }
+        _append_touch(log_path, entry)
+    return closed
 
 
 def write_manifest(
