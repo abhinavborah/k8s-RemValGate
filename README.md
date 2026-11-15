@@ -1,27 +1,40 @@
 # k8s-RemValGate
 
-A small fine-tuned validity gate for agentic Kubernetes incident remediation. An LLM planner samples
-several candidate fixes for an incident, the gate scores whether each one will restore the service,
-and the system applies the best one only if it clears a calibrated threshold, otherwise it escalates
-to a human. The system is evaluated on AIOpsLab mitigation problems against seven baselines.
+An evaluation of a small language-model agent that repairs Kubernetes incidents on 16 AIOpsLab
+mitigation problems. A Qwen3.5-4B planner retrieves past fixes of the same fault type, reads the
+cluster through read-only tools and gives one command, which a deterministic allow-list checks
+before it runs. Retrieval, tool calling and LoRA fine-tuning of the planner are each ablated
+against baselines, at two seeds with the arms interleaved by problem.
+
+The validity gate of the original design was not trained: a pre-specified headroom check found 1
+of 16 problems where a selector over the planner's candidates could help, against the 5 a paired
+test needs. The study then turned to the planner itself. The pre-specified fine-tuning claim was
+tested and falsified ([docs/primary_analysis.md](docs/primary_analysis.md)).
 
 This is a group project for the course Language Models and Agents (CL3410).
 
 ## Status
 
-Planning. The requirements, epics and acceptance criteria are in [docs/brd.md](docs/brd.md), and the
-work is tracked as issues on this repository's GitHub Project. The repository layout and environment
-are in place; the system itself is not written yet.
+Complete. The final report, with the method and every result, is in
+[docs/final-report/](docs/final-report/). [Reproducing the final report](#reproducing-the-final-report)
+below says how to check each of its numbers. To build the PDF from its LaTeX source (TeX Live
+with pgfplots; no shell escape):
+
+```
+cd docs/final-report
+latexmk -pdf -interaction=nonstopmode -halt-on-error final-report.tex
+``` The requirements, epics and acceptance criteria are in
+[docs/brd.md](docs/brd.md).
 
 ## Layout
 
 ```
 src/remvalgate/   the package
 tests/            unit tests (pytest)
-scripts/          standalone scripts run outside the package, such as the GPU smoke test
-docs/             requirements and project notes
+scripts/          hand-run scripts outside the package: cluster runs, summaries, replay, GPU jobs
+docs/             requirements, one result file per experiment, the final report
 external/         AIOpsLab, a pinned submodule, unmodified
-scripts/          hand-run cluster scripts, not run by CI
+runs/             ignored by git, except the touch log and the confirmation seal below
 pyproject.toml    project metadata, dependencies, pytest and ruff settings
 uv.lock           the dependency lockfile
 requirements.txt  plain pip export of the lockfile, for Colab
@@ -98,6 +111,157 @@ pip install -r requirements.txt
 pip install -e .
 pytest
 ```
+
+## Reproducing the final report
+
+There are three levels: a quick check with no cluster, the report's numbers recomputed from the
+recorded runs, and a rerun on a cluster. The first two need no cluster, model or GPU.
+
+### Quick check, no cluster
+
+```
+git clone --recurse-submodules https://github.com/abhinavborah/k8s-RemValGate
+cd k8s-RemValGate
+uv sync --locked
+uv run pytest
+uv run ruff check .
+```
+
+These are the steps CI runs. The unit tests cover the harness rules the results rest on: the
+allow-list, the touch log and its refusals, the folds, the outcome classes and the summary rules.
+
+### Run archives
+
+Run files are not in git. They are in the `run-logs` folder of the group's shared Google Drive
+folder `k8s-RemValGate`, which is public and view-only:
+<https://drive.google.com/drive/folders/1c08dv-LrF2SfwfqYjMzzY9lRACUPZRyz>. It holds one subfolder
+or archive per run batch, with SHA-256 files. The sizes and SHA-256 values are also listed in the
+result file that cites each archive (for example the Files paragraphs of
+[docs/baselines_pool.md](docs/baselines_pool.md) and
+[docs/primary_analysis.md](docs/primary_analysis.md)). Check each archive against its listed value
+and unpack it into its own empty folder:
+
+```
+shasum -a 256 <archive>.tar.gz       # sha256sum on Linux
+mkdir <folder> && tar -xzf <archive>.tar.gz -C <folder>
+```
+
+A run's files sit together: `<run id>.json` (the manifest, with commit, model build, seed and
+touch entry), `<run id>.transcript.json` and `<run id>.result.json` (a baseline run) or
+`<run id>.labels.json` (a labelling run).
+
+### Replaying one run
+
+`scripts/replay_run.py` prints one recorded run from its saved files only: the injected fault, the
+observation, the diagnosis, the K candidates with any refusal reason, the chosen action or the
+escalation, and the outcome. `--step` waits for Enter between the parts. With `--cast` and
+`--pods` it cuts the batch's terminal capture and pod watch down to this run and writes
+`<run id>.cast` and `<run id>.pods.log` beside the manifest.
+
+```
+uv run python scripts/replay_run.py <folder>/<run id>.json --step
+uv run python scripts/replay_run.py <folder>/<run id>.json --cast <batch>.cast --pods <batch>.pods.log
+asciinema play --idle-time-limit 2 --speed 2 <folder>/<run id>.cast
+```
+
+### Recomputing the numbers
+
+These scripts read finished run files only. They log no touch and need no cluster or model:
+
+```
+uv run python scripts/summarize_g3.py --labels <labels files> [--results <3c result files>]
+uv run python scripts/summarize_rag_ablation.py --results <baseline3a, 3b and 3c result files>
+uv run python scripts/summarize_tool_ablation.py --results <3c, toolsbundle, kubectlonly and notools result files>
+uv run python scripts/failure_cases.py <result files>
+uv run python scripts/summarize_baseline5.py --pair <heldout file> <scores file> [--pair ...] [--results <result files>]
+uv run python scripts/summarize_finetune.py --results <3c and 3cft result files> \
+    [--labels <untuned labels files>] [--ft-labels <fine-tuned labels files>] [--baseline5 <summary>.json]
+```
+
+`--pair` is given once per fold. The summary scripts refuse files that break their rules, for
+example a problem outside the pool, a file read twice or runs served by different model builds.
+
+Four other scripts read evaluation-set files, so each logs one touch per pool problem in
+`runs/touch_log.jsonl` and needs gate G1 and a clean tree: `scripts/ablate_no_check.py` (the
+allow-list ablation, from labelling-run manifests), `scripts/score_baseline6.py` (baseline 6, which
+also needs the model server), `scripts/export_training_data.py` and
+`scripts/export_baseline5_heldout.py`. `scripts/run_intrinsic_retrieval.py` takes no arguments
+and starts on call; it also logs 16 touches. Run these only to redo the study, not to check it:
+their outputs are in the archives and the result files.
+
+### Map from the report to the source
+
+| Report item | Script | Result file |
+|---|---|---|
+| Headroom check (Methodology) | `summarize_g3.py` | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/oracle_labels.md](docs/oracle_labels.md) |
+| Runs table and compute | the run scripts below | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/primary_analysis.md](docs/primary_analysis.md), [docs/baseline5.md](docs/baseline5.md), [docs/finetuned_planner.md](docs/finetuned_planner.md), [docs/compute.md](docs/compute.md) |
+| Retrieval metrics (Hit@1, Hit@3, MRR, Recall@3) | `run_intrinsic_retrieval.py` | [docs/intrinsic_retrieval.md](docs/intrinsic_retrieval.md) |
+| Baselines table | `run_baselines_pool.py`, `summarize_g3.py`, `summarize_baseline5.py`, `score_baseline6.py` | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/baseline5.md](docs/baseline5.md), [docs/primary_analysis.md](docs/primary_analysis.md) |
+| Fine-tuning table | `summarize_finetune.py` | [docs/primary_analysis.md](docs/primary_analysis.md), [docs/finetuned_planner.md](docs/finetuned_planner.md) |
+| Failure classes table | `failure_cases.py` | [docs/failure_analysis.md](docs/failure_analysis.md) |
+| Confirmation slice and singleton types | `run_baselines_pool.py` | [docs/confirmation_check.md](docs/confirmation_check.md), [docs/singleton_check.md](docs/singleton_check.md) |
+| Ablations table and recovery figure | `summarize_rag_ablation.py`, `summarize_tool_ablation.py` | [docs/ablations.md](docs/ablations.md), [docs/rag_ablation.md](docs/rag_ablation.md), [docs/tool_ablation.md](docs/tool_ablation.md) |
+| Deterministic check ablation | `ablate_no_check.py` | [docs/ablations.md](docs/ablations.md) |
+| System figure | the planner and harness code | `src/remvalgate/planner/`, `src/remvalgate/harness/` |
+
+### Rerunning on a cluster
+
+A rerun is a new experiment, not the reported one: every pool run appends a touch to
+`runs/touch_log.jsonl`, and the runner refuses it unless the tree is clean and the confirmation
+slice is sealed. The confirmation slice was opened once and is closed, so a rerun of it is refused
+by design. Set up the cluster, both applications and Prometheus as in [AIOpsLab](#aiopslab), install
+the retrieval group, and serve the planner (`qwen/qwen3.5-4b`, GGUF Q8_0, in LM Studio by default).
+The report's runs were made in this order:
+
+1. Baselines 1 and 2, which use no model, ran first at seed 1000. Step 1 then ran the seven
+   planner arms at seeds 1000 and 1001 (the defaults), interleaved by problem:
+
+   ```
+   uv run python scripts/run_baselines_pool.py --baseline 1 --baseline 2 --seed 1000
+   uv run python scripts/run_baselines_pool.py --model-version "<format and quantization>" \
+       --baseline 3a --baseline 3b --baseline 3c --baseline 7 \
+       --baseline notools --baseline toolsbundle --baseline kubectlonly
+   ```
+
+2. Step 2, the oracle labels of 3c's candidates (seed 0 and K = 8 by default), then the headroom
+   check with `summarize_g3.py`:
+
+   ```
+   uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>"
+   ```
+
+3. Step 3, the fine-tuned planner. Export the per-fold training data and held-out files from the
+   labels (`export_training_data.py`, `export_baseline5_heldout.py`), train each fold on a GPU with
+   `baseline5_kaggle.py --train ... --heldout ... --out ...`, merge each adapter with
+   `merge_baseline5_adapter.py --base ... --adapter ... --out ...`, convert it with llama.cpp's
+   `convert_hf_to_gguf.py --outtype q8_0`, and serve each model on the GPU host with
+   `serve_on_gpu_host.sh <name> <gguf> <port> <host label> [<fold> <adapter folder>]`, which also
+   writes its record file. Then run both arms in one interleaved batch, the 3c control on the
+   untuned model served the same way (`--base-url` and `--served-build` name its server and
+   record; `--fold-servers` maps each fold to its fine-tuned server and record):
+
+   ```
+   uv run python scripts/run_baselines_pool.py --model-version "<format and quantization>" \
+       --baseline 3c --baseline 3cft --fold-servers <file> \
+       --served-build <base record> --base-url <base server>
+   ```
+
+   The fine-tuned labels come from
+   `run_oracle_labels.py --fold F --base-url <fold server> --served-build <record>`, with
+   `--no-retrieval` for the run without retrieval.
+
+4. Baseline 6 and the singleton types. Baseline 6 has the served model judge the step 2
+   candidates, reading the labelling manifests (it logs touches and needs the model server). The
+   singleton types run baselines 2 and 3c only; their ids are in
+   `src/remvalgate/harness/slices.json` ([docs/singleton_check.md](docs/singleton_check.md)).
+
+   ```
+   uv run python scripts/score_baseline6.py --model-version "<format and quantization>" runs/oracle/<run id>.json ...
+   uv run python scripts/run_baselines_pool.py --model-version "<format and quantization>" \
+       --baseline 2 --baseline 3c <singleton ids>
+   ```
+
+The sections below give each script's details and the cluster setup.
 
 ## AIOpsLab
 
@@ -298,8 +462,8 @@ also records the sum of its token log-probabilities when the server returns them
 completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
 rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
 K more exactly once, with seeds `--seed` plus K to
-`--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; the gate scores the
-last draw only. The transcript records every candidate with its draw number (1 or 2), the number
+`--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; later steps
+use the last draw's candidates only. The transcript records every candidate with its draw number (1 or 2), the number
 of draws and whether the case escalated. A plan with no
 diagnosis draws nothing and is recorded as escalated; a baseline 7 run draws nothing either, and
 is recorded as escalated only when its plan escalated. The manifest
@@ -391,8 +555,10 @@ does not run it. `scripts/summarize_oracle_labels.py` summarizes labels files wi
 The method and the rules are in [docs/oracle_labels.md](docs/oracle_labels.md).
 
 `scripts/run_baselines_pool.py` is the baseline-only run on the pool (story E9-S2, #53, gate
-G3). It runs baselines 1, 2, 3a, 3b and 3c, chosen with `--baseline`, once per problem at a
-pre-stated seed (default 1000), each action executed with the labelling run's procedure in the
+G3). It runs the arms chosen with `--baseline`, which repeats: baselines 1, 2, 3a, 3b, 3c and 7,
+the tool ablation arms `notools`, `toolsbundle` and `kubectlonly`, and the fine-tuned `3cft`. Each
+runs once per problem and seed, at seeds 1000 and 1001 unless `--seed` is given, with the arms
+interleaved by problem, and each action is executed with the labelling run's procedure in the
 problem's own namespace. Baseline 3c there is the rerun for the R check.
 `scripts/summarize_g3.py` reads the labels and the result files with no cluster and prints the
 headroom result, R and the minimum gain (`src/remvalgate/harness/g3.py`). The run and the rules
@@ -477,8 +643,11 @@ Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it st
   may put the added lines in any order; each entry carries its own timestamp, so order is not used.
 - **Refusals.** A pool, confirmation or singleton run is refused when it has no touch entry, when its run id is
   already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
-  does not ignore (new files included). A confirmation run is refused in every case for now: the
-  slice is opened once, at the end, by a run path added in #59. A pool or singleton run is also refused until
+  does not ignore (new files included). A confirmation run is refused unless the slice is opened
+  by `scripts/run_baselines_pool.py --open-confirmation`, which opens it once and closes it when the
+  run ends. The slice was opened on 2026-11-14 at 23:26 UTC and closed on 2026-11-15 at 07:36 UTC
+  ([docs/confirmation_check.md](docs/confirmation_check.md)), so every later confirmation run is
+  refused. A pool or singleton run is also refused until
   the confirmation slice is sealed (gate G1): `runs/confirmation_seal.json` must cover the registry's confirmation ids, the
   touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
   under the run's AIOpsLab commit must match the record
