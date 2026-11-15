@@ -17,6 +17,12 @@ Group project for Language Models and Agents (CL3410): [requirements](docs/brd.m
 [mid-submission report](docs/mid-submission/monkey-see-monkey-do-mid-report.pdf),
 [final report outline](docs/final-report/outline.md).
 
+## Project video
+
+[![Project video: A Validity Gate for Kubernetes Incident Remediation](https://img.youtube.com/vi/mU9gRGTLko4/maxresdefault.jpg)](https://youtu.be/mU9gRGTLko4)
+
+An 85 second overview of the study and its results (opens on YouTube).
+
 ## Status
 
 Complete. The final report, with the method and every result, is
@@ -35,6 +41,7 @@ latexmk -pdf -interaction=nonstopmode -halt-on-error final-report.tex
 
 | What | Link |
 |---|---|
+| Project video | <https://youtu.be/mU9gRGTLko4> |
 | Final report (PDF) | [docs/final-report/monkeysee-monkeydo-final-report.pdf](docs/final-report/monkeysee-monkeydo-final-report.pdf) |
 | Final report (LaTeX source) | [docs/final-report/](docs/final-report/) |
 | Mid-submission report (PDF) | [docs/mid-submission/monkey-see-monkey-do-mid-report.pdf](docs/mid-submission/monkey-see-monkey-do-mid-report.pdf) |
