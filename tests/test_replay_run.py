@@ -72,6 +72,21 @@ def test_escalation_from_a_result_row():
     assert "NOT_SENT" in text["6. Outcome"]
 
 
+def test_admission_comes_from_the_step_that_sent_the_command():
+    # the planner's own check refused an "&&" chain that the runner then admitted and executed
+    transcript = {"stop": "final", "verdict": {"admitted": False, "reason": "SHELL_METACHAR"}}
+    result = {"command": "a && b", "stop": "final", "allow_list": "admitted"}
+    chosen = dict(replay.stages(MANIFEST, transcript, {}, result))["5. Chosen action or escalation"]
+    assert "allow-list: admitted (stop: final)" in chosen
+    labels = {"plan": {"command": "a && b", "rejection": None}}
+    chosen = dict(replay.stages(MANIFEST, transcript, labels, {}))["5. Chosen action or escalation"]
+    assert "allow-list: admitted (stop: final)" in chosen
+    # with neither file, the transcript verdict is all there is
+    alone = transcript | {"command": "a && b"}
+    chosen = dict(replay.stages(MANIFEST, alone, {}, {}))["5. Chosen action or escalation"]
+    assert "allow-list: SHELL_METACHAR" in chosen
+
+
 def test_cut_of_a_batch_recording(tmp_path):
     (tmp_path / "a.json").write_text(json.dumps(MANIFEST))
     (tmp_path / "a.transcript.json").write_text("{}")

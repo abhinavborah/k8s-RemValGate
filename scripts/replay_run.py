@@ -136,9 +136,15 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
     escalation = result.get("escalation") or transcript.get("escalation")
     verdict = transcript.get("verdict") or {}
     kind, reason = _rejection(plan) or (None, None)
-    refusal = (reason if kind == "refused" else None) or verdict.get("reason")
-    if result.get("allow_list") not in (None, "admitted"):
-        refusal = result["allow_list"]
+    # the step that sent the command decided its admission (check_chain admits "&&" chains that
+    # the planner's own check refused), so the transcript verdict is used only without labels or
+    # a result row
+    if labels:
+        refusal = reason if kind == "refused" else None
+    elif result.get("allow_list") is not None:
+        refusal = None if result["allow_list"] == "admitted" else result["allow_list"]
+    else:
+        refusal = verdict.get("reason")
     if escalation or stop == "escalate" or command is None:
         chosen = f"escalated to a human, nothing applied (stop: {stop})"
         chosen += f"\n{escalation}" if escalation else ""
