@@ -40,5 +40,5 @@ allow-list admitted each, and none was harmful (no newly unhealthy workload).
 - 6 runs on 3 problems, each problem of a type seen in the pool: no rate is meaningful, and the
   result says only that 3c handled these three problems at least once each.
 - No baseline ran on the slice, so it gives no comparison.
-- The run files are on the run host under `runs/confirmation/` and `runs/recordings/`, not yet on
-  the shared drive.
+- The run files are on the shared drive under `run-logs/confirmation59_20261115/`, as
+  `confirmation59_20261115.tar.gz` (SHA-256 `63ba67a3...`) with `SHA256SUMS`.

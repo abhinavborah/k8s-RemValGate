@@ -54,5 +54,5 @@ Recovered: 0 of 8 runs (3c 0 of 4, baseline 2 0 of 4), on 2 singleton types.
 - The fault-shows rules of the singleton types were first seen on the cluster in these runs.
 - No oracle labels exist for the singletons, so an escalation cannot be told apart from one with a
   working candidate (ESCALATED_UNLABELLED).
-- The run files are on the run host under `runs/singleton/` and `runs/recordings/`, not yet on the
-  shared drive.
+- The run files are on the shared drive under `run-logs/singleton73_20261115/`, as
+  `single73_20261115.tar.gz` (SHA-256 `c45a3d6c...`) with `SHA256SUMS`.
