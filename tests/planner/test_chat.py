@@ -114,3 +114,63 @@ def test_every_runner_records_the_presence_penalty_with_the_sampling(script):
     ]
     assert names, f"{script} records no sampling settings"
     assert all("presence_penalty" in n for n in names)
+
+
+def _flaky(failures, sent, content="x"):
+    """urlopen that raises each of failures in turn, then answers."""
+    good = fake_urlopen(sent, content)
+    queue = list(failures)
+
+    def urlopen(request, timeout):
+        sent.append(dict(request.header_items()))
+        if queue:
+            raise queue.pop(0)
+        return good(request, timeout)
+
+    return urlopen
+
+
+def test_a_dropped_connection_or_5xx_is_retried_with_the_same_body(monkeypatch, capsys):
+    monkeypatch.setattr("remvalgate.planner.chat.BACKOFF", (0.0, 0.0))
+    sent = []
+    failures = [
+        urllib.error.URLError(ConnectionResetError("reset")),
+        urllib.error.HTTPError("u", 524, "timeout", {}, io.BytesIO(b"")),
+    ]
+    monkeypatch.setattr("urllib.request.urlopen", _flaky(failures, sent, "ok"))
+    completion = OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}], seed=3)
+    assert completion.text == "ok"
+    assert completion.attempts == 3
+    bodies = [s for s in sent if "messages" in s]
+    assert len(bodies) == 1 and bodies[0]["seed"] == 3
+    assert capsys.readouterr().err.count("planner request retry") == 2
+
+
+def test_a_4xx_is_not_retried(monkeypatch):
+    monkeypatch.setattr("remvalgate.planner.chat.BACKOFF", (0.0, 0.0))
+    sent = []
+    failures = [urllib.error.HTTPError("u", 401, "Unauthorized", {}, io.BytesIO(b"bad key"))]
+    monkeypatch.setattr("urllib.request.urlopen", _flaky(failures, sent))
+    with pytest.raises(RuntimeError, match="bad key"):
+        OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+    assert len([s for s in sent if "messages" not in s]) == 1
+
+
+def test_the_last_failure_is_raised_after_all_attempts(monkeypatch):
+    monkeypatch.setattr("remvalgate.planner.chat.BACKOFF", (0.0, 0.0))
+    failures = [TimeoutError("t")] * 3
+    monkeypatch.setattr("urllib.request.urlopen", _flaky(failures, []))
+    with pytest.raises(TimeoutError):
+        OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+
+
+def test_the_api_key_is_sent_only_when_set(monkeypatch):
+    sent = []
+    monkeypatch.setattr("urllib.request.urlopen", _flaky([], sent))
+    monkeypatch.delenv("REMVALGATE_PLANNER_API_KEY", raising=False)
+    OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+    monkeypatch.setenv("REMVALGATE_PLANNER_API_KEY", "k123")
+    OpenAIChat(model="m").complete([{"role": "user", "content": "hi"}])
+    headers = [s for s in sent if "messages" not in s]
+    assert "Authorization" not in headers[0]
+    assert headers[1]["Authorization"] == "Bearer k123"

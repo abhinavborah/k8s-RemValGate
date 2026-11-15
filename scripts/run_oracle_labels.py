@@ -44,9 +44,16 @@ Outputs go to runs/oracle/, which git ignores, and to the shared drive:
 A run finished in two parts is summarized with scripts/summarize_oracle_labels.py, which needs no
 cluster.
 
+--fold labels the fine-tuned planner (3cft) of that fold instead (#159), into runs/oracle_3cft/.
+With --no-retrieval as well (#34, R4.5), it runs the same planner with retrieval configuration (i),
+none, as baseline 3a has it, into runs/oracle_3cft_noret/ with run ids oracle3cftnoret-fold<f>-...,
+so the two sets never mix. Everything else (seed, K, server, prompt and sampling) is as without the
+flag, so retrieval is the only difference. The configuration is recorded in the manifest and the
+transcript.
+
     uv run python scripts/run_oracle_labels.py --model-version "<format and quantization>" \
         [--model qwen/qwen3.5-4b|qwen/qwen3.5-9b] [--no-thinking] [--candidates K] [--seed S] \
-        [--base-url URL] [problem id ...]
+        [--base-url URL] [--served-build FILE --fold F [--no-retrieval]] [problem id ...]
 
 The 9B runs on development problems only: a run of it on the pool would log evaluation-set
 touches, and is a separate decision.
@@ -73,11 +80,12 @@ from run_planner_dev import prometheus_port_forward, remove_workload, start_work
 from summarize_oracle_labels import summarize
 
 from remvalgate.aiopslab_pin import pinned_commit
+from remvalgate.baselines.untuned import pool_untuned_retriever, untuned_retriever
 from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check_chain, load_policy
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.execute import kubectl_rolled_out
-from remvalgate.harness.folds import fault_type
+from remvalgate.harness.folds import pool_folds
 from remvalgate.harness.harm import detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
@@ -88,12 +96,13 @@ from remvalgate.harness.manifest import (
     start_run,
     write_manifest,
 )
-from remvalgate.harness.model_build import read_build
+from remvalgate.harness.model_build import build_for
 from remvalgate.harness.oracle import (
     DATABASE_TYPES,
     Clean,
     fault_shows,
     label_problem,
+    problem_fault_type,
     reset_namespace,
 )
 from remvalgate.harness.outcome import Outcome, classify, single_action_result
@@ -101,7 +110,7 @@ from remvalgate.harness.snapshot import kubectl_put, strip
 from remvalgate.harness.toolcall import DEFAULT_SCHEMAS_PATH, load_schemas
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import carried_action, exec_shell, tool_call
-from remvalgate.planner.chat import OpenAIChat
+from remvalgate.planner.chat import API_KEY_ENV, OpenAIChat
 from remvalgate.planner.loop import Draws, draw_record, plan, sample, task_text
 from remvalgate.planner.models import add_model_argument, check_pool_model
 from remvalgate.planner.telemetry import preview
@@ -109,6 +118,10 @@ from remvalgate.retrieval.fixed import development_retriever, pool_retriever
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "runs" / "oracle"
+# the fine-tuned planner's labels (#159), kept apart so no glob of runs/oracle mixes the two sets
+FT_OUT_DIR = ROOT / "runs" / "oracle_3cft"
+# the fine-tuned planner without retrieval (#34), apart from both
+NORET_OUT_DIR = ROOT / "runs" / "oracle_3cft_noret"
 SCRATCH = ROOT / "runs" / "oracle_scratch"
 CONTEXT = "kind-kind"
 POLICY = load_policy(DEFAULT_POLICY_PATH)
@@ -199,7 +212,7 @@ def wait_for_fault(prob, problem_id: str) -> dict:
     deadline = time.monotonic() + SHOWS_TIMEOUT
     while True:
         status = pods(prob.namespace)
-        if fault_shows(fault_type(problem_id), prob.faulty_service, status):
+        if fault_shows(problem_fault_type(problem_id), prob.faulty_service, status):
             return status
         if time.monotonic() > deadline:
             raise AssertionError(f"{problem_id}: the fault does not show in pod status")
@@ -235,14 +248,14 @@ async def diagnose(
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
         injected_at = int(time.time() * 1e6)
         # the database faults change MongoDB users, which these objects do not record
-        if fault_type(problem_id) not in DATABASE_TYPES:
+        if problem_fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
             check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
@@ -296,7 +309,7 @@ def execute(orch, prob, problem_id, command, clean, injected, results_dir, recor
     # raises CannotSend before anything is injected
     carried_action(command, orch.parser.parse, strict=False)
     # the reset after the diagnosis or the last candidate restarted the MongoDB pod
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     start = time.perf_counter()
     try:
@@ -339,11 +352,50 @@ def main() -> int:
     # K = 8 is the submitted proposal's value, not group-confirmed
     parser.add_argument("--candidates", type=int, default=8, help="K, candidates per problem")
     parser.add_argument("--base-url", default=OpenAIChat.base_url, help="the server's /v1 URL")
+    parser.add_argument(
+        "--served-build",
+        type=Path,
+        help="record file of a llama-server on another host (model_build.read_served_build); "
+        "without it the server must be this host's LM Studio",
+    )
+    parser.add_argument(
+        "--fold",
+        type=int,
+        choices=range(4),
+        help="label the fine-tuned planner (3cft) of this fold: needs --served-build, and runs "
+        "only this fold's pool problems (all of them by default) or development problems",
+    )
+    parser.add_argument(
+        "--no-retrieval",
+        action="store_true",
+        help="the fine-tuned planner with retrieval configuration (i), none (#34): needs --fold",
+    )
     args = parser.parse_args()
+    if args.no_retrieval and args.fold is None:
+        parser.error("--no-retrieval runs the fine-tuned planner, so it needs --fold")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
     pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
     development = [i for i, s in registry.slices.items() if s is Slice.DEVELOPMENT]
-    selected = list(dict.fromkeys(args.problems)) or pool
+    folds = pool_folds(registry)
+    if args.fold is not None:
+        if args.served_build is None:
+            parser.error("--fold labels a served fine-tuned planner, so it needs --served-build")
+        fold_pool = [i for i in pool if folds[i] == args.fold]
+        selected = list(dict.fromkeys(args.problems)) or fold_pool
+        # a problem is never sampled by an adapter trained on it
+        outside = [i for i in selected if i in pool and folds[i] != args.fold]
+        if outside:
+            parser.error(f"not in fold {args.fold}: {', '.join(outside)}")
+    else:
+        selected = list(dict.fromkeys(args.problems)) or pool
+    arm = "3cft" if args.fold is not None else "3c"
+    retrieval = "i" if args.no_retrieval else "iii"
+    if args.no_retrieval:
+        out_dir, prefix = NORET_OUT_DIR, f"oracle3cftnoret-fold{args.fold}"
+    elif args.fold is not None:
+        out_dir, prefix = FT_OUT_DIR, f"oracle3cft-fold{args.fold}"
+    else:
+        out_dir, prefix = OUT_DIR, "oracle"
     others = [i for i in selected if i not in pool and i not in development]
     if others:
         parser.error(f"not pool or development problems: {', '.join(others)}")
@@ -362,8 +414,13 @@ def main() -> int:
     check(current == CONTEXT, f"current kubectl context is {current!r}, expected {CONTEXT!r}")
     check(not config.get("qualitative_eval"), "set qualitative_eval: false in aiopslab/config.yml")
     check(config.get("k8s_host") == "kind", "set k8s_host: kind in aiopslab/config.yml")
-    # configuration (iii), loaded once: the models take a while to load
-    retriever = (pool_retriever if selected[0] in pool else development_retriever)(registry)
+    on_pool = selected[0] in pool
+    if args.no_retrieval:
+        # configuration (i), baseline 3a's: the same fold assignment, nothing retrieved
+        retriever = (pool_untuned_retriever if on_pool else untuned_retriever)("3a", registry)
+    else:
+        # configuration (iii), loaded once: the models take a while to load
+        retriever = (pool_retriever if on_pool else development_retriever)(registry)
     # the settings of baseline 3c in scripts/run_planner_dev.py
     chat = OpenAIChat(
         model=args.model,
@@ -389,9 +446,10 @@ def main() -> int:
     try:
         for problem_id in selected:
             # read before start_run, so a model that is not loaded stops with no touch (#161)
-            build = read_build(args.model, args.base_url)
+            key = os.environ.get(API_KEY_ENV)
+            build = build_for(args.model, args.base_url, args.served_build, args.fold, key)
             now = datetime.now(UTC)
-            run_id = f"oracle-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
+            run_id = f"{prefix}-{problem_id}-{now.strftime('%Y%m%dt%H%M%Sz')}"
             namespace = logged_namespace(problem_id)
             # start_run refuses a pool run before its touch unless this is the problem's namespace
             run = start_run(
@@ -404,7 +462,7 @@ def main() -> int:
                 now,
                 namespace=namespace,
             )
-            orch = new_orchestrator(results_dir=OUT_DIR / run_id)
+            orch = new_orchestrator(results_dir=out_dir / run_id)
             prob = orch.probs.get_problem_instance(problem_id)
             check(prob.namespace == namespace, f"{problem_id} runs in {prob.namespace}")
             result, candidates, first, injected = asyncio.run(
@@ -417,7 +475,7 @@ def main() -> int:
                     retriever,
                     args.candidates,
                     args.seed,
-                    OUT_DIR / run_id,
+                    out_dir / run_id,
                 )
             )
             manifest = Manifest(
@@ -451,10 +509,14 @@ def main() -> int:
                         )
                     },
                     "seeds": [c.seed for c in candidates],
-                    "baseline": "3c",
+                    "baseline": arm,
+                    # 3cft: the fold whose adapter served the run, None for the untuned planner
+                    "fold": args.fold,
+                    # the retrieval configuration: iii, or i (none) for #34
+                    "retrieval": retrieval,
                 },
             )
-            path = write_manifest(manifest, run, OUT_DIR, registry, TOUCH_LOG)
+            path = write_manifest(manifest, run, out_dir, registry, TOUCH_LOG)
             # the planner's defaults and the chat settings; plan's k is the retrieval depth, not K
             defaults = inspect.signature(plan).parameters
             transcript = (
@@ -468,7 +530,8 @@ def main() -> int:
                 **dataclasses.asdict(chat),
                 **{n: defaults[n].default for n in ("max_turns", "max_observation_chars")},
                 "retrieval_k": defaults["k"].default,
-                "baseline": "3c",
+                "retrieval": retrieval,
+                "baseline": arm,
             }
             path.with_suffix(".transcript.json").write_text(
                 json.dumps(transcript, indent=2, sort_keys=True, default=str)
@@ -498,7 +561,7 @@ def main() -> int:
                 problem_id,
                 clean=clean[namespace],
                 injected=injected,
-                results_dir=OUT_DIR / run_id,
+                results_dir=out_dir / run_id,
                 records=records,
             )
             labels = label_problem(
@@ -529,7 +592,7 @@ def main() -> int:
     finally:
         forward.terminate()
     totals = summarize(written)
-    summary_path = OUT_DIR / f"oracle_summary-{stamp}.json"
+    summary_path = out_dir / f"oracle_summary-{stamp}.json"
     summary_path.write_text(json.dumps(totals, indent=2, sort_keys=True))
     print(json.dumps(totals, indent=2, sort_keys=True))
     print(f"summary {summary_path}")

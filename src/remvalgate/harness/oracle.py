@@ -32,6 +32,16 @@ from remvalgate.overlay.fixes import CannotSend
 # the outcomes an execution can have; the escalated ones are a system's, never a command's
 EXECUTED = frozenset({Outcome.RECOVERED, Outcome.APPLIED_INEFFECTIVE, Outcome.APPLIED_HARMFUL})
 DATABASE_TYPES = frozenset({"RevokeAuth", "UserUnregistered"})
+# the singleton types run in the exploratory check (R9.5, #73): a stem of the problem id to its
+# fault type, kept apart from the pool's (folds.FAULT_TYPES), so the folds and the corpus never see
+# them. redeploy_without_PV and the Astronomy Shop problem are not run, so they have none.
+SINGLETON_TYPES = {
+    "auth_miss_mongodb": "AuthMissMongoDB",
+    "misconfig_app_hotel_res": "MisconfigApp",
+    "wrong_bin_usage": "WrongBinUsage",
+}
+# the client of the MongoDB that AuthMissMongoDB makes require TLS
+_TLS_CLIENTS = {"url-shorten-mongodb": "url-shorten-service"}
 
 
 def _json_form(value: str | None) -> str | None:
@@ -284,7 +294,7 @@ def reset_namespace(
         raise AssertionError(f"{problem_id}: the reset left the namespace changed: {left}")
     # no Kubernetes object holds the MongoDB users and roles, so the problem's own eval, which
     # waits its settle window for every pod to be healthy, checks the reset
-    if fault_type_of(problem_id) in DATABASE_TYPES and not eval_succeeds():
+    if problem_fault_type(problem_id) in DATABASE_TYPES and not eval_succeeds():
         raise AssertionError(f"{problem_id}: the eval fails after the reset")
 
 
@@ -366,6 +376,13 @@ def summary(problems: Sequence[ProblemLabels]) -> dict:
     }
 
 
+def problem_fault_type(problem_id: str) -> str:
+    """The fault type of a pool, development, confirmation or singleton problem id: a singleton
+    stem first, then folds.fault_type, which raises ValueError for an id it cannot read."""
+    found = [t for stem, t in SINGLETON_TYPES.items() if stem in problem_id]
+    return found[0] if found else fault_type_of(problem_id)
+
+
 def fault_shows(fault_type: str, faulty_service: str, status: Mapping[str, Status]) -> bool:
     """Whether an injected fault shows in the pod status, so the status before an action can be
     taken: one taken earlier can read the faulted workload as healthy, and detect_harm would then
@@ -378,6 +395,10 @@ def fault_shows(fault_type: str, faulty_service: str, status: Mapping[str, Statu
     ready, as a client crash-looping on the fault does: AIOpsLab's injector deletes the client's
     pods whatever its script did, so a client pod still being created (PHASE) does not show that
     the fault took.
+    The singleton rules follow these and are not yet seen on the cluster: MisconfigApp shows when
+    its pod is unhealthy, as AssignNonExistentNode; AuthMissMongoDB when the client of the database
+    runs and is not ready, as the database faults; WrongBinUsage, whose pod can run with the wrong
+    binary, once its Deployment has a pod past Pending, so the status is not read mid-rollout.
     Raises ValueError for another fault type.
     """
     if fault_type == "TargetPortMisconfig":
@@ -390,4 +411,13 @@ def fault_shows(fault_type: str, faulty_service: str, status: Mapping[str, Statu
     if fault_type in DATABASE_TYPES:
         found = status.get(f"Deployment/{faulty_service.removeprefix('mongodb-')}")
         return found is not None and found.reason is Reason.NOT_READY
+    if fault_type == "MisconfigApp":
+        found = status.get(f"Deployment/{faulty_service}")
+        return found is not None and not found.healthy
+    if fault_type == "AuthMissMongoDB":
+        found = status.get(f"Deployment/{_TLS_CLIENTS[faulty_service]}")
+        return found is not None and found.reason is Reason.NOT_READY
+    if fault_type == "WrongBinUsage":
+        found = status.get(f"Deployment/{faulty_service}")
+        return found is not None and found.reason is not Reason.PHASE
     raise ValueError(f"unknown fault type {fault_type!r}")

@@ -265,3 +265,37 @@ could reach a new MongoDB pod before mongod listened and leave no fault. It chan
 candidate or outcome step. The labels here were taken without it; the labels of the #165 rerun are
 taken with it. The development problems have no MongoDB fault, so a development dry run does not
 exercise it.
+
+## Added on 2026-11-14: run 3, the labels of the rerun
+
+Run 3 is step 2 of #165: the same 16 pool problems, K = 8, seeds 0 to 7, from `ffc2af6` with the
+fixes of #162, #163 and #164, `qwen/qwen3.5-4b` GGUF Q8_0 at context 32768, thinking on,
+temperature 0.7, top-p 0.8, top-k 20 and presence penalty 1.5 sent explicitly, AIOpsLab at
+`576c3f0`. 2026-11-13 19:36 to 22:20 UTC, touches 537 to 552. Every manifest is `dirty: false`
+with a full `model_build`.
+
+- Every problem gave candidates: 128, of which 54 were merged as near-identical.
+- 55 have no outcome: 44 rejected by the allow-list (VERB_NOT_ALLOWED 14, FLAG_DENIED 14,
+  SHELL_METACHAR 10, PARSE_ERROR 5, RESOURCE_NOT_ALLOWED 1) and 11 replies that were not valid JSON
+  or had no command.
+- 8 of 16 problems have a working candidate: all 8 on the three ScalePod problems and on
+  `pool-assign_to_non_existent_node_social_net-mitigation-1` and `-2`, 6 on `-3`, 5 on
+  `pool-k8s_target_port-misconfig-mitigation-4` and 2 on `k8s_target_port-misconfig-mitigation-2`.
+  The 4 MongoDB problems and the other 4 TargetPortMisconfig problems have none.
+- 0 problems have mixed outcomes: on the three problems with some working candidates, every other
+  candidate was rejected by the allow-list and has no outcome.
+- Coverage: 6.625 at k = 1, 7.321 at k = 2, 7.625 at k = 3, and 8.0 from k = 7, so the smallest k
+  is 7. The run took about 2 hours 45 minutes against roughly 11 hours planned, so the budget did
+  not fail and K stays 8.
+- On the MongoDB problems the candidates carry the login (`-u`, `-p` with a password token,
+  `--authenticationDatabase admin`). They fail on the methods and characters the allow-list
+  admits: `adminCommand`, `dropUser`, `updateOne` and `sh -c` scripts are refused, and on
+  `user_unregistered_mongodb-mitigation-2` the admitted `createUser` candidates, 2 distinct after
+  merging, ran and did not recover, recorded only as `command terminated with exit code 1` and
+  `252`, so the cause is not in the record (#174).
+
+Run 2's labels above stay as they were run and are superseded by run 3. Files on the shared drive
+under `k8s-RemValGate/run-logs/rerun165_step2_20261114/`: `step2.tar.gz` (3220135 bytes, SHA-256
+`abe668ed809e4ae39785b0a30faf65d6bf4562aa375cfdac9d08c71722df7d4f`) with its SHA-256 file, holding
+the manifest, transcript and labels of every problem, the summary, the stdout log, the terminal
+recording and the pod watch.

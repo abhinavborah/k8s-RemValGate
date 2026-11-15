@@ -409,14 +409,27 @@ from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster an
 f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
 the retrieved past fixes. Reading the labels logs one touch per fold and training problem, so it
 needs gate G1 and a clean checkout. The rules and the file format are in
-[docs/training_data.md](docs/training_data.md).
+[docs/training_data.md](docs/training_data.md). `scripts/check_length_proxy.py` compares the
+export's tokenizer-free length proxy with a saved tokenizer on synthetic text of the gate input's
+shape, with no pool data and no touch; the result is in the same file (Length check).
 
 Baseline 5 (story E6-S4, R6.4) is the planner LoRA-fine-tuned per fold on the label-1 training
 records, ranking its own K candidates by log-probability. `scripts/export_baseline5_heldout.py`
 writes each fold's held-out scoring input from the same 16 labels files, logging one touch per pool
 problem. `scripts/baseline5_kaggle.py` trains and scores one fold on a GPU notebook, and
 `scripts/summarize_baseline5.py` gives the rankings, coverage curves and top-1 results beside
-baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md).
+baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md). The fine-tuned planner
+itself, served from the GPU host as the 3cft arm, is in
+[docs/finetuned_planner.md](docs/finetuned_planner.md).
+
+`scripts/summarize_finetune.py` is the exploratory fine-tuning comparison of story E9-S5 (#56): 3cft
+against the 3c control, per seed and with both seeds, against the minimum gain of gate G3 (threshold
+confirmed on #56), labelled supported, not supported or falsified; see
+[docs/primary_analysis.md](docs/primary_analysis.md). The ablations of every capability are
+collected in [docs/ablations.md](docs/ablations.md) (#57). `scripts/failure_cases.py` classifies why
+each planner run failed (#58, [docs/failure_analysis.md](docs/failure_analysis.md)). The singleton check (#73) is in
+[docs/singleton_check.md](docs/singleton_check.md), and the
+confirmation check (#59) in [docs/confirmation_check.md](docs/confirmation_check.md).
 
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one

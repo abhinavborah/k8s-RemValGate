@@ -121,3 +121,45 @@ result traces to the touch log.
   (`scripts/smoke_qwen.py`).
 - The BRD still names the gate as what baseline 5 is compared against (O1, R9.3). Which system
   takes that place is a group decision to record in the BRD.
+
+## Added on 2026-11-14: the labels of the rerun, and what is fine-tuned
+
+The labels were rerun in #165 ([oracle_labels.md](oracle_labels.md), run 3), and the bound in Limits
+above changes with them:
+
+- Every candidate works on 5 problems, none works on 8, and on 3 some work while every other
+  candidate was rejected by the allow-list: 6 of 8 on
+  `pool-assign_to_non_existent_node_social_net-mitigation-3`, 5 of 8 on
+  `pool-k8s_target_port-misconfig-mitigation-4`, 2 of 8 on `k8s_target_port-misconfig-mitigation-2`.
+- 3c's top pick solves 7, and 1 problem is recoverable (`k8s_target_port-misconfig-mitigation-2`).
+  A ranking over the K can solve between 5 and 8: it can gain at most that one problem and lose at
+  most the two others with a rejected candidate.
+- Baseline 5 scores 3c's labelled candidates with the labelling run's messages, so the length that
+  decides its card is the export report's `baseline5_length`, not the planner runs' prompts: at
+  most 17124 tokens over the 4 folds (export of 2026-11-14 at `56a572e`). That is far above the T4
+  range in Limits, so baseline 5 needs a card of compute capability 8.0 or newer.
+
+Baseline 5 is therefore not the fine-tuning ablation. The group agreed on 2026-11-14, as a group
+member reports and after the failed headroom check, to fine-tune the planner as an exploratory
+ablation: the per-fold adapters trained here are merged, converted to GGUF Q8_0 and served on the
+same model server (#161), and the fine-tuned planner samples its own candidates (#159) and runs end
+to end against 3c (#55). Baseline 5 is still scored and reported beside it, with the bound above.
+
+Result, 2026-11-14 (reported on #165): baseline 5 solves 7.0 of 16, the same as 3c's top pick in
+the labelling run (7), inside the bound above. On the one recoverable problem it ranks a failing
+candidate first.
+
+- Model: `Qwen/Qwen3.5-4B` at revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, bf16, LoRA r 16,
+  alpha 32, dropout 0.05 on the attention and MLP projections, 3 epochs, learning rate 1e-4, one
+  adapter per fold.
+- Host: an NVIDIA A100-SXM4-80GB on the GPU host, folds 0 to 3 started 2026-11-14 at 07:32, 07:40,
+  07:46 and 07:54 UTC, 0.07 to 0.13 GPU hours per fold.
+- Inputs: the export of 2026-11-14 at `56a572e` and the held-out files
+  `heldout-baseline5-fold<f>-20261114t072203z.json`.
+- Files: `scores-baseline5-fold<f>-*.json` (one per fold, in `scores.tar.gz`, SHA-256
+  `eb5f3ffa6c12fbce347eb1539adc02a3cacd2f16844b871ab789caa7bebe1d8a`) and the summary of
+  `scripts/summarize_baseline5.py` (SHA-256
+  `c57fb7489130e8541542323f5b6b87cae7ea4d3eaad73fdf89f02d74101ec5c4`). They are kept with the
+  step 3 run logs; `scores.tar.gz` is on the shared drive under
+  `rerun165_step3_20261114/` (4572 bytes), and the summary is rebuilt from it with
+  `scripts/summarize_baseline5.py`.
