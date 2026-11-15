@@ -44,7 +44,7 @@ both (#56). Each linked page gives the runs, commits and per-problem tables.
 | Headroom check (gate G3) | 1 recoverable problem, 5 needed: failed (first run: 0) | #165 step 2 labels | [baselines_pool](docs/baselines_pool.md) |
 | Baselines 1 (fault-type rule), 2 (retrieval only) | 8 of 16 each, seed 1000 | #150 | [rag_ablation](docs/rag_ablation.md) |
 | Baseline 5 (fine-tuned ranking of 3c's candidates) | 7 of 16 | 2026-11-14 | [baseline5](docs/baseline5.md) |
-| Baseline 6 (prompted judge of 3c's candidates) | 8 of 16, 3 escalated | 2026-11-15 | [primary_analysis](docs/primary_analysis.md) |
+| Baseline 6 (prompted judge of 3c's candidates) | 8 of 16, 3 escalated | 2026-11-14 | [primary_analysis](docs/primary_analysis.md) |
 | Baseline 7 (3c told to escalate when unsure), both seeds | 3 of 16, 3 escalations in 32 runs | #165 step 1 | [baselines_pool](docs/baselines_pool.md) |
 | Confirmation slice, 3c, opened once | 2 of 3 at seed 1000, 3 of 3 at seed 1001 | 2026-11-14 | [confirmation_check](docs/confirmation_check.md) |
 | Singleton fault types, 3c (descriptive) | none recovered; 3 of 5 types not run | 2026-11-15 | [singleton_check](docs/singleton_check.md) |
@@ -179,6 +179,7 @@ the archives and the result pages.
 | Baselines table | `run_baselines_pool.py`, `summarize_g3.py`, `summarize_baseline5.py`, `score_baseline6.py` | [docs/baselines_pool.md](docs/baselines_pool.md), [docs/baseline5.md](docs/baseline5.md), [docs/primary_analysis.md](docs/primary_analysis.md) |
 | Fine-tuning table | `summarize_finetune.py` | [docs/primary_analysis.md](docs/primary_analysis.md), [docs/finetuned_planner.md](docs/finetuned_planner.md) |
 | Failure classes table | `failure_cases.py` | [docs/failure_analysis.md](docs/failure_analysis.md) |
+| Call validity, harm in the labels, tokens and calls per episode | the command in failure_analysis.md, "Added on 2026-11-15" | [docs/failure_analysis.md](docs/failure_analysis.md), [docs/compute.md](docs/compute.md) |
 | Confirmation slice and singleton types | `run_baselines_pool.py` | [docs/confirmation_check.md](docs/confirmation_check.md), [docs/singleton_check.md](docs/singleton_check.md) |
 | Ablations table and recovery figure | `summarize_rag_ablation.py`, `summarize_tool_ablation.py` | [docs/ablations.md](docs/ablations.md), [docs/rag_ablation.md](docs/rag_ablation.md), [docs/tool_ablation.md](docs/tool_ablation.md) |
 | Deterministic check ablation | `ablate_no_check.py` | [docs/ablations.md](docs/ablations.md) |

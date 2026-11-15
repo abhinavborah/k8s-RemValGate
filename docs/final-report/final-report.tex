@@ -87,7 +87,7 @@ classes and the escalation count measure that behaviour.
 
 We contribute a protocol with two seeds, interleaved arms and a logged evaluation set; a repaired
 fault check for one benchmark problem, whose original check, by its code, passes with the fault in
-place; the
+place (Section~\ref{sec:data}); the
 capability ablations; a pre-specified fine-tuning claim, tested and rejected; and a failure
 analysis of where the runs fail.
 
@@ -143,6 +143,7 @@ inference on per-question paired differences and repeated samples per question w
 face the same questions; our arms are compared on the same 16 problems, each run at two seeds.
 
 \section{Dataset}
+\label{sec:data}
 
 \textbf{Used.} The problems come from AIOpsLab's mitigation task on two applications, Social
 Network and Hotel Reservation. AIOpsLab is used unmodified, pinned at commit \code{576c3f0}; the
@@ -152,14 +153,15 @@ authored problems live in an overlay in our repository.
 \begin{itemize}
 \item \textbf{Pool} (16 problems, the evaluation set): 8 AIOpsLab problems and 8 we authored. Seven
 apply AIOpsLab's fault types to other services. The eighth replaces an AIOpsLab AssignNonExistentNode
-problem whose fault check skips the Pending pod the fault leaves, so it passes with the fault in
+problem whose fault check skips the Pending pod the fault leaves (it skips pods with no container
+status, \nolinkurl{aiopslab/orchestrator/tasks/mitigation.py} at \code{576c3f0}), so it passes with the fault in
 place and a command that does nothing would count as a fix; ours also requires an available
 replica. Each authored problem was validated on the cluster: its check fails with the fault
 injected and passes after a known fix. The pool has 5 fault types: TargetPortMisconfig (6),
 ScalePod (3), AssignNonExistentNode (3), RevokeAuth (2) and UserUnregistered (2). It is split into
 4 folds, so that no problem retrieves or trains on its own record; automated checks confirm that
 the folds are balanced by fault type and that no fold's corpus holds a record of its held-out
-problems.
+problems (one indirect path remains, Section~\ref{sec:limits}).
 \item \textbf{Confirmation slice} (3 authored problems), sealed by checksums over each problem's
 definition and fault check before any run and opened once at the end. The three apply the three
 Kubernetes fault types to one service and include no database fault.
@@ -286,9 +288,9 @@ at seeds 1000 and 1001, interleaved by problem with the first arm rotated from p
 with the model build recorded in each manifest. Table~\ref{tab:runs} lists the runs reported here.
 
 \begin{table}[!t]
-\caption{Runs reported, dates 2026-MM-DD. Qwen3.5-4B (\code{qwen/qwen3.5-4b}), GGUF Q8\_0; the
+\caption{Runs reported, dates 2026-MM-DD in UTC. Qwen3.5-4B (\code{qwen/qwen3.5-4b}), GGUF Q8\_0; the
 fine-tuned models from base revision \code{851bf6e}. LM Studio ran on the run host, an Apple M4 Pro
-with 24~GB (version 0.4.27+2, llama.cpp runtime 2.73.0, recorded for rerun steps 1 and 2); llama.cpp \code{61dbf49} and the bf16 ranking of
+with 24~GB (version 0.4.27+2, llama.cpp runtime 2.73.0, in every LM Studio run's manifest); llama.cpp \code{61dbf49} and the bf16 ranking of
 baseline 5 on one A100 SXM 80~GB.}
 \label{tab:runs}
 \centering\footnotesize
@@ -296,7 +298,7 @@ baseline 5 on one A100 SXM 80~GB.}
 \hline
 Run & Server or host & Date & Size \\
 \hline
-baselines 1 and 2, seed 1000 & no model & 11-09 & 32 runs \\
+baselines 1 and 2, seed 1000 & no model & 11-08 & 32 runs \\
 rerun step 1: 7 arms, 2 seeds & LM Studio & 11-13 & 224 runs \\
 rerun step 2: untuned labels, $K=8$ & LM Studio & 11-13 & 128 candidates \\
 rerun step 3: 3c and 3cft, 2 seeds & llama.cpp & 11-14 & 64 runs \\
@@ -305,7 +307,7 @@ fine-tuned labels, no retrieval & llama.cpp & 11-14 & 96 candidates \\
 baseline 5, ranking (bf16) & A100 & 11-14 & 16 problems \\
 confirmation slice & LM Studio & 11-14 & 6 runs \\
 singleton types & LM Studio & 11-15 & 8 runs \\
-baseline 6, judge & LM Studio & 11-15 & 16 problems \\
+baseline 6, judge & LM Studio & 11-14 & 16 problems \\
 \hline
 \end{tabularx}
 \end{table}
@@ -334,7 +336,7 @@ left no healthy workload unhealthy; a problem counts
 as recovered only if it recovers at both seeds. A claim is decided by paired wins and losses on the
 16 problems, with the two-sided McNemar mid-p~\cite{fagerland} and a Bonett-Price interval~\cite{bonett}
 reported beside it. The unsafe action rate is the share of applied commands that leave a healthy
-workload unhealthy: in the 288 runs of rerun steps 1 and 3, no applied command was harmful. In the labels, 0 of 73 untuned
+workload unhealthy: 0 of 141 in rerun step 1 and 0 of 42 in step 3. In the labels, 0 of 73 untuned
 candidates and 0 of 10 untuned top picks with an outcome were harmful, against 1 of 88 and 1 of 12
 for the fine-tuned planner, both on one problem, where an added \code{envFrom} left the new pods
 unable to start. No unapproved command was applied, since every command passes the allow-list
@@ -368,7 +370,7 @@ Baseline & What & Recovered \\
 7 & 3c told to escalate when unsure & 3 \\
 \hline
 \multicolumn{3}{@{}p{\columnwidth}@{}}{\scriptsize \textsuperscript{a}One run per problem
-at seed 1000, 2026-11-09, before the rerun. \textsuperscript{b}Baselines 5 and 6 rank the candidates of the step 2 labels, one
+at seed 1000, 2026-11-08 (UTC), before the rerun. \textsuperscript{b}Baselines 5 and 6 rank the candidates of the step 2 labels, one
 labelling run rather than two seeds; in those labels 3c's own top pick solves 7; baseline 5 in bf16, 2026-11-14; baseline 6 at temperature 0 and threshold 0, with a judge not validated against human labels,
 escalating on 3
 MongoDB problems whose candidates were all refused. Baseline 4, a classifier
@@ -467,8 +469,8 @@ notools never reaches it. Baseline 7, told to escalate when unsure, escalated in
 and reached the turn cap in 7.
 \end{enumerate}
 
-\noindent No arm of rerun step 1 recovers 7 problems at both seeds: the 4 MongoDB problems and 3
-of the 6 TargetPortMisconfig problems. In the untuned labels, 8 of 16 problems have no working
+\noindent Seven problems are not recovered at both seeds by any arm of rerun step 1: the 4 MongoDB
+problems and 3 of the 6 TargetPortMisconfig problems. In the untuned labels, 8 of 16 problems have no working
 candidate among the 8 sampled, so on half the pool there is no working command for any selector to
 choose. Two hard cases from the transcripts show the first two patterns:
 
@@ -592,6 +594,7 @@ mostly for denied flags (14 and 17), verbs outside the list (14 and 1) and shell
 steps 1 and 3 left a workload unhealthy.
 
 \section{Limitations}
+\label{sec:limits}
 
 \begin{itemize}
 \item Injected faults from one benchmark on two applications, 16 pool problems and one run per
@@ -601,18 +604,21 @@ seeds.
 working commands, sampled while the held-out fold's past fixes were retrievable; this would favour
 the fine-tuned planner.
 \item Rerun steps 1 and 2 ran on LM Studio and step 3 on llama.cpp, so results are compared within
-a step.
-\item The retrieval ablation of the fine-tuned planner compares two labelling runs made at
+a step; the retrieval ablation of the fine-tuned planner compares two labelling runs made at
 different times.
-\item The error bundle's log rule was widened once, after it missed the error lines of one pool
-problem, before the reported runs; the 2 by 2 design was added after a first comparison of 3c with
-notools.
+\item The turn cap, context length, login note and three defect fixes of Section~\ref{sec:runs}
+were set after pool runs had been read. The error bundle's log rule was widened once, after it missed the error lines of one pool
+problem, before the reported runs; the 2 by 2 design was added after a first comparison of 3c with notools.
 \item Harm detection reads pod status, so harm that leaves every pod healthy, such as a changed
-Service port, is outside its view.
+Service port, is missed.
+\item Rollback covers Kubernetes objects: Services and Deployments, which hold the fault of 12 pool
+problems. The database users of the 4 MongoDB problems are in no object, so only AIOpsLab's
+recovery step, checked by the fault check, resets them; a database rollback built later was not
+used in any reported run.
 \item Refused commands are not executed, so the allow-list's cost in recovery is not measured.
 \item Baseline 6's judge is the planner's own model at temperature 0. It ranks candidates whose
 outcomes come from execution, so no reported metric is a judge score; it is not validated against
-human labels and is a baseline, not part of the evaluated system.
+human labels and is a baseline, not part of the system.
 \item Tool use is scored by call validity and by its effect (diagnosis accuracy, failure class,
 unsafe action rate). A fault has several valid diagnosis paths, so no gold tool sequence exists and
 the choice of tool is not scored.
