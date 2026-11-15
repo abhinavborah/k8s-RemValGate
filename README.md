@@ -1,61 +1,91 @@
 # k8s-RemValGate
 
-A small fine-tuned validity gate for agentic Kubernetes incident remediation. An LLM planner samples
-several candidate fixes for an incident, the gate scores whether each one will restore the service,
-and the system applies the best one only if it clears a calibrated threshold, otherwise it escalates
-to a human. The system is evaluated on AIOpsLab mitigation problems against seven baselines.
+An agent that fixes injected Kubernetes faults on [AIOpsLab](https://github.com/microsoft/AIOpsLab)
+mitigation problems, and an evaluation of what each of its capabilities is worth. A small planner
+(Qwen3.5-4B) reads the cluster with read-only tools, retrieves past fixes, gives a diagnosis and
+proposes one command. A deterministic allow-list admits or refuses it, the harness snapshots the
+touched objects, applies it, checks for harm after a settle window and restores on failure.
 
-This is a group project for the course Language Models and Agents (CL3410).
+The project set out to train a validity gate that scores K sampled fixes and applies the best one
+only above a threshold. The headroom check that had to pass before any training failed twice, so
+the gate was never trained. After that the planner was fine-tuned instead, as an exploratory
+ablation whose comparison rule was fixed before its runs (#56), and that claim was falsified. The proposed final system is baseline 3c, the untuned
+planner with retrieval configuration (iii).
 
-## Status
+Group project for Language Models and Agents (CL3410): [requirements](docs/brd.md),
+[mid-submission report](docs/mid-submission/monkey-see-monkey-do-mid-report.pdf),
+[final report outline](docs/final-report/outline.md).
 
-Planning. The requirements, epics and acceptance criteria are in [docs/brd.md](docs/brd.md), and the
-work is tracked as issues on this repository's GitHub Project. The repository layout and environment
-are in place; the system itself is not written yet.
+## Results
+
+Pool of 16 problems, seeds 1000 and 1001; "both seeds" counts a problem only if it recovered at
+both (#56). Each linked page gives the runs, commits and per-problem tables.
+
+| Result | Value | Run | Page |
+|---|---|---|---|
+| Fine-tuned planner (3cft) against 3c, both seeds | 3c 7, 3cft 5 of 16; 0 wins, 2 losses; mid-p 0.25; **falsified** | #165 step 3, 2026-11-14, llama.cpp on one A100 | [primary_analysis](docs/primary_analysis.md) |
+| Retrieval, untuned planner, both seeds | 3a (none) 2, 3b (dense) 6, 3c (dense plus reranker) 6 of 16 | #165 step 1, 2026-11-13, LM Studio | [ablations](docs/ablations.md) |
+| Tools, both seeds | toolsbundle 8, kubectlonly 7, notools 9 of 16 | #165 step 1 | [tool_ablation](docs/tool_ablation.md) |
+| Without the deterministic check | removes 44 of 128 untuned and 29 of 120 fine-tuned candidates | labelling runs, seed 0 | [ablations](docs/ablations.md) |
+| Headroom check (gate G3) | 1 recoverable problem, 5 needed: failed (first run: 0) | #165 step 2 labels | [baselines_pool](docs/baselines_pool.md) |
+| Baselines 1 (fault-type rule), 2 (retrieval only) | 8 of 16 each, seed 1000 | #150 | [rag_ablation](docs/rag_ablation.md) |
+| Baseline 5 (fine-tuned ranking of 3c's candidates) | 7.0 of 16 | 2026-11-14 | [baseline5](docs/baseline5.md) |
+| Baseline 6 (prompted judge of 3c's candidates) | 8 of 16, 3 escalated | 2026-11-15 | [primary_analysis](docs/primary_analysis.md) |
+| Baseline 7 (3c told to escalate when unsure), both seeds | 3 of 16, 3 escalations in 32 runs | #165 step 1 | [baselines_pool](docs/baselines_pool.md) |
+| Confirmation slice, 3c, opened once | 2 of 3 at seed 1000, 3 of 3 at seed 1001 | 2026-11-14 | [confirmation_check](docs/confirmation_check.md) |
+| Singleton fault types, 3c (descriptive) | none recovered; 3 of 5 types not run | 2026-11-15 | [singleton_check](docs/singleton_check.md) |
+
+3c is 6 of 16 in step 1 and 7 of 16 in step 3: different servers and runs, reported apart. Why the
+planner fails: [docs/failure_analysis.md](docs/failure_analysis.md). The planner is Qwen3.5-4B
+(`qwen/qwen3.5-4b`), GGUF Q8_0, context 32768, thinking on; fine-tuning used `Qwen/Qwen3.5-4B` at
+revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. Each run's server, build and date are in its
+manifest; compute is in [docs/compute.md](docs/compute.md).
 
 ## Layout
 
 ```
-src/remvalgate/   the package
-tests/            unit tests (pytest)
-scripts/          standalone scripts run outside the package, such as the GPU smoke test
-docs/             requirements and project notes
-external/         AIOpsLab, a pinned submodule, unmodified
-scripts/          hand-run cluster scripts, not run by CI
-pyproject.toml    project metadata, dependencies, pytest and ruff settings
-uv.lock           the dependency lockfile
-requirements.txt  plain pip export of the lockfile, for Colab
-requirements-retrieval.txt  pip export of the optional retrieval group
+src/remvalgate/    the package: harness, planner, retrieval, baselines, overlay problems
+tests/             unit tests (pytest), run by CI
+scripts/           hand-run scripts: cluster runs, summaries, GPU jobs (table below)
+docs/              requirements, one page per story or result, reports
+runs/              ignored by git except touch_log.jsonl and confirmation_seal.json
+external/          AIOpsLab, a pinned submodule, unmodified
+.github/           CI; .devcontainer/ is the x86 backup host (docs/backup_host.md)
+pyproject.toml     dependencies, pytest and ruff settings; uv.lock is the lockfile
+requirements*.txt  pip exports of the lockfile and the retrieval group, for Colab
 ```
 
-## Setup
+## What each level of reproduction needs
 
-Python 3.11 or 3.12 is required, the range AIOpsLab supports. `.python-version` selects 3.12.
-Dependencies are managed with [uv](https://docs.astral.sh/uv/) and locked in `uv.lock`.
+| Level | Needs | Time |
+|---|---|---|
+| 1. Install and test | Python 3.11 or 3.12, [uv](https://docs.astral.sh/uv/), git | about 20 minutes, most of it the clone |
+| 2. Recompute the results from the saved runs | level 1 and the shared drive (read only) | minutes |
+| 3. Rerun on a cluster | Docker (12 GB), kind, kubectl, helm, an OpenAI-compatible model server | about 5 minutes per planner run (224 runs in 19 hours, #165 step 1) |
+| 4. Fine-tune and serve | a CUDA GPU (an A100 80 GB was used), llama.cpp | 0.07 to 0.13 GPU hours of training per fold |
 
-AIOpsLab is a git submodule at `external/AIOpsLab` and is installed as an editable path
-dependency, so the environment cannot be built without it. Clone with the nested submodules, which
-hold the application charts a cluster run needs:
+## 1. Install and test
 
 ```
-git clone --recurse-submodules <repository url>
+git clone --recurse-submodules https://github.com/abhinavborah/k8s-RemValGate.git
+cd k8s-RemValGate
 git submodule update --init --recursive   # in an existing clone, and after pulling a pin change
+uv sync --locked                          # install from the lockfile; fails if the lock is stale
+uv run pytest                             # unit tests
+uv run ruff check .                       # lint
+uv run ruff format --check .              # formatting
 ```
 
-Unit tests and lint only need `external/AIOpsLab` itself, which is what CI checks out.
+AIOpsLab is installed as an editable path dependency, so the environment cannot be built without
+the submodule. Unit tests and lint need only `external/AIOpsLab` itself, which is what CI checks
+out; the nested `aiopslab-applications` charts are needed for a cluster run, and they make the
+recursive clone slow (16 minutes and about 340 MB on 2026-11-15). **The checkout path
+must contain no spaces**: AIOpsLab builds `helm` and `kubectl` commands as unquoted strings, and a
+symlink does not help.
 
-```
-uv sync --locked                 # install from the lockfile; fails if the lock is stale
-uv run pytest                    # unit tests
-uv run ruff check .              # lint
-uv run ruff format --check .     # formatting
-```
-
-The retrieval models (embedder and reranker, which pull in torch) are in the optional `retrieval`
-group, so CI and the unit tests never install or download them. Install them with
-`uv sync --group retrieval`. On Linux the locked torch is the CUDA build, which brings about
-twenty nvidia packages and downloads several GB. On a CPU-only Linux machine, install the CPU
-build first and leave the CUDA lines out of the export:
+The retrieval models (embedder and reranker, which pull in torch) are the optional `retrieval`
+group, so CI never installs them: `uv sync --group retrieval`. On Linux the locked torch is the
+CUDA build (several GB). The CPU recipe, for a CPU-only Linux machine:
 
 ```
 pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
@@ -63,285 +93,105 @@ grep -v -E '^(nvidia|cuda|triton)' requirements-retrieval.txt > retrieval-cpu.tx
 pip install -r retrieval-cpu.txt
 ```
 
-On Colab or Kaggle, `pip install -r requirements-retrieval.txt` installs the group at the locked
-versions, torch, transformers and tokenizers included, so a run there loads the models with the
-same libraries as the lock. It replaces the notebook's preinstalled torch with the locked one.
-
-Retrieval configuration (iii), dense with the cross-encoder reranker, is fixed before any
-evaluation run (gate G5, story E4-S6). `src/remvalgate/retrieval/fixed.json` records its settings
-(both models and revisions, the rerank depth, the entry text and the number of entries the
-planner retrieves) as entries, each with a UTC timestamp and a reason. If the merge comes later
-than the first entry's timestamp, set it to the merge time, so the touch-log order test checks
-from the real freeze. `configuration_iii` in `src/remvalgate/retrieval/fixed.py` refuses to build
-when the live settings differ from the last entry, and a unit test fails the same way, so a
-change needs a new entry with the group's reason in the same pull request. Run code builds (iii)
-only through `configuration_iii`, never `DenseRerank` directly; a test checks that no file under
-`scripts/` or `src/` names `DenseRerank` except `configs.py`, `fixed.py` and the model smoke check,
-so the other configurations stay free for baselines and metrics. Ablation results are reported
-and never used to change it. The planner and baseline 2 hand runs retrieve with (iii) over the
-synthetic development corpus, so they need the retrieval group, and the first run downloads both
-models. That corpus has no more entries than the rerank depth, so a development run checks the
-wiring, not the two-stage ranking.
-
-After changing dependencies, run `uv lock` and regenerate both pip exports:
+On Colab or Kaggle, `pip install -r requirements.txt`, `pip install -e .` and `pytest` run the
+tests, and `pip install -r requirements-retrieval.txt` adds the retrieval group at the locked
+versions. After a dependency change, run `uv lock` and regenerate both exports:
 
 ```
 uv export --format requirements-txt --no-hashes --no-emit-project --no-header -o requirements.txt
 uv export --only-group retrieval --format requirements-txt --no-hashes --no-emit-project --no-header -o requirements-retrieval.txt
 ```
 
-The export includes the dev group, so the tests run on Colab too. It leaves out the project itself,
-which is installed separately:
+## 2. Recompute the results from the saved runs
+
+Model weights, run logs, transcripts and recordings are never committed. They are on the shared
+drive, readable by anyone with the link:
+<https://drive.google.com/drive/folders/1wL9GGsXx6s88FxRwUMHz1gBWZ_YaD1nd>. The archives are under
+`run-logs/`, and each result page lists its archives with their SHA-256 (for example the Files
+table of [docs/primary_analysis.md](docs/primary_analysis.md)). Group members adding a file follow
+the drive's read-first file and never overwrite one.
+
+| Archive | SHA-256 | Holds |
+|---|---|---|
+| `run-logs/rerun165_step1_20261113/step1.tar.gz` | `71f43c442a6c774983b4feddb75ef8ee98a0ca7ec4b0bd0b263c14777af5bb07` | 3a, 3b, 3c, 7 and the tool arms, 224 runs |
+| `run-logs/rerun165_step3_20261114/step3.tar.gz` | `12200ed8f809e75dd35f4cb101177e7d6cc32482ca7887a3678051d6bc80292b` | 3c and 3cft, 64 runs, the 3cft labels, recordings |
+
+Download both into a folder outside the repository (files inside it would make the tree dirty),
+here `../k8s-runs`, then run from the repository root. No cluster, no model, and no touch is
+logged:
 
 ```
-pip install -r requirements.txt
-pip install -e .
-pytest
+D=../k8s-runs                                   # holds step1.tar.gz and step3.tar.gz
+shasum -a 256 $D/step1.tar.gz $D/step3.tar.gz   # or sha256sum; compare with the table
+mkdir -p $D/step1 $D/step3
+tar -xzf $D/step1.tar.gz -C $D/step1 && tar -xzf $D/step3.tar.gz -C $D/step3
+uv run python scripts/summarize_finetune.py --results $D/step3/runs/baselines_pool/*.result.json
+# prints "claim": "falsified", both_seeds 3c 7 and 3cft 5, mid-p 0.25
+S1=$D/step1/runs/baselines_pool
+uv run python scripts/summarize_rag_ablation.py --results $S1/baseline3[abc]-*.result.json
+uv run python scripts/summarize_tool_ablation.py --results $S1/baseline3c-*.result.json \
+    $S1/toolsbundle-*.result.json $S1/kubectlonly-*.result.json $S1/notools-*.result.json
+uv run python scripts/failure_cases.py $D/step3/runs/baselines_pool/*.result.json
 ```
 
-## AIOpsLab
+The per-seed recovered counts these print match [docs/ablations.md](docs/ablations.md). One run
+can be replayed from the injected fault to the outcome, and its terminal recording cut out and
+played with [asciinema](https://asciinema.org/):
 
-Decided in #65: AIOpsLab is an unmodified git submodule pinned at a commit, and new problem
-definitions live in an overlay in this repository. No tracked file inside the submodule is
-changed. A fork was rejected because our code would then live in a second repository, against R1.6.
+```
+B=$D/step3/runs/baselines_pool; R=$D/step3/runs/recordings
+uv run python scripts/replay_run.py $B/<run id>.json [--step] \
+    [--cast $R/rerun165_step3_batch_20261114.cast --pods $R/rerun165_step3_20261114.pods.log]
+asciinema play --idle-time-limit 2 --speed 2 $B/<run id>.cast
+```
 
-AIOpsLab commit: `576c3f080c7ae2459a972afd4a2f8d5f01828430` (upstream `main` on 2026-10-20), at
-`external/AIOpsLab`. Its nested `aiopslab-applications` is pinned by AIOpsLab at `8038be6`. The
-run manifest records this hash: callers pass `remvalgate.aiopslab_pin.pinned_commit(repo)` as
-`aiopslab_commit` to `start_run`, which reads the committed link and not the checkout.
+`summarize_g3.py`, `summarize_oracle_labels.py` and `summarize_baseline5.py` read the labels and
+score files listed on their pages.
+
+## 3. Rerun on a cluster
+
+A pool run appends to `runs/touch_log.jsonl` (rules below); development problems log no touch.
+Keep the machine awake and plugged in: a sleep once stalled a run and left a fault injected.
 
 ### Local cluster
 
-A two node kind cluster from AIOpsLab's ARM config on Docker Desktop:
+A two node kind cluster from AIOpsLab's ARM config on Docker Desktop (12 GB of memory), from the
+repository root:
 
 ```
 cd external/AIOpsLab
 kind create cluster --config kind/kind-config-arm.yaml    # context kind-kind; do not pass --name
 cp aiopslab/config.yml.example aiopslab/config.yml        # then set k8s_host: kind (gitignored upstream)
-cd ../..                                                  # back to the repository root
+cd ../..
 ```
 
-After the nodes are stopped, `docker start kind-control-plane kind-worker` brings the cluster back.
-The `media-frontend` init container clones a repository from GitHub on every start, so the
-cluster needs access to GitHub and the pod can take about 15 minutes to be Ready (measured once).
-Then wait for all pods Ready and compare the image digests below with the cluster again.
-
-The verified run used the ARM config. Upstream also ships `kind/kind-config-x86.yaml`, which was
-run once, on the backup host (`docs/backup_host.md`); its digests are below.
-
-`helm`, `kind` and `kubectl` must be installed. Versions of the verified run: kind v0.33.0,
-kubectl client v1.36.1, helm v4.3.1, Docker Desktop 4.96.0 (engine 29.9.1, aarch64). The cluster
-images are mutable tags, several of them `latest`, so a later pull can differ. Their digests are
-recorded here (BRD 7.3): the node image, and the `imageID` the cluster reported for every container
-of the 27 Social Network pods after the verified run on 2026-10-27.
-
-- node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
-- `deathstarbench/social-network-microservices:latest`: `sha256:a845266e98ce15d204ee7b98d41a2a95820af525013ce70f14104f5b9b5e92b6`
-- `jacksonarthurclark/media-frontend:latest` (Social Network on ARM): `sha256:825c601f648aadd5eec08bf0cf2b4154712deec9dcd331796852c879dc658039`
-- `jaegertracing/all-in-one:1.57`: `sha256:8f165334f418ca53691ce358c19b4244226ed35c5d18408c5acf305af2065fb9`
-- `library/memcached:1.6.7`: `sha256:007b9ca55759c6ef3dcc9a08be6b45b31147bdd1db28358280fd62360387b9dd`
-- `library/mongo:4.4.6`: `sha256:6efa052039903e731e4a5550c68a13c4869ddc93742c716332883fd9c77eb79b`
-- `library/redis:6.2.4`: `sha256:6bc98f513258e0c17bd150a7a26f38a8ce3e7d584f0c451cf31df70d461a200a`
-- `yg397/openresty-thrift:xenial`: `sha256:6c295fda3c2f6b941d85ebf16421bafac0dcf72450c96f53a2d031b29d8c81ef`
-- `alpine/git:latest` (init container): `sha256:e8ceedc73bd80992ae8d58a7d24c58b8322146c354f1d2e81a97db4452068ec0`
-
-Two of these images have no `linux/arm64` build: `deathstarbench/social-network-microservices` and
-`yg397/openresty-thrift`. On the arm64 kind nodes they run under x86 emulation: `crictl inspecti`
-reports `amd64` for both, and a `UserService` process maps `/run/rosetta/rosetta`. The other
-images, and `media-frontend` which AIOpsLab swaps for an ARM build, are `arm64`. The timing and
-memory figures below were measured under that emulation, so Docker Desktop's amd64 emulation is
-part of the cluster configuration. The Rosetta handler was registered in the Docker VM and in use,
-and no Rosetta key was set in Docker's `settings-store.json`, so the setting was at its default.
-Without amd64 emulation in Docker, these pods were not tried and are expected not to start.
-
-The x86 config ran on the backup host on 2026-11-10. Six of the container images above reported the
-same digests there: all but `media-frontend`, which AIOpsLab swaps only on ARM, and
-`alpine/git:latest`, whose tag had moved.
-
-- node image `jacksonarthurclark/aiopslab-kind-x86`: `sha256:d631857278d3f8ce5c36364c75ec25695ceb22e311ec6621a4ebf5506b86774d`
-- `yg397/media-frontend:xenial` (Social Network on x86): `sha256:272049995f2929435b91da34f20fc16216a7f974d1b8f9afa0ccbb529f1a9840`
-- `alpine/git:latest` (init container): `sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d`
-
-Regenerate the list after a redeploy with
-`kubectl --context kind-kind get pods -n test-social-network -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u`
-(and `initContainerStatuses` for the init containers).
-
-Docker Desktop was set to 12 GB of memory. Social Network (27 pods) used 2.0 GiB across both
-nodes shortly after all pods were Ready and 2.3 GiB about an hour later. The peak during the image pull was not
-sampled.
-
-**The checkout path must contain no spaces.** At the pinned commit AIOpsLab builds `helm` and
-`kubectl` commands as unquoted shell strings, so a space in the path fails, for example with
-`helm install` reporting `expected at most two arguments`. Quoted, `helm` itself handles spaces. A
-symlink does not help, because AIOpsLab resolves its own path. Clone or move this repository to a
-path without spaces before running anything against the cluster.
+Every cluster script reads `aiopslab/config.yml` on import, so without it even `--help` fails.
+Verified with kind v0.33.0, kubectl v1.36.1, helm v4.3.1, Docker Desktop 4.96.0 (engine 29.9.1,
+aarch64), where two images with no arm64 build run under Docker's amd64 emulation (Rosetta). On
+x86 use `kind/kind-config-x86.yaml` ([docs/backup_host.md](docs/backup_host.md)). After the nodes
+are stopped, `docker start kind-control-plane kind-worker` brings the cluster back.
 
 ### Deploy and health check
 
-Deploy the sample application with the script, which calls `SocialNetwork().deploy()` and injects
-no fault. Never use `Orchestrator.init_problem` for this, because it also injects a fault.
+Deploy with the scripts, which inject no fault (`Orchestrator.init_problem` would inject one):
 
 ```
 uv run python scripts/deploy_social_network.py
 kubectl --context kind-kind wait --for=condition=Ready pods --all -n test-social-network --timeout=900s
-```
-
-The health check passes when `kubectl wait` exits 0. AIOpsLab's own `deploy()` waits 300 s and
-raises on a slow first image pull, which is not a failure: `SocialNetwork.deploy` calls
-`Helm.assert_if_deployed`, which calls `KubeCtl.wait_for_ready(namespace)` with `max_wait=300`. A
-first pull took about 5 minutes, and a repeat about one. All 27 pods were Ready with no restarts.
-
-`Helm.install` runs `helm dependency update` inside the nested `aiopslab-applications` chart
-folder. After the deploy, `git status --porcelain -- external/AIOpsLab` at the repository root
-printed nothing (checked 2026-10-27), so the deploy does not dirty the pin. The run manifest also
-refuses a pool, confirmation or singleton run while the repository has any uncommitted or untracked file, so
-check `git status --porcelain` before such a run.
-
-The four RevokeAuth and UserUnregistered pool problems run on AIOpsLab's Hotel Reservation
-application, in `test-hotel-reservation` ([docs/problem_inventory.md](docs/problem_inventory.md)).
-Deploy it beside Social Network with
-
-```
-uv run python scripts/deploy_hotel_reservation.py
+uv run python scripts/deploy_hotel_reservation.py    # the four MongoDB pool problems run here
 kubectl --context kind-kind wait --for=condition=Ready pods --all -n test-hotel-reservation --timeout=900s
 ```
 
-On 2026-10-31 the first deploy, with every image pulled, took about 4 minutes: 19 pods Ready and 6
-PersistentVolumeClaims bound to the default `standard` storage class. Both nodes then used about 3.2
-GiB with the two applications deployed. The pin stayed clean. The manifests name three images by a
-moving tag, so a later pull can differ; the digests in use were:
-
-- `yinfangchen/hotelreservation:latest`: `sha256:c46c018d412ab466c4cb3ae93b1aaf1a373968e2fafc2767f15539f50cd1683a`
-- `library/mongo:4.4.6`: `sha256:6efa052039903e731e4a5550c68a13c4869ddc93742c716332883fd9c77eb79b`
-- `library/memcached` (no tag): `sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
-- `hashicorp/consul:latest`: `sha256:259fd02f2544fe1aa03fa49efd3b105c8dd67106d710a72f5e898110266356f7`
-- `jaegertracing/all-in-one:1.57`: `sha256:8f165334f418ca53691ce358c19b4244226ed35c5d18408c5acf305af2065fb9`
-
-### Overlay
-
-New problem definitions go in `src/remvalgate/overlay/`. AIOpsLab builds its problem registry
-inside each `Orchestrator` and has no hook for outside entries, so an overlay entry exists only in
-an Orchestrator built with `remvalgate.overlay.new_orchestrator`. A bare `Orchestrator()` and
-AIOpsLab's own `cli.py` and `service.py` do not see it. An id that already exists upstream is
-refused. The shipped overlay holds the three development problems
-([docs/development_problems.md](docs/development_problems.md)), the pool variant of
-AssignNonExistentNode ([docs/problem_inventory.md](docs/problem_inventory.md)), the three
-confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)) and the pool
-extension problems ([docs/pool_extension.md](docs/pool_extension.md)), defined in
-`src/remvalgate/overlay/dev_problems.py`. The known fixes are in
-`src/remvalgate/overlay/fixes.py`.
-
-`scripts/check_overlay_registry.py` is the hand check that a test entry appears in a newly
-constructed Orchestrator. `scripts/validate_overlay_problems.py` validates the overlay problems it
-is given, or with none given every overlay problem except the confirmation slice: for each it logs a
-creation touch, injects the fault, checks that the mitigation eval fails, runs the known-fix
-`kubectl` command, checks that the eval passes and recovers the fault. A confirmation problem is
-created once: `log_creation` refuses a second creation touch for it. Run it with Social Network
-deployed and Ready. Both need the cluster, so CI does not run them.
-
-`scripts/run_dev_end_to_end.py` runs one development problem end to end (story E1-S3, R1.3). A
-scripted agent sends the known fix as `exec_shell` and `submit` actions through the Orchestrator's
-parser and action handlers, the evaluator must report success, and the cluster after the reset
-must equal its snapshot before the injection (the spec and labels of the Services and
-Deployments, with all pods Ready). A second cycle injects and resets without the fix,
-because a reset after a correct fix repairs nothing. It times each phase and writes a run manifest
-and the timings under `runs/manifests/`, which git ignores. It does not use
-`Orchestrator.init_problem` or `start_problem`: they install OpenEBS and Prometheus from the
-network, redeploy the application and delete it at the end. The recorded times are in
-[docs/compute.md](docs/compute.md).
-
-`scripts/run_restore_check.py` is the hand check for snapshot and restore (story E2-S2, R2.2). For
-TargetPortMisconfig, ScalePod and AssignNonExistentNode it injects the fault, then runs the known
-fix, a damaging command and a delete of the object, and after each restore checks that the
-Services and Deployments equal their state before the command. It compares specs and labels and
-does not wait for pods to become Ready. Run it with Social Network deployed and Ready; CI does not
-run it.
-
-`scripts/run_execution_check.py` is the hand check for the execution loop (story E8-S2, R8.2):
-snapshot, apply, harm after the settle window, the readiness check and probes, and a restore with
-escalation when the check fails. It runs the ScalePod known fix (kept, RECOVERED), a wrong target
-port (restored, APPLIED_INEFFECTIVE) and a patch that breaks another Deployment during an
-AssignNonExistentNode fault (restored, APPLIED_HARMFUL), and checks that each restore leaves the
-Services and Deployments as they were after the injection. `--settle` shortens the 120 second
-window. Run it with Social Network deployed and Ready; CI does not run it.
-
-`scripts/run_pilot.py` is the five-rollout timing pilot (story E9-S1, gate G2). It runs the known
-fix of the three development problems, then the first two again, through the Orchestrator's parser
-with a scripted agent, and times each phase: inject, pod status before the action, snapshot,
-execute, one `detect_harm` settle window and reset. It writes a run manifest per rollout and a
-summary under `runs/manifests/`, which git ignores, and logs no touch. The result is in
-[docs/compute.md](docs/compute.md). Run it with Social Network deployed and Ready; CI does not run
-it, and it takes about 12 minutes.
-
-`scripts/run_planner_dev.py` runs the planner (stories E5-S1, E5-S5 and E5-S2) on the development
-problems. For each problem it injects the fault, runs the problem's `wrk2` workload (traffic for traces), takes one
-read-only look at the cluster, and runs the loop in `src/remvalgate/planner/`, which first retrieves
-3 past fixes with configuration (iii) (needs `uv sync --group retrieval`): at most 16 turns (8
-before 2026-11-08, when 5 of 6 TargetPort pool problems hit the cap),
-one JSON object per turn, tool calls through the Orchestrator's parser. The tools are `exec_shell`
-limited to `kubectl get` and `describe`, `get_logs`, `get_metrics` and `get_traces`. The last two
-save files and return a path, so the model also gets a bounded summary of what they saved
-(`src/remvalgate/planner/telemetry.py`). The planner returns a diagnosis (a fault type from a
-closed list and a service name) and one command, which the allow-list checks and the script never
-runs. It then samples K candidate commands from that diagnosis (`--candidates`, default 8, the
-submitted proposal's value): one model call each, with seeds `--seed` to `--seed` plus K minus 1, on
-the diagnosis conversation with the accepted answer's command left out. Earlier turns, a refused
-final answer among them, and the retrieved past fixes are still seen by every draw. Each
-candidate is admitted by the allow-list or rejected with a reason, and none is run. A sampled
-command, or the plan's own final command, that ends in one stray closing brace after its last
-single quote, with balanced quotes, brackets and braces otherwise, has that brace stripped before
-the check; the candidate or the plan records the command as the reply held it in `raw_command`
-(None when nothing was stripped), and the run summary prints how many were stripped. The
-allow-list reads a deployment or replica set type written with its group (`deployment.apps/web`,
-`deployments.v1.apps web`) as the plain type, as kubectl does, and only for those two. Each candidate
-also records the sum of its token log-probabilities when the server returns them; LM Studio's chat
-completions endpoint lists no `logprobs` parameter, so expect none there. If every candidate is
-rejected (by the allow-list, or because the reply held no command or was cut), the planner draws
-K more exactly once, with seeds `--seed` plus K to
-`--seed` plus 2K minus 1, and the case is escalated if the second draw fails too; the gate scores the
-last draw only. The transcript records every candidate with its draw number (1 or 2), the number
-of draws and whether the case escalated. A plan with no
-diagnosis draws nothing and is recorded as escalated; a baseline 7 run draws nothing either, and
-is recorded as escalated only when its plan escalated. The manifest
-records K and the sampling settings. The script then checks that the cluster did not change,
-deletes the workload job and resets.
-The model is any OpenAI-compatible server (default LM Studio on port 1234); the thinking switch is
-sent as `reasoning_effort: "none"`, which LM Studio honours and ignored the other fields tried.
-`--model-version` is required and goes into the manifest with the thinking setting. `--model`
-names the served planner, `qwen/qwen3.5-4b` by default or `qwen/qwen3.5-9b` (#154), here and in
-`scripts/run_oracle_labels.py` ([docs/larger_planner_check.md](docs/larger_planner_check.md)). Run
-it with
-Social Network deployed and Ready, Prometheus installed (below) and the model loaded; CI does not
-run it. Keep the laptop awake and plugged in: a sleep stalled the first attempt and left a fault
-injected.
-
-`scripts/record_pool_queries.py` records one post-injection query per pool problem (story E3-S7,
-R3.7): it injects the fault, runs the workload, takes the planner's first observation the same way
-and resets. Each problem is a pool run with a touch, so it needs gate G1 and a clean checkout. The
-outputs go to `runs/queries/`, which git ignores, and to the shared drive
-([docs/pool_queries.md](docs/pool_queries.md)). Run it with Social Network and Hotel Reservation
-deployed and Ready; CI does not run it.
-
-`scripts/run_intrinsic_retrieval.py` scores the four retrieval configurations on those queries
-(story E4-S3, R4.3): Hit@1, Hit@3, MRR and fault-type Recall@3 per configuration. It reads the
-query files from `runs/queries/`, needs the retrieval dependency group and no cluster, and each
-problem is a pool run with a touch, so it needs gate G1 and a clean checkout. The outputs go to
-`runs/intrinsic/`, which git ignores ([docs/intrinsic_retrieval.md](docs/intrinsic_retrieval.md)).
-CI does not run it.
+The health check passes when `kubectl wait` exits 0; AIOpsLab's own `deploy()` waits 300 s and
+may raise on a slow first image pull, which is not a failure. The `media-frontend` init container
+clones from GitHub on every start, so the cluster needs GitHub access, and that pod once took about
+15 minutes. Social Network is 27 pods, Hotel Reservation 19 pods and 6 volume claims, about 3.2 GiB
+for both. A deploy leaves `git status --porcelain -- external/AIOpsLab` empty.
 
 ### Telemetry for `get_metrics` and `get_traces`
 
-- **Traces.** The Jaeger client keeps 1 percent of requests, so the script's workload is 100
-  requests per second for 30 s (3000 requests), then it waits 12 s for the tracer to flush. The
-  problem's own workload is 10 per second for 10 s and left no traces. The
-  `deathstarbench/wrk2-client` image ran on the arm64 nodes. The job and its ConfigMap are in the
-  `default` namespace and the script deletes them.
-- **Metrics.** `get_metrics` queries Prometheus at `localhost:32000`. The kind config maps no host
-  ports, so the script starts `kubectl port-forward -n observe svc/prometheus-server 32000:80`.
-  Install Prometheus once with AIOpsLab's own deploy. Its volume claim names the StorageClass
-  `openebs-hostpath`; this repository created that class on the cluster's existing local-path
-  provisioner instead of installing OpenEBS. The install took about 2.5 minutes and adds the
-  `observe` namespace (Prometheus, kube-state-metrics, node exporters, a pushgateway):
+`get_metrics` needs Prometheus. Install it once with AIOpsLab's deploy, after creating the
+StorageClass its volume claim names on kind's local-path provisioner (instead of OpenEBS):
 
 ```
 kubectl --context kind-kind apply -f - <<'YAML'
@@ -356,154 +206,94 @@ YAML
 uv run python -c "from aiopslab.service.telemetry.prometheus import Prometheus; Prometheus().deploy()"
 ```
 
-`scripts/run_baselines_smoke.py` runs baselines 1 and 2 (story E6-S1, R6.1) on each development
-problem. Each baseline reads the cluster state, returns one command or escalates, the command goes
-through the allow-list and the Orchestrator's `exec_shell` handler, and the outcome is classified
-after the settle window. Baseline 1 retrieves nothing; baseline 2 retrieves with configuration
-(iii), so the script needs `uv sync --group retrieval`. The baselines are in `src/remvalgate/baselines/`. Nothing is appended to
-the touch log and no manifest is written, since a smoke run reports no result. It needs the cluster,
-so CI does not run it; CI tests the baselines on synthetic cluster listings.
+The run scripts start `kubectl port-forward -n observe svc/prometheus-server 32000:80` themselves.
+For traces they drive 100 requests per second for 30 s, since the Jaeger client keeps 1 percent.
 
-`scripts/run_planner_dev.py --baseline 3a|3b|3c` runs baselines 3a, 3b and 3c (story E6-S2,
-R6.2): the untuned planner, zero-shot with no gate, with retrieval configuration (i), (ii) or (iii)
-(`src/remvalgate/baselines/untuned.py`). Its action is the planner's own command: no candidates
-are sampled, and `--candidates`, `--judge` and `--escalate-when-unsure` are refused. After the
-diagnosis check the command goes through the allow-list and the Orchestrator's `exec_shell`
-handler and is classified after the settle window, with the same code as baselines 1 and 2; a
-turn-capped plan or a rejected command is classified as not applied. The reset is then compared
-with the clean state. With configuration (i) the task prompt has no past-fixes section. On the
-development problems all three use the synthetic stub corpus, whose 5 entries are no more than the
-rerank depth, so 3b and 3c differ only in the reranker's order there and a run checks the wiring,
-not the ranking. 3b and 3c need `uv sync --group retrieval`. Their pool results come from the
-baseline-only run (#53).
+### Model server and secrets
 
-`scripts/run_oracle_labels.py` labels baseline 3c's K candidates on the pool problems (story
-E3-S5, R3.5). Per problem it runs 3c's planner once with retrieval configuration (iii) over the
-fold corpora (`pool_retriever` in `src/remvalgate/retrieval/fixed.py`), samples K candidates
-from its diagnosis, merges near-identical ones, and executes each remaining command, and the
-plan's own command apart, on a new injection, with a harness reset after each that is checked
-against the clean and the saved post-injection state. Each execution is classified as for the
-baselines; the labels, the problem's flag, the mixed outcomes and the coverage for k = 1 to K
-are in `src/remvalgate/harness/oracle.py`. Each pool problem is a pool run with a touch, so it
-needs gate G1 and a clean checkout; development ids run the same way with no touch, as a dry run.
-Run it with both applications deployed and Ready, Prometheus installed and the model loaded; CI
-does not run it. `scripts/summarize_oracle_labels.py` summarizes labels files without a cluster.
-The method and the rules are in [docs/oracle_labels.md](docs/oracle_labels.md).
+The planner talks to any OpenAI-compatible server serving `qwen/qwen3.5-4b`: LM Studio on port
+1234 by default, `--base-url` otherwise. LM Studio honours `reasoning_effort` (the thinking
+switch). Its chat endpoint lists no `logprobs` parameter, yet it returned them for all 128
+candidates of the #165 step 2 labels; check on a new server. `--model-version` is required and
+goes into the manifest. Secrets come from the environment, never from a file in the repository:
 
-`scripts/run_baselines_pool.py` is the baseline-only run on the pool (story E9-S2, #53, gate
-G3). It runs baselines 1, 2, 3a, 3b and 3c, chosen with `--baseline`, once per problem at a
-pre-stated seed (default 1000), each action executed with the labelling run's procedure in the
-problem's own namespace. Baseline 3c there is the rerun for the R check.
-`scripts/summarize_g3.py` reads the labels and the result files with no cluster and prints the
-headroom result, R and the minimum gain (`src/remvalgate/harness/g3.py`). The run and the rules
-are in [docs/baselines_pool.md](docs/baselines_pool.md).
+- `REMVALGATE_PLANNER_API_KEY`: the key of a remote server, such as the GPU host's.
+- `REMVALGATE_MONGO_ADMIN_PASSWORD`, `REMVALGATE_MONGO_ROOT_PASSWORD`: the passwords of AIOpsLab's
+  MongoDB setup scripts, for the Hotel Reservation problems ([docs/oracle_labels.md](docs/oracle_labels.md)).
 
-`scripts/summarize_rag_ablation.py` reads the result files of baselines 3a, 3b and 3c from the
-baseline-only run with no cluster and prints diagnosis accuracy and single-action recovery for
-each retrieval configuration, with paired comparisons (story E4-S4, #33,
-`src/remvalgate/harness/rag_ablation.py`). The rules and the results are in
-[docs/rag_ablation.md](docs/rag_ablation.md).
+### Run order
 
-`scripts/export_training_data.py` builds the per-fold training data of the gate and of baseline 5
-from the 16 labels files of the pool run (story E7-S1, R7.1), with no cluster and no model: fold
-f's files hold the candidates of the 12 problems outside fold f, with held-out records masked in
-the retrieved past fixes. Reading the labels logs one touch per fold and training problem, so it
-needs gate G1 and a clean checkout. The rules and the file format are in
-[docs/training_data.md](docs/training_data.md). `scripts/check_length_proxy.py` compares the
-export's tokenizer-free length proxy with a saved tokenizer on synthetic text of the gate input's
-shape, with no pool data and no touch; the result is in the same file (Length check).
+| Step | Command | Page |
+|---|---|---|
+| Harness checks, development problems | `run_dev_end_to_end.py`, `run_restore_check.py`, `run_execution_check.py`, `run_harm_check.py`, `run_pilot.py` | [compute](docs/compute.md) |
+| Planner and baselines 1, 2, development problems | `run_planner_dev.py` (`--baseline 3a\|3b\|3c`), `run_baselines_smoke.py` | [development_problems](docs/development_problems.md) |
+| Pool queries, intrinsic retrieval | `record_pool_queries.py`, `run_intrinsic_retrieval.py` | [pool_queries](docs/pool_queries.md), [intrinsic_retrieval](docs/intrinsic_retrieval.md) |
+| Oracle labels of 3c's K candidates | `run_oracle_labels.py`, then `summarize_oracle_labels.py` | [oracle_labels](docs/oracle_labels.md) |
+| Baselines and ablation arms on the pool | `run_baselines_pool.py --baseline <arm>`, repeatable: 1, 2, 3a, 3b, 3c, 7, notools, toolsbundle, kubectlonly | [baselines_pool](docs/baselines_pool.md) |
+| Headroom check | `summarize_g3.py` | [baselines_pool](docs/baselines_pool.md) |
+| Training data, baseline 5 inputs | `export_training_data.py`, `export_baseline5_heldout.py` | [training_data](docs/training_data.md) |
+| Fine-tune, merge, serve (GPU) | `baseline5_kaggle.py`, `merge_baseline5_adapter.py`, `serve_on_gpu_host.sh` | [baseline5](docs/baseline5.md), [finetuned_planner](docs/finetuned_planner.md) |
+| 3cft arm, baseline 6, no-check ablation | `run_baselines_pool.py --baseline 3c --baseline 3cft --fold-servers ...`, `score_baseline6.py`, `ablate_no_check.py` | [primary_analysis](docs/primary_analysis.md), [ablations](docs/ablations.md) |
+| Summaries | level 2 above, plus `summarize_baseline5.py` | the pages above |
 
-Baseline 5 (story E6-S4, R6.4) is the planner LoRA-fine-tuned per fold on the label-1 training
-records, ranking its own K candidates by log-probability. `scripts/export_baseline5_heldout.py`
-writes each fold's held-out scoring input from the same 16 labels files, logging one touch per pool
-problem. `scripts/baseline5_kaggle.py` trains and scores one fold on a GPU notebook, and
-`scripts/summarize_baseline5.py` gives the rankings, coverage curves and top-1 results beside
-baseline 3c's. The rules are in [docs/baseline5.md](docs/baseline5.md). The fine-tuned planner
-itself, served from the GPU host as the 3cft arm, is in
-[docs/finetuned_planner.md](docs/finetuned_planner.md).
+Each script's docstring and `--help` give its inputs, outputs and what it refuses. Outputs go
+under `runs/`, which git ignores; copy them to the shared drive with their SHA-256.
 
-`scripts/summarize_finetune.py` is the exploratory fine-tuning comparison of story E9-S5 (#56): 3cft
-against the 3c control, per seed and with both seeds, against the minimum gain of gate G3 (threshold
-confirmed on #56), labelled supported, not supported or falsified; see
-[docs/primary_analysis.md](docs/primary_analysis.md). The ablations of every capability are
-collected in [docs/ablations.md](docs/ablations.md) (#57). `scripts/failure_cases.py` classifies why
-each planner run failed (#58, [docs/failure_analysis.md](docs/failure_analysis.md)). The singleton check (#73) is in
-[docs/singleton_check.md](docs/singleton_check.md), and the
-confirmation check (#59) in [docs/confirmation_check.md](docs/confirmation_check.md).
+## 4. Fine-tune and serve
 
-`scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
-It takes the manifests of planner runs that sampled candidates, one run per problem, all of one
-slice, one model and one sampling setup, applies the allow-list again to every sampled candidate in
-each transcript, and reports the share removed by reason (`src/remvalgate/harness/no_check.py`).
-Nothing is run, so it needs neither the cluster nor a model server. The headline counts the
-candidates a run without the check would have drawn: the first draw, plus the second when every
-first-draw reply had no command, since such a draw is resampled with or without the check. Both
-draws are reported too, and replies with no command are counted apart, since the check never saw
-them. The inputs are checked before any touch. For a pool problem, reading its transcript is a
-touch: each gets a `nocheck-` run through `start_run` before it is read, so it needs gate G1 and a
-clean checkout. A recorded verdict that the policy file no longer gives, or a transcript that
-disagrees with its manifest or lacks a field the analysis reads, refuses the report after that
-touch, which is kept, and no summary is written. A run whose manifest records no seeds, as when its
-plan had no diagnosis, is listed in the summary's `no_candidates_run_ids` and is not touched. A
-manifest per problem, its `.nocheck.json` result and a pooled summary that names the runs, the
-model and the sampling setup go to `runs/manifests/`. The pool's sampled candidates come from the
-oracle labelling run (#27).
+`scripts/baseline5_kaggle.py` trains and scores one LoRA adapter per fold (r 16, alpha 32, 3
+epochs; the runs used an A100). For the 3cft arm, `scripts/merge_baseline5_adapter.py` merges it
+into the base model, llama.cpp converts it to GGUF Q8_0 and `scripts/serve_on_gpu_host.sh` serves
+it. The four adapters are `adapters.tar` on the drive ([docs/baseline5.md](docs/baseline5.md),
+[docs/finetuned_planner.md](docs/finetuned_planner.md)).
 
-`scripts/run_baselines_pool.py --baseline notools` is the ablation without interactive tools
-(story E5-S3, #38, R5.3), and `scripts/summarize_tool_ablation.py` compares it with baseline 3c
-with no cluster (`src/remvalgate/harness/tool_ablation.py`). The telemetry bundle and the rules
-are in [docs/tool_ablation.md](docs/tool_ablation.md).
+## Evaluation-set rules
 
-## Large files
+- **Slices.** `src/remvalgate/harness/slices.json` maps each problem to a slice: 16 pool problems
+  in 4 folds, 3 development problems, a 3-problem confirmation slice and 5 singleton types, which
+  are in no fold and no corpus and reported descriptively only
+  ([docs/problem_inventory.md](docs/problem_inventory.md)).
+- **Touch log.** `runs/touch_log.jsonl` (committed, append only, merged as a union) gets one line
+  per use of a pool, confirmation or singleton problem, and per creation, seal, authoring or
+  fixture touch, through `start_run` in `src/remvalgate/harness/manifest.py`.
+- **Refusals.** A pool or singleton run is refused without a touch entry, with a run id already in
+  the log, with an unpinned AIOpsLab, or with any uncommitted or untracked file. It is also refused
+  until the confirmation slice is sealed (gate G1, `runs/confirmation_seal.json`).
+- **Confirmation slice.** Opened once on 2026-11-14 and closed on 2026-11-15: no further
+  confirmation run is admitted ([docs/confirmation_check.md](docs/confirmation_check.md)).
+- **Retrieval configuration (iii)** was fixed before any evaluation run (gate G5).
+  `src/remvalgate/retrieval/fixed.json` records it, and `configuration_iii` refuses to build when
+  the live settings differ, so a change needs a new entry with its reason.
 
-Model weights, rollout logs and datasets are not committed. They live on shared drive storage and
-are referenced by checksum. The shared Google Drive folder is named `k8s-RemValGate`. Access
-comes from the folder owner. Its read-first file at the folder root lists what is there and the
-rules for adding to it: never overwrite an existing file unless that is the intention, and put a
-file whose name already exists under a folder named after your GitHub username.
+## AIOpsLab pin and overlay
 
-## Runs
+Decided in #65: an unmodified submodule pinned at a commit, with new problems in an overlay here;
+a fork was rejected because the code would then live in a second repository.
 
-Every run calls `start_run` in `src/remvalgate/harness/manifest.py` before it starts, and
-`write_manifest` when it finishes.
+AIOpsLab commit: `576c3f080c7ae2459a972afd4a2f8d5f01828430` (upstream `main` on 2026-10-20), at
+`external/AIOpsLab`. Its nested `aiopslab-applications` is pinned by AIOpsLab at `8038be6`. The
+run manifest records this hash: callers pass `remvalgate.aiopslab_pin.pinned_commit(repo)` as
+`aiopslab_commit` to `start_run`, which reads the committed link and not the checkout.
 
-- **Run manifests** (`<run_id>.json`) are written next to the rollout's logs on shared drive storage.
-  The `runs/` folder is ignored by git, except for the touch log and the confirmation seal.
-- **The evaluation-set touch log** is `runs/touch_log.jsonl`, committed, one JSON line per use of a
-  primary-pool, confirmation-slice or singleton problem, and one per creation touch: `log_creation` logs the
-  validation of a new problem in any slice, with a run id that starts with `create-`, a prefix
-  `start_run` refuses. Lines are only appended, never edited or removed.
-  `.gitattributes` merges it as a union, so appends from two branches keep both lines. A union merge
-  may put the added lines in any order; each entry carries its own timestamp, so order is not used.
-- **Refusals.** A pool, confirmation or singleton run is refused when it has no touch entry, when its run id is
-  already in the log, when the AIOpsLab commit is not pinned, or when the work tree has changes git
-  does not ignore (new files included). A confirmation run is refused in every case for now: the
-  slice is opened once, at the end, by a run path added in #59. A pool or singleton run is also refused until
-  the confirmation slice is sealed (gate G1): `runs/confirmation_seal.json` must cover the registry's confirmation ids, the
-  touch log must hold one `seal-` touch per id at the sealed time, and each checksum recomputed
-  under the run's AIOpsLab commit must match the record
-  ([docs/confirmation_problems.md](docs/confirmation_problems.md)). Run ids starting with `seal-`
-  are kept for the seal touches. Run ids starting with `corpus-` are kept for authoring touches
-  (`log_authoring`: a problem's definition and known fix were read to write its retrieval corpus
-  record), and those starting with `fixture-` for fixture touches (`log_fixture`: a test fixture
-  was built from the problem, which counts as an evaluation-set touch); `start_run` refuses both,
-  and neither is written for a confirmation problem. Development runs are not logged and may run with neither a
-  pin nor a clean tree; only their creation is logged. Run ids are lowercase.
-- **Slice registry.** `src/remvalgate/harness/slices.json` maps problem ids to slices. It holds the
-  16 pool problems: the 9 current ones, one of them the overlay variant of AssignNonExistentNode
-  ([docs/problem_inventory.md](docs/problem_inventory.md)), and the three TargetPortMisconfig, two
-  ScalePod and two AssignNonExistentNode problems of the pool extension
-  ([docs/pool_extension.md](docs/pool_extension.md)). It also holds the development problems
-  designated in [docs/development_problems.md](docs/development_problems.md), and the three
-  confirmation problems ([docs/confirmation_problems.md](docs/confirmation_problems.md)), and the
-  five singleton problems (rows 8, 9 and 12 to 14 of
-  [docs/problem_inventory.md](docs/problem_inventory.md)).
-- **Singleton types (exploratory).** The five fault types with one instance each are held out of
-  training: no fold holds them, so no gate or planner is trained on them, and the retrieval corpus
-  is built from the pool slice only (`log_authoring` refuses a singleton problem). They
-  form the exploratory generalization check (BRD R3.6, R9.5), reported descriptively only, since
-  five types are too few for a quantitative claim. Their runs are logged as evaluation-set touches
-  and subject to the same refusals as pool runs, each in its own namespace: `test-hotel-reservation` for rows 9, 13
-  and 14, `astronomy-shop` for row 12 and `test-social-network` for row 8. BRD 7.3 names only the
-  pool and the confirmation slice as touches; logging the singleton runs as well follows the E3-S6
-  acceptance criteria. Decided in #28 by a group member, pending group confirmation.
+New problems are in `src/remvalgate/overlay/` (known fixes in `fixes.py`) and exist only in an
+Orchestrator built with `remvalgate.overlay.new_orchestrator`, not in a bare `Orchestrator()`.
+`scripts/validate_overlay_problems.py` checks on a cluster that each fault breaks the eval and its
+known fix repairs it.
+
+Image digests of the verified runs (BRD 7.3); several tags are mutable, so a later pull can differ.
+Regenerate with `kubectl --context kind-kind get pods -n <namespace> -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u` (and `initContainerStatuses`).
+
+- node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
+- node image `jacksonarthurclark/aiopslab-kind-x86`: `sha256:d631857278d3f8ce5c36364c75ec25695ceb22e311ec6621a4ebf5506b86774d`
+- `deathstarbench/social-network-microservices:latest`: `sha256:a845266e98ce15d204ee7b98d41a2a95820af525013ce70f14104f5b9b5e92b6`
+- `jacksonarthurclark/media-frontend:latest` (Social Network on ARM): `sha256:825c601f648aadd5eec08bf0cf2b4154712deec9dcd331796852c879dc658039`
+- `yg397/media-frontend:xenial` (Social Network on x86): `sha256:272049995f2929435b91da34f20fc16216a7f974d1b8f9afa0ccbb529f1a9840`
+- `jaegertracing/all-in-one:1.57`: `sha256:8f165334f418ca53691ce358c19b4244226ed35c5d18408c5acf305af2065fb9`
+- `library/memcached:1.6.7`: `sha256:007b9ca55759c6ef3dcc9a08be6b45b31147bdd1db28358280fd62360387b9dd`
+- `library/memcached` (no tag, Hotel Reservation): `sha256:aea0d81d101a9b64fe30cf2cf2f96144e284f8e9552bb084a03f4e12e9043bab`
+- `library/mongo:4.4.6`: `sha256:6efa052039903e731e4a5550c68a13c4869ddc93742c716332883fd9c77eb79b`
+- `library/redis:6.2.4`: `sha256:6bc98f513258e0c17bd150a7a26f38a8ce3e7d584f0c451cf31df70d461a200a`
+- `yg397/openresty-thrift:xenial`: `sha256:6c295fda3c2f6b941d85ebf16421bafac0dcf72450c96f53a2d031b29d8c81ef`
+- `yinfangchen/hotelreservation:latest`: `sha256:c46c018d412ab466c4cb3ae93b1aaf1a373968e2fafc2767f15539f50cd1683a`
+- `hashicorp/consul:latest`: `sha256:259fd02f2544fe1aa03fa49efd3b105c8dd67106d710a72f5e898110266356f7`
+- `alpine/git:latest` (init container): ARM `sha256:e8ceedc73bd80992ae8d58a7d24c58b8322146c354f1d2e81a97db4452068ec0`, x86 `sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d`
