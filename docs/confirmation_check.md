@@ -14,6 +14,9 @@ qualitative check with no test and no inferential weight: 3 problems, 6 runs.
 - Seeds 1000 and 1001 within the one opening (BRD 1.20).
 - Retrieval: configuration (iii) over every pool incident and the runbook, with no record of the
   confirmation problems (BRD 1.20).
+- The opening ran from a separate checkout at `cba8a1d`, whose touch log held its 9 touches until
+  the group agreed that it counts; they were then added to `runs/touch_log.jsonl` unchanged, about
+  8 hours after the opening.
 - The outcomes were first read on 2026-11-15, after the group agreed that this opening counts.
 - The slice was closed on 2026-11-15 at 07:36:50 UTC (one close touch per problem), after the
   outcomes were read, so no further confirmation run is admitted. Runs that open the slice now

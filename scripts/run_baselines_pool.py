@@ -57,10 +57,11 @@ already finished stay, and the rest are run again by id, each with a new touch.
 
 The confirmation slice (#59, R9.6) and the singleton types (#73, R9.5) run baselines 2 and 3c only,
 retrieving from every pool incident and the runbook, since they are in no fold (BRD 1.20). Their
-outputs go to runs/confirmation/ and runs/singleton/. The first run of the confirmation slice passes
---open-confirmation, which opens it once after every check of the run; a later run of the slice
-is refused before the opening and after 3 runs of a problem. Of the 5 singleton types, 3 have a
-fault type (oracle.SINGLETON_TYPES) and run; the other 2 are refused before any touch (BRD 1.22).
+outputs go to runs/confirmation/ and runs/singleton/. The run that passes --open-confirmation is
+the only run of the slice: it opens it once after every check of the run, closes it when it ends,
+even if it stopped early, and every later run of the slice is refused. Of the 5 singleton types,
+3 have a fault type (oracle.SINGLETON_TYPES) and run; the other 2 are refused before any touch
+(BRD 1.22).
 
 Outputs go to runs/baselines_pool/, which git ignores, and to the shared drive:
 
@@ -159,6 +160,7 @@ from remvalgate.harness.model_build import build_for
 from remvalgate.harness.oracle import DATABASE_TYPES, problem_fault_type
 from remvalgate.harness.outcome import classify, single_action_result
 from remvalgate.harness.protocol import interleaved
+from remvalgate.harness.selection import HELD_OUT, selection
 from remvalgate.harness.tool_ablation import LOG_SERVICES, error_lines, noisiest_services
 from remvalgate.overlay import new_orchestrator
 from remvalgate.overlay.fixes import CannotSend, exec_shell, tool_call
@@ -176,8 +178,6 @@ OUT_DIR = ROOT / "runs" / "baselines_pool"
 SCRATCH = ROOT / "runs" / "baselines_pool_scratch"
 # the confirmation slice and the singleton types: in no fold, so no fine-tuned build; one output
 # folder each
-HELD_OUT = frozenset({Slice.CONFIRMATION, Slice.SINGLETON})
-HELD_OUT_BASELINES = frozenset({"2", "3c"})
 OUT_DIRS = {
     Slice.CONFIRMATION: ROOT / "runs" / "confirmation",
     Slice.SINGLETON: ROOT / "runs" / "singleton",
@@ -387,8 +387,8 @@ def main() -> int:
     parser.add_argument(
         "--open-confirmation",
         action="store_true",
-        help="open the sealed confirmation slice before the runs (R9.6); refused if it was "
-        "opened before, so pass it once, on the first run of the slice",
+        help="open the sealed confirmation slice before the runs and close it when they end "
+        "(R9.6); the only run of the slice, so give every confirmation id and seed at once",
     )
     parser.add_argument(
         "--baseline", action="append", choices=BASELINES, required=True, help="repeatable"
@@ -431,30 +431,13 @@ def main() -> int:
     if uses_model and not args.model_version:
         parser.error("--model-version is needed for the planner arms")
     registry = load_registry(DEFAULT_REGISTRY_PATH)
-    pool = [i for i, s in registry.slices.items() if s is Slice.POOL]
-    selected = list(dict.fromkeys(args.problems)) or pool
-    unknown = [i for i in selected if i not in registry.slices]
-    if unknown:
-        parser.error(f"not in the slice registry: {', '.join(unknown)}")
-    slices = {registry.slices[i] for i in selected}
-    if len(slices) > 1:
-        # one slice per run, so a summary is never mixed
-        parser.error(f"one slice per run, got {sorted(slices)}")
-    (args.slice,) = slices
+    try:
+        selected, args.slice = selection(
+            args.problems, baselines, registry, open_confirmation=args.open_confirmation
+        )
+    except ValueError as error:
+        parser.error(str(error))
     development = [i for i in selected if args.slice is Slice.DEVELOPMENT]
-    if args.slice in HELD_OUT and set(baselines) - HELD_OUT_BASELINES:
-        parser.error(f"{args.slice} problems run baselines {sorted(HELD_OUT_BASELINES)} only")
-    untyped = []
-    for i in selected:
-        try:
-            problem_fault_type(i)
-        except ValueError:
-            untyped.append(i)
-    if untyped:
-        # redeploy_without_PV and the Astronomy Shop problem are not run (#73)
-        parser.error(f"no fault type, so not run: {', '.join(untyped)}")
-    if args.open_confirmation and args.slice is not Slice.CONFIRMATION:
-        parser.error("--open-confirmation is for confirmation problems only")
     if "3cft" in baselines and development and args.dev_fold is None:
         parser.error("3cft on development problems needs --dev-fold")
     args.folds = pool_folds(registry)

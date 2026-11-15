@@ -1,4 +1,5 @@
 import ast
+import dataclasses
 import json
 from pathlib import Path
 
@@ -177,6 +178,34 @@ def test_pool_retriever_serves_each_pool_problem_from_the_fold_that_holds_it_out
     for problem_id in (DEV, conf):
         with pytest.raises(RetrieverRefused):
             retriever.retrieve("pods pending", problem_id, 3)
+
+
+def test_held_out_retriever_refuses_a_corpus_with_a_held_out_record(monkeypatch):
+    conf = "p-synth-confirmation"
+    pool = [f"synth-revoke_auth-{i}" for i in range(4)]
+    registry = Registry(
+        slices={conf: Slice.CONFIRMATION} | dict.fromkeys(pool, Slice.POOL), placeholder=None
+    )
+    monkeypatch.setattr(
+        "remvalgate.retrieval.fixed.pool_incidents",
+        lambda registry: [
+            *map(_incident, pool),
+            dataclasses.replace(_incident(pool[0]), entry_id=conf),
+        ],
+    )
+    with pytest.raises(
+        ValueError, match="records of held-out problems: \\['p-synth-confirmation'\\]"
+    ):
+        held_out_retriever(registry, models=MODELS)
+
+
+def test_held_out_retriever_needs_a_held_out_problem():
+    pool = [f"synth-revoke_auth-{i}" for i in range(4)]
+    registry = Registry(
+        slices={DEV: Slice.DEVELOPMENT} | dict.fromkeys(pool, Slice.POOL), placeholder=None
+    )
+    with pytest.raises(ValueError, match="no confirmation or singleton problem"):
+        held_out_retriever(registry, models=MODELS)
 
 
 def test_held_out_retriever_serves_confirmation_and_singleton_from_the_whole_pool(monkeypatch):

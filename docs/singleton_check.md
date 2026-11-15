@@ -33,8 +33,9 @@ Recovered: 0 of 8 runs (3c 0 of 4, baseline 2 0 of 4), on 2 singleton types.
 
 - Baseline 2 gave no command on any run; its recorded reason is "nothing was observed to query
   with".
-- 3c on `misconfig_app_hotel_res`, seed 1001, patched an environment variable of `geo`
-  (`DB_HOST`); the fault is a wrong image, so the patch did not fix it. At seed 1000 it proposed
+- 3c on `misconfig_app_hotel_res`, seed 1001, proposed a JSON patch of the `DB_HOST` variable
+  of `geo` with a filter path that JSON patch does not support; the API server rejected it, so
+  nothing changed and the fault (a wrong image) remained. At seed 1000 it proposed
   `kubectl edit`, which the allow-list refuses (interactive verb).
 - 3c on `wrong_bin_usage`, seed 1001, proposed revoking the `readWrite` role of the `root` MongoDB
   user on another service's database, unrelated to the fault; the allow-list refused it

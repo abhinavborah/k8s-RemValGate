@@ -4,6 +4,8 @@ they need an AIOpsLab config file to import, so they are read as syntax trees.""
 import ast
 from pathlib import Path
 
+from remvalgate.harness.selection import HELD_OUT_BASELINES
+
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 POOL = SCRIPTS / "run_baselines_pool.py"
 LABELS = SCRIPTS / "run_oracle_labels.py"
@@ -128,12 +130,7 @@ def test_the_labels_without_retrieval_differ_from_3cft_in_retrieval_only():
 
 def test_confirmation_and_singleton_run_2_and_3c_over_the_held_out_corpus():
     # in no fold, so no fine-tuned build and no fold corpus (BRD 1.20)
-    held_out = next(
-        n
-        for n in _tree(POOL).body
-        if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "HELD_OUT_BASELINES"
-    )
-    assert "'2', '3c'" in ast.unparse(held_out.value)
+    assert HELD_OUT_BASELINES == {"2", "3c"}
     source = ast.unparse(_function(POOL, "retrievers"))
     assert "held_out_retriever(registry)" in source
     main = ast.unparse(_function(POOL, "main"))
@@ -142,3 +139,6 @@ def test_confirmation_and_singleton_run_2_and_3c_over_the_held_out_corpus():
     # and closed when the run ends, inside the finally that follows the runs
     assert main.index("close_confirmation(") > main.index("interleaved(")
     assert "if opened is not None" in main
+    # every refusal of selection comes before the cluster is touched
+    assert main.index("selection(") < main.index("kubectl(")
+    assert main.index("selection(") < main.index("open_confirmation(")
