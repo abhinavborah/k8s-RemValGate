@@ -71,6 +71,17 @@ def test_escalation_from_a_result_row():
     assert "unsure" in text["5. Chosen action or escalation"]
     assert "NOT_SENT" in text["6. Outcome"]
 
+    # a turn cap and a reply that held no command are not escalations
+    capped = {"command": None, "stop": "turn_cap", "outcome": "NOT_SENT"}
+    chosen = dict(replay.stages(MANIFEST, {"stop": "turn_cap"}, {}, capped))
+    assert (
+        chosen["5. Chosen action or escalation"] == "no command, nothing applied (stop: turn_cap)"
+    )
+    labels = {"plan": {"command": None, "rejection": "Expecting ',' delimiter"}}
+    chosen = dict(replay.stages(MANIFEST, {"stop": "final"}, labels, {}))
+    assert "escalated" not in chosen["5. Chosen action or escalation"]
+    assert "reply not parsed: Expecting ',' delimiter" in chosen["5. Chosen action or escalation"]
+
 
 def test_admission_comes_from_the_step_that_sent_the_command():
     # the planner's own check refused an "&&" chain that the runner then admitted and executed
@@ -91,8 +102,9 @@ def test_cut_of_a_batch_recording(tmp_path):
     (tmp_path / "a.json").write_text(json.dumps(MANIFEST))
     (tmp_path / "a.transcript.json").write_text("{}")
     (tmp_path / "b.json").write_text(json.dumps(MANIFEST | {"timestamp": "2026-11-10T14:00:20Z"}))
-    start, end = replay.window(tmp_path / "a.json")
-    assert end - start == 10
+    start, end, ender = replay.window(tmp_path / "a.json")
+    assert end - start == 10 and ender == "b"
+    assert replay.window(tmp_path / "b.json")[1:] == (float("inf"), None)
 
     # the capture starts at 14:00:00; version 3 times are intervals: events at 5, 12, 15 and 25 s
     cast = tmp_path / "batch.cast"
@@ -116,3 +128,15 @@ def test_cut_of_a_batch_recording(tmp_path):
     pods.write_text("2026-11-10T14:00:05Z ADDED a\n")
     assert replay.slice_pods(pods, start, end, tmp_path / "none.pods.log") == 0
     assert not (tmp_path / "none.pods.log").exists()
+
+
+def test_cut_of_a_version_2_recording(tmp_path):
+    # version 2 times are seconds since the start of the capture
+    cast = tmp_path / "batch.cast"
+    header = {"version": 2, "timestamp": 1000, "duration": 30.0}
+    events = [[5.0, "o", "before"], [12.0, "o", "one"], [15.0, "o", "two"], [25.0, "o", "after"]]
+    cast.write_text("\n".join(json.dumps(x) for x in [header, *events]) + "\n")
+    assert replay.slice_cast(cast, 1010, 1020, tmp_path / "a.cast") == 2
+    lines = [json.loads(x) for x in (tmp_path / "a.cast").read_text().splitlines()]
+    assert lines[0] == {"version": 2, "timestamp": 1010}
+    assert lines[1:] == [[2.0, "o", "one"], [5.0, "o", "two"]]

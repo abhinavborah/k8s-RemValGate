@@ -145,9 +145,12 @@ def stages(manifest: dict, transcript: dict, labels: dict, result: dict) -> list
         refusal = None if result["allow_list"] == "admitted" else result["allow_list"]
     else:
         refusal = verdict.get("reason")
-    if escalation or stop == "escalate" or command is None:
+    if escalation or stop == "escalate":
         chosen = f"escalated to a human, nothing applied (stop: {stop})"
         chosen += f"\n{escalation}" if escalation else ""
+    elif command is None:  # a turn cap, or a final reply that held no command
+        chosen = f"no command, nothing applied (stop: {stop})"
+        chosen += f"\nreply not parsed: {reason}" if kind == "reply not parsed" else ""
     else:
         chosen = f"{command}\nallow-list: {refusal or 'admitted'} (stop: {stop})"
         chosen += f"\nnot sent: {reason}" if kind == "not sent" else ""
@@ -179,8 +182,9 @@ def _time(stamp: str) -> float:
     return datetime.fromisoformat(stamp.replace("Z", "+00:00")).astimezone(UTC).timestamp()
 
 
-def window(manifest_path: Path) -> tuple[float, float]:
-    """From this run's start to the start of the next run in the folder, in epoch seconds."""
+def window(manifest_path: Path) -> tuple[float, float, str | None]:
+    """From this run's start to the start of the next run in the folder, in epoch seconds, and
+    the id of that next run (None when there is none, and the window runs to the end)."""
     start = _time(json.loads(manifest_path.read_text("utf-8"))["timestamp"])
     later = []
     for path in manifest_path.parent.glob("*.json"):
@@ -189,8 +193,9 @@ def window(manifest_path: Path) -> tuple[float, float]:
             continue
         stamp = json.loads(path.read_text("utf-8")).get("timestamp")
         if isinstance(stamp, str) and _time(stamp) > start:
-            later.append(_time(stamp))
-    return start, min(later, default=float("inf"))
+            later.append((_time(stamp), path.stem))
+    end, ender = min(later, default=(float("inf"), None))
+    return start, end, ender
 
 
 def slice_cast(cast: Path, start: float, end: float, out: Path) -> int:
@@ -215,6 +220,7 @@ def slice_cast(cast: Path, start: float, end: float, out: Path) -> int:
                 last = at
                 kept.append(json.dumps(event))
     header["timestamp"] = int(start)
+    header.pop("duration", None)  # a version 2 header's length of the whole capture
     out.write_text("\n".join([json.dumps(header), *kept]) + "\n", encoding="utf-8")
     return len(kept)
 
@@ -255,7 +261,20 @@ def main() -> int:
         if args.step:
             input()
 
-    start, end = window(args.manifest)
+    start, end, ender = window(args.manifest)
+    if args.pods or args.cast:
+        # the end comes from the runs in this folder, so a folder of picked runs only can give a
+        # window that spans other runs: cut from the batch's own run folder
+        shown = datetime.fromtimestamp(start, UTC).isoformat()
+        if ender:
+            ends = datetime.fromtimestamp(end, UTC).isoformat()
+            print(f"\nwindow {shown} to {ends}, ended by the next run in the folder, {ender}")
+        else:
+            print(
+                f"\nwindow {shown} to the end of the recording: no later run in"
+                f" {args.manifest.parent}. Unless this is the batch's last run, cut from the"
+                " folder that holds all the batch's runs."
+            )
     if args.pods:
         out = args.manifest.with_suffix(".pods.log")
         count = slice_pods(args.pods, start, end, out)
