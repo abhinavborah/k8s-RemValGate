@@ -3,13 +3,13 @@
 Story E10-S5 (#64, BRD R10.5). Evaluations run 2026-11-16 to 2026-11-19. Every group member should
 be able to explain the design, the results, the limits and the claim, and to run the replay. This
 page is built from the merged result pages and the outline of the final report (#184); each number
-names the page it comes from. Nothing here is a new result. On 2026-11-15 the safety, tool-call,
-retrieval and judge answers, the worked failure examples and the future work were checked against
-the final report draft (#192 at `d90ce60`). When the final report (#62) is merged and differs from
-this page, the report wins.
+names the page it comes from. Nothing here is a new result. On 2026-11-15 the page was checked
+against the final report (#192 at `083daa9`, whose text equals `34b3684`); #192 is not merged
+yet. When the merged report (#62) differs from this page, the report wins.
 
-Model for every result below unless a line says otherwise: Qwen3.5-4B (revision
-`851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`), GGUF Q8_0.
+Model for every result below unless a line says otherwise: Qwen3.5-4B (`qwen/qwen3.5-4b`), GGUF
+Q8_0. The fine-tuned models are built from base revision
+`851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`.
 
 ## 1. Demo: replay of recorded runs
 
@@ -87,7 +87,7 @@ refused its `&&` command; the pool runner admitted it, and the replay shows the 
   AssignNonExistentNode, RevokeAuth (MongoDB), UserUnregistered (MongoDB).
 - **Pool.** 16 problems in 4 folds; a 3-problem confirmation slice, sealed and opened once (#59);
   development problems for building; singleton types for an out-of-pool check (#73). Every pool
-  read is a logged touch (`runs/touch_log.jsonl`).
+  read is a logged touch (`runs/touch_log.jsonl`); 17 early entries were logged after their use.
 - **Planner.** Qwen3.5-4B, thinking on, temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5,
   turn cap 16. Tools: telemetry tools or read-only kubectl, and optionally the error bundle.
 - **Retrieval.** Configuration (iii): dense retrieval with a cross-encoder reranker over past
@@ -152,8 +152,8 @@ problem the planner can solve (a turn cap; a refused `kubectl set`).
 
 ### Confirmation slice and singletons
 
-- **Confirmation (#59, `docs/confirmation_check.md`):** 3c, opened once on 2026-11-15. 2 of 3
-  problems at both seeds (`k8s_target_port` recovered at seed 1001 only); 5 of 6 runs. Every
+- **Confirmation (#59, `docs/confirmation_check.md`):** 3c, opened once on 2026-11-14 at 23:26
+  UTC. 2 of 3 problems at both seeds (`k8s_target_port` recovered at seed 1001 only); 5 of 6 runs. Every
   command admitted, none harmful. No inferential weight.
 - **Singletons (#73, `docs/singleton_check.md`):** 0 of 8 runs (3c 0 of 4, baseline 2 0 of 4) on 2
   types. The planner's fault-type list holds the 5 pool types only.
@@ -171,8 +171,10 @@ problem the planner can solve (a turn cap; a refused `kubectl set`).
   restored.
 - Baseline 6's judge shares the planner's model family, a confound, and it was not validated
   against human labels, so no Cohen's kappa is reported for it.
-- Tool-call accuracy was not computed: the scorer of R2.7 exists in the harness but was not run on
-  these results.
+- Tool use is scored by call validity and by its effect, not against a gold tool sequence: a fault
+  has several valid diagnosis paths, so the choice of tool is not scored.
+- Some settings were fixed after earlier pool runs had been read, and 17 early touch-log entries
+  were written after their use (see the tuning question in section 6).
 - The pool runner and the planner's check treat `&&` chains differently.
 - Harm is detected from pod status only.
 - MongoDB command output was not kept before #174, so failed database commands show only an exit
@@ -199,7 +201,11 @@ and 2 ran once, at seed 1000, on 2026-11-09, before the fixes of #165, so they a
 both-seeds unit and not from the same commit, so they are not directly comparable. The honest
 reading: on these five injected fault types a lookup by fault type is a strong baseline, and the
 planner has not been shown to beat it. The planner was meant to reach types a rule does not
-cover; the singleton check (0 of 8 for both 3c and baseline 2) shows neither does yet.
+cover; the singleton check (0 of 8 runs in total: 3c 0 of 4, baseline 2 0 of 4) shows neither
+does yet. The planner arms count a problem only when it recovers at both seeds, so the two counts
+are not on one scale, and neither rule is paired with a planner arm. Both rules fail the 4 MongoDB problems and 4 of the 6
+TargetPortMisconfig problems, where the first Service with an undeclared target port they find is a
+healthy one.
 
 **Is 3c 6 or 7?** Both, from different configurations. 6 of 16 is #165 step 1, served by LM Studio
 on the run host (`docs/ablations.md`). 7 of 16 is the 3c control of #165 step 3, served by
@@ -215,7 +221,11 @@ inferential weight.
 
 **How do you know you did not tune on the test problems?** Folds hold problems out of training and
 retrieval, every pool read is logged in the touch log, retrieval configuration (iii) was frozen
-before any evaluation run, and the confirmation slice was sealed and opened once.
+before any evaluation run, and the confirmation slice was sealed and opened once. Two disclosed
+exceptions: some settings were fixed after earlier pool runs had been read (the turn cap of 16,
+the 32768-token context, the database login note, and the fixes of the three shared defects, after
+which every planner arm was rerun together); and 17 early touch-log entries (16 corpus builds and
+one test fixture) were logged after their use.
 
 **What does the allow-list do, and is it too strict?** It admits a fixed set of verbs, flags,
 resources and MongoDB methods and refuses the rest with a reason. It is the largest failure class:
@@ -223,27 +233,26 @@ it refuses more fixes than the planner misdiagnoses, and it blocks every MongoDB
 proposes. Loosening it trades recovery for safety; we did not tune it on the pool.
 
 **What is the unsafe or unapproved action rate?** An unsafe action is an applied command that
-leaves a healthy workload unhealthy (APPLIED_HARMFUL, R2.4): 0 of the 224 runs of #165 step 1 and 0
-of the 64 runs of step 3; 2 of the 120 fine-tuned candidates in the labels were harmful, both on
-one problem. An unapproved command is one the allow-list refuses: 56 of 224 runs in step 1 and 15
-of 64 in step 3 proposed one, and the allow-list stopped every one before it ran, so no unapproved
-command was executed. Without the check, 34.4% of the untuned candidates and 24.2% of the
+leaves a healthy workload unhealthy (APPLIED_HARMFUL, R2.4): none in the 288 runs of #165 steps 1
+and 3. In the labels, 0 of 73 untuned candidates and 0 of 10 untuned top picks with an outcome were
+harmful, against 1 of 88 and 1 of 12 for the fine-tuned planner, both on one problem, where an
+added `envFrom` left the new pods unable to start. An unapproved command is one the allow-list
+refuses: the planner proposed one in 71 of the 288 runs (24.7%; 56 of 224 in step 1, 15 of 64 in
+step 3), and the allow-list stopped every one before it ran, so no unapproved command was applied. Without the check, 34.4% of the untuned candidates and 24.2% of the
 fine-tuned ones would reach the cluster unvetted. Harm is read from pod status only. One known
 inconsistency: the pool runner admits a `&&` chain
 when the allow-list admits every part, while the planner's own check refuses any chain
 (SHELL_METACHAR). Demo run 3 is such a case: each part was an admitted command, but the planner path
 would have refused it.
 
-**What is the tool-call accuracy?** The scoring is defined and built (R2.7,
-`src/remvalgate/harness/toolcall.py`): each call is compared with an expected call and is
-malformed (unknown tool, missing or undefined argument, wrong type), wrong operation (wrong tool or
-kubectl verb), wrong target (namespace, kind or name), or correct, checked in that order.
-Accuracy is the share of correct calls. It covers operation and target, not parameter values such
-as a patch body, since whether an action works is judged by executing it; the allow-list verdict
-is a separate check. Answer plainly: tool-call accuracy was not computed. The scorer exists but
-was not run on these results; the tool ablation reports diagnostics per arm (turns, refused turns,
-tool calls by name, tokens) and its metrics are diagnosis accuracy and recovery
-(`docs/tool_ablation.md`). Running the scorer is listed as future work.
+**What is the tool-call accuracy?** It is reported as call validity on every planner turn of #165
+step 1 (2584 turns over 224 runs): 2538 replies were valid JSON, and 2294 of the 2337 tool calls
+(98.2%) named a tool the arm offers with arguments valid under its schema. The allow-list, which
+admits only read-only verbs during diagnosis, refused 368 of these calls (16.0%), most often for
+shell metacharacters; a refused call is answered with its reason and counts toward the turn cap.
+Tool use is also scored by its effect: diagnosis accuracy, failure class and unsafe action rate.
+It is not scored against a gold tool sequence, since a fault has several valid diagnosis paths, so
+the choice of tool is not scored.
 
 **Why AIOpsLab?** Public, peer reviewed (MLSys 2025), maintained, and its mitigation task is
 verified by execution and checks the whole system's health, not only the targeted service. The
@@ -255,7 +264,8 @@ work it copied used Qwen3.5-4B; Qwen3.5 was the newest generation with a small s
 (2026-10-02). It fits the local machine and one A100 for LoRA.
 
 **Why not a larger planner?** The proposal's risk plan named one. Qwen3.5-9B ran on the 3
-development problems (2026-11-10, seed 0, K = 8) against a rule fixed before the run: promising
+development problems (2026-11-10, before the fixes of #165, seed 0, K = 8) against a rule fixed
+before the run: promising
 only if it gave mixed outcomes on at least one problem. It gave none; on the hard target-port
 problem it named the right fault but the wrong service, at about twice the time. A signal on 3
 problems, not a test on the pool, and the pool was not spent on it.
@@ -330,6 +340,19 @@ scored, and with 16 queries one query moves Hit@3 by 6 points, so no claim about
 made and (iii) was not changed after seeing results. Extrinsically, the untuned planner recovers 2
 problems at both seeds without retrieval and 6 with either.
 
+The full table (2026-11-12, query form of the runs, fold corpus of 17 entries, relevant means same
+fault type):
+
+| Configuration | Hit@1 | Hit@3 | MRR | Recall@3 |
+|---|---|---|---|---|
+| (i) none | 0 | 0 | 0.000 | 0.000 |
+| (ii) dense | 3 | 7 | 0.381 | 0.187 |
+| (iii) dense, reranker | 3 | 6 | 0.359 | 0.187 |
+| (iv) hybrid with BM25, reranker | 3 | 5 | 0.363 | 0.167 |
+
+A stricter label, fault type and target service, gives no relevant entry for any query, since
+every pool instance of a type targets a different service.
+
 **What are baselines 6 and 7?** Baseline 6 is a prompted judge: each admitted candidate gets a
 verbalised probability from 0 to 1, seeing the task, the diagnosis and the command, never an
 oracle label; the top score at or above a threshold is applied, else it escalates. It is the
@@ -360,21 +383,50 @@ They use methods and characters the allow-list does not admit (`adminCommand`, `
   not among the admitted MongoDB methods (`getSiblingDB`, `createUser`, `grantRolesToUser`,
   `getUser`, `getUsers`); nothing ran.
 
+**Was the AssignNonExistentNode problem changed?** Yes. AIOpsLab's own problem has a fault check
+that skips the Pending pod the fault leaves, so it passes with the fault in place and a command
+that does nothing would count as a fix. The pool replaces it with an authored problem whose check
+also requires an available replica. Each authored problem was validated on the cluster: its check
+fails with the fault injected and passes after a known fix.
+
+**How much could any selector gain?** Little. In the untuned labels, 8 of 16 problems have no
+working candidate among the 8 sampled, so on half the pool there is no working command for any
+selector to choose. No arm of #165 step 1 recovers 7 problems at both seeds: the 4 MongoDB problems
+and 3 of the 6 TargetPortMisconfig problems.
+
+**How do baselines 5 and 6 compare with the planner?** They rerank 3c's candidates from the step 2
+labels, one labelling run, so they are compared with 3c's own top pick in the same labels, which
+solves 7. Baseline 5 ties at 7; baseline 6 gains the one recoverable problem, 8. The headroom check
+bounds them as it bounds the gate.
+
+**Did the fine-tuned planner ever solve a MongoDB problem?** Once, in its labels at seed 0: its top
+pick solved one MongoDB problem with its own command while none of its 8 sampled candidates worked,
+although no fold's training set holds a working MongoDB command. Its top pick gains two problems
+over 3c's and loses one (8 against 7), descriptive only.
+
+**How are the fine-tuned and untuned models kept comparable?** The untuned control is converted
+through the same merge path with no adapter, so the two served models differ only in the LoRA
+weights. Each run records the SHA-256 of the served model and of its adapter, and the runner
+refuses a model whose fold does not match the problem. In #165 step 3 both arms were served by the
+same llama.cpp build and run interleaved.
+
 **What would you do with more time?** The report's future work:
 - Review and widen the MongoDB methods the allow-list admits, and admit a chained fix as a
   candidate when each part is admitted, as the runner does.
-- Make the error bundle the planner's default, since it led on the problems where the planner named
-  the wrong service.
-- Fine-tune on fixes verified by execution for the fault types the planner never solves, such as
-  the database faults, not only on its own successes.
-- Compute tool-call accuracy with the existing scorer, and validate any judge against human labels
-  with Cohen's kappa.
+- Make the error bundle the planner's default input, since it led on the problems where the planner
+  named the wrong service.
+- Fine-tune on fixes verified by execution for the fault types the untuned planner never solves,
+  such as the MongoDB faults, not only on its own successes.
 
-Then rerun the headroom check before training a gate.
+Beyond the report: validate any judge against human labels with Cohen's kappa, and rerun the
+headroom check before training a gate.
 
-**How much compute?** One A100 pod for about 12.7 hours at $2.19 per hour (training, merging,
-serving); training 0.07 to 0.13 GPU hours per fold; the rest on a local machine with LM Studio
-(`docs/compute.md`).
+**How much compute?** No paid API; every model is open-weight and self-hosted. The reported runs
+total 334 runs and 344 labelled candidates. LoRA training took 0.07 to 0.13 GPU hours per fold on
+one A100 SXM 80 GB, which also served the fine-tuned runs; the fine-tuned labels and #165 step 3
+took about 6.3 hours there. On the run host, #165 step 1 (224 runs, about 1.03 million completion
+tokens) took about 19 hours and the untuned labels about 3 hours; one harness rollout without a
+model takes about 145 s, most of it the 120 s settle window.
 
 **Can you reproduce a number?** Every run has a manifest with commit, model build hash and seed;
 archives with SHA-256 sums are on the shared drive (listed in `docs/primary_analysis.md`); the
@@ -387,4 +439,4 @@ replay above plays any recorded run from its files.
 - [ ] Each group member answered every question in section 6 once, aloud, to another member.
 - [ ] Each group member can name the claim's numbers: 7, 5, 0 wins, 2 losses, mid-p 0.25.
 - [ ] The final report (#62) is checked against this page, and differences are fixed here
-  (draft #192 at `d90ce60` checked on 2026-11-15; recheck once it is merged).
+  (#192 at `083daa9` checked on 2026-11-15; recheck once it is merged).
