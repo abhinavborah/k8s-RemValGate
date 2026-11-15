@@ -8,7 +8,8 @@ deleted is created again. Only Deployments and Services are snapshotted: a pod t
 is recreated by its controller, and a ReplicaSet scaled by hand is set back by its Deployment.
 
 Faults whose state is not a Kubernetes object (RevokeAuth, UserUnregistered) are out of scope:
-restore does nothing for them and says so. The caller escalates and still runs harm detection.
+restore does nothing for them and says so. mongo_snapshot.py snapshots and restores their MongoDB
+users instead (#187); without it the caller escalates and still runs harm detection.
 
 The kubectl calls are injected, as in harm.py, so CI tests the logic without a cluster.
 """
@@ -138,6 +139,18 @@ def restore(
         return RestoreResult(attempted=False, changed=())
     if fault_type not in IN_SCOPE:
         raise ValueError(f"unknown fault type {fault_type!r}")
+    return restore_objects(snapshot, get, put)
+
+
+def restore_objects(
+    snapshot: Snapshot,
+    get: Callable[[ObjectRef], dict | None],
+    put: Callable[[str, dict], None],
+) -> RestoreResult:
+    """Put the snapshot's objects back whatever the fault type, as restore does in scope.
+
+    For a database fault whose command also changed a Deployment or Service (execute.py).
+    """
     expected = dict(snapshot.objects)
     recreated = []
     errors = []

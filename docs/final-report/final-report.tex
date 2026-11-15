@@ -371,13 +371,25 @@ against 37 with a wrong fault type or service, over all arms. On the 4 MongoDB p
 \code{notools} never reaches it.
 \end{enumerate}
 
-\begin{sloppypar}\noindent Two cases show the first two patterns. On \code{k8s\_target\_port-misconfig-mitigation-1}
-at seed 1000, 3c blamed \code{social-graph-service} and proposed \code{kubectl edit}, which the
-allow-list refused; \code{notools} named \code{user-service} from the bundle and patched its
-\code{targetPort}, which recovered. On \code{revoke\_auth\_mongodb-mitigation-1} at seed 1001, 3c
-named the fault right, but its fix called \code{db.adminCommand}, which the allow-list refused. The
-runner admits a chain \code{a \&\& b} when the allow-list admits each part; the one MongoDB recovery
-(baseline 7) was such a chain, a \code{createUser} call followed by a restart of the client.\end{sloppypar}
+\noindent Two hard cases from the transcripts show the first two patterns:
+
+{\raggedright
+
+\textbf{The bundle names the service.} On the first TargetPortMisconfig problem at seed 1000, 3c
+named \code{social-graph-service}, not the faulty \code{user-service}, and proposed
+\code{kubectl edit service social-graph-service}, which the allow-list refused as an interactive
+verb. \code{notools}, on the same problem and seed, read from the bundle that the
+\code{user-service} Service forwards to target port 9999 while its pods listen on 9090, sent a
+JSON patch setting the target port to 9090, and recovered.
+
+\textbf{A right diagnosis, a refused fix.} On the first RevokeAuth problem at seed 1001, 3c named
+the fault and the geo database correctly, logged in as root, and called \code{db.adminCommand},
+which is not among the MongoDB methods the allow-list admits (\code{getSiblingDB},
+\code{createUser}, \code{grantRolesToUser}, \code{getUser}, \code{getUsers}); nothing ran.\par}
+
+\noindent The runner admits a chain \code{a \&\& b} when the allow-list admits each part; the one
+MongoDB recovery (baseline 7) was such a chain, a \code{createUser} call followed by a restart of
+the client.
 
 \subsection{Confirmation slice and singleton types}
 
@@ -488,8 +500,16 @@ bundle helps it name the faulty service and recover more problems (8 against 6 a
 finding the faulty service, not at the choice among candidates; the headroom check found little
 for a validity gate to select, so the gate itself remains untested here.
 
-\textbf{Future work.} A reviewed, wider list of MongoDB methods for the allow-list; the error
-bundle as the planner's default input; and fine-tuning data that includes database fixes.
+\section{Future work}
+
+\begin{itemize}
+\item Review and widen the MongoDB methods the allow-list admits, and admit a chained fix as a
+candidate when each part is admitted, as the runner does.
+\item Make the error bundle the planner's default input, since it led on the problems where the
+planner named the wrong service.
+\item Fine-tune on fixes verified by execution for the fault types the planner never solves, such
+as the database faults, not only on its own successes.
+\end{itemize}
 
 \bibliographystyle{IEEEtran}
 \bibliography{refs}

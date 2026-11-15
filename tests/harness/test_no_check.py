@@ -458,3 +458,27 @@ def test_a_transcript_missing_a_field_is_refused_by_name(env, field):
     with pytest.raises(ValueError, match=f"no {field} field|without admitted and reason"):
         _run(env, [path])
     assert [t["problem_id"] for t in _nocheck_touches(env)] == [POOL_A]
+
+
+def test_two_runs_in_one_second_write_two_summaries(env):
+    # the per-fold runs of #165 step 3 started within one second, and the second summary clashed
+    ok = f"kubectl -n {SN} scale deployment web --replicas=1"
+    a = _source(env, POOL_A, Slice.POOL, [ok])
+    b = _source(env, POOL_B, Slice.POOL, [ok])
+    outs = []
+    for i, path in enumerate([a, b]):
+        clock = count()
+        _, out = ablate_runs(
+            [path],
+            registry=env["registry"],
+            policy=POLICY,
+            policy_sha256=POLICY_SHA,
+            touch_log=env["log"],
+            repo=env["repo"],
+            aiopslab_commit=PIN,
+            out_dir=env["out"],
+            now=lambda i=i, c=clock: NOW + timedelta(microseconds=1000 * i + next(c)),
+            start=partial(start_run, checksum=_sum),
+        )
+        outs.append(out)
+    assert outs[0] != outs[1] and all(o.exists() for o in outs)
