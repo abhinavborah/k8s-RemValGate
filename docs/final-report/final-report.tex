@@ -16,7 +16,7 @@
 \setlist[enumerate]{topsep=2pt,itemsep=1pt,parsep=0pt,leftmargin=*}
 \setlist[itemize]{topsep=2pt,itemsep=1pt,parsep=0pt,leftmargin=*}
 
-\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\code}[1]{\texttt{\upshape #1}}
 \newcommand{\mail}[1]{\href{mailto:#1}{#1}}
 \renewcommand{\arraystretch}{1.15}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
@@ -51,8 +51,8 @@ retrieval. Replacing its interactive telemetry tools with a fixed error bundle r
 both seeds, against 6, and names the right fault and service on 16 and 13 of 16 problems at the two seeds,
 against 11 and 13. A
 pre-specified test rejects the claim that LoRA fine-tuning on the planner's own working commands
-beats the untuned planner (0 wins, 2 losses). Over all arms, the allow-list refuses more runs than
-the planner misdiagnoses.}
+beats the untuned planner (0 wins, 2 losses). Summed over all arms, the allow-list refuses more runs
+than the planner misdiagnoses.}
 
 \medskip
 \noindent Course CL3410, Language Models and Agents, Monsoon 2026.
@@ -62,22 +62,34 @@ the planner misdiagnoses.}
 
 \section{Introduction}
 
-An agent that repairs a microservice incident has to do two things right: find the fault, and
-apply a command that removes it without breaking anything else. We study both steps on the
+An agent that repairs a microservice incident must find the fault and apply a command that removes
+it without breaking anything else. We study both steps on the
 mitigation problems of AIOpsLab~\cite{aiopslab}. We count a fix only if the problem's injected
-fault is gone after the command runs, judged by a fault check written for each problem.
+fault is gone after the command runs, judged by a fault check written for each problem. Strong LLM
+agents already name the faulty service on most incidents, yet pick a valid recovery action far less
+often~\cite{r2act}, so the step from a diagnosis to a valid command is the harder one.
 
 Our original question was whether a small gate, fine-tuned with LoRA, selects working candidate
 commands better than the planner's own ranking. That question needs candidates to choose between:
-problems where the planner's first choice fails and another candidate works. A pre-specified check
+problems where the planner's top pick fails and one of its sampled candidates works. A pre-specified check
 measured that count before any training (Section~\ref{sec:headroom}): at most 1 of 16 problems,
-below the 5 a paired test needs, so the study turned to the planner itself. The project still tests three capabilities. Retrieval gives the planner earlier fixes of
-the same fault type, tool calling lets it read cluster state through read-only tools, and
-fine-tuning trains it with LoRA on its own commands that worked.
+below the 5 a paired test needs. The study therefore asks which of retrieval, read-only tool calling
+and fine-tuning raises the number of pool problems a small planner recovers at both seeds, and
+decides the fine-tuning question by a threshold set before training.
 
-The contributions are measurements: a protocol with two seeds, interleaved arms and a
-logged evaluation set; the capability ablations; a pre-specified fine-tuning claim,
-tested and rejected; and a failure analysis of where the runs fail.
+Each capability answers a need of the task. A fault type recurs across services and its fix has an
+exact form the cluster accepts, so retrieval gives the planner earlier fixes of the same fault type.
+The faulty service shows only in live cluster state, so tool calling lets the planner read it
+through read-only tools. A 4B model may not produce admissible commands from instructions alone, so
+fine-tuning trains it with LoRA on its own commands that worked. The planner acts as an agent: it
+chooses its tool calls turn by turn, and in baseline 7 it may escalate to a human; the failure
+classes and the escalation count measure that behaviour.
+
+We contribute a protocol with two seeds, interleaved arms and a logged evaluation set; a repaired
+fault check for one benchmark problem, whose original check, by its code, passes with the fault in
+place; the
+capability ablations; a pre-specified fine-tuning claim, tested and rejected; and a failure
+analysis of where the runs fail.
 
 \section{Literature review}
 
@@ -95,89 +107,134 @@ retrieval-augmented LLMs identify the root-cause service accurately, yet recover
 between 36.8 and 60.3 percent, and many methods pick an invalid action even after a correct
 diagnosis. The authors locate the difficulty in turning a diagnosis into a valid action on an
 admissible target. Our failure analysis (Section~\ref{sec:eval}) finds the same gap on live
-problems.
+problems. MicroRemed~\cite{microremed} has models write Ansible playbooks from a diagnosis report
+and counts a fix only when execution removes the injected failure; in its ablation, dropping the
+probing agent raises accuracy in some settings, which the authors attribute to noise from excessive
+probing. Our arms with a fixed error bundle test the same trade-off on live problems.
 
 \textbf{Gating agent actions.} Safety Sentry~\cite{safetysentry} replaces a binary safe or unsafe
 guard over an agent's tool calls with a per-instance decision among EXECUTE, ASK and REFUSE, made
 in one decoding call by a lightweight guard model whose threshold is set at decoding time.
 GuardAgent~\cite{guardagent} checks a target agent's actions against safety requests with
-generated guardrail code. Our validity gate was designed after Safety Sentry, with a different
-question: whether a command will restore the service, rather than whether it is allowed in context.
+generated guardrail code. AgentSpec~\cite{agentspec} enforces user-written rules, each a trigger,
+predicates and an enforcement such as stopping the agent or asking the user, before an action runs;
+our allow-list is a fixed rule of this kind, checked before every command. Our validity gate was
+designed after Safety Sentry, a 4B Qwen3.5 guard fine-tuned with LoRA, with a different question:
+whether a command will restore the service, rather than whether it is allowed in context.
 
 \textbf{Abstaining when unsure.} Bonagiri et al.~\cite{quitting} show that instructing agents to
 quit when they are unsure improves average safety across 12 LLMs in ToolEmu~\cite{toolemu}, at a small
-cost in helpfulness. Baseline 7 adapts their instructions so that the planner escalates to a human.
+cost in helpfulness. They also find that open-weight models respond less to quit instructions than
+proprietary ones. Baseline 7 adapts their instructions so that the planner escalates to a human.
 
 \textbf{Retrieval and fine-tuning.} The planner retrieves past fixes in the manner of
-retrieval-augmented generation~\cite{rag}, and is fine-tuned with LoRA~\cite{lora} on its own
-commands that worked, a form of training on self-generated successes as in STaR~\cite{star}.
+retrieval-augmented generation~\cite{rag}. In incident management, Zhang et al.~\cite{iclrca}
+retrieve the most similar past incidents as in-context examples for root-cause analysis and find
+that GPT-4 with these examples beats a fine-tuned GPT-3 model; our planner retrieves earlier fixes
+of the same fault type in the same way, for mitigation. The planner is also fine-tuned with
+LoRA~\cite{lora} on its own commands that worked, a form of training on self-generated successes as
+in STaR~\cite{star}. ReST$^{EM}$~\cite{restem} studies this filter-and-fine-tune loop with a binary
+reward on thousands of training problems and reports overfitting when the problem set is small.
 
 \textbf{Reliability over repeated trials.} $\tau$-bench~\cite{taubench} introduces pass$^k$,
 reliability over $k$ trials of the same task. Our unit, a problem counted only when it recovers at
-both seeds, is the case of that measure with $n=k=2$ trials.
+both seeds, is the case of that measure with $n=k=2$ trials. Miller~\cite{errorbars} recommends
+inference on per-question paired differences and repeated samples per question when two systems
+face the same questions; our arms are compared on the same 16 problems, each run at two seeds.
 
 \section{Dataset}
 
 \textbf{Used.} The problems come from AIOpsLab's mitigation task on two applications, Social
-Network and Hotel Reservation.
+Network and Hotel Reservation. AIOpsLab is used unmodified, pinned at commit \code{576c3f0}; the
+authored problems live in an overlay in our repository.
 
 \textbf{Created.} We built the following sets, registered in one file and kept apart by code:
 \begin{itemize}
-\item \textbf{Pool} (16 problems, the evaluation set): 8 AIOpsLab problems and 8 we authored by
-applying AIOpsLab's fault types to other services, of 5 fault types: TargetPortMisconfig (6), ScalePod (3),
-AssignNonExistentNode (3), RevokeAuth (2) and UserUnregistered (2). They are split into 4 folds,
-so that no problem retrieves or trains on its own record.
-\item \textbf{Confirmation slice} (3 authored problems), sealed by checksum before any run and
-opened once at the end.
+\item \textbf{Pool} (16 problems, the evaluation set): 8 AIOpsLab problems and 8 we authored. Seven
+apply AIOpsLab's fault types to other services. The eighth replaces an AIOpsLab AssignNonExistentNode
+problem whose fault check skips the Pending pod the fault leaves, so it passes with the fault in
+place and a command that does nothing would count as a fix; ours also requires an available
+replica. Each authored problem was validated on the cluster: its check fails with the fault
+injected and passes after a known fix. The pool has 5 fault types: TargetPortMisconfig (6),
+ScalePod (3), AssignNonExistentNode (3), RevokeAuth (2) and UserUnregistered (2). It is split into
+4 folds, so that no problem retrieves or trains on its own record; automated checks confirm that
+the folds are balanced by fault type and that no fold's corpus holds a record of its held-out
+problems.
+\item \textbf{Confirmation slice} (3 authored problems), sealed by checksums over each problem's
+definition and fault check before any run and opened once at the end. The three apply the three
+Kubernetes fault types to one service and include no database fault.
 \item \textbf{Development} (3 problems) for dry runs, and \textbf{singletons} (5 fault types with
 one problem each) for unseen faults.
 \item \textbf{Retrieval corpus}: one past-fix record per pool problem and one runbook entry per
-fault type, built per fold from the problems outside it.
+fault type, built per fold from the problems outside it. The past-fix records of the four MongoDB
+problems were not executed on the cluster, so retrieval offers no tested database fix.
 \item \textbf{Execution labels}: a labelling run samples $K=8$ candidate commands per pool problem
-and executes each one the allow-list admits. The untuned run has 128 candidates (53 working; 44
-refused and 11 with no command), the fine-tuned runs 120 and 96. The training set of a fold holds
-the working commands of its 12 training problems, 6 to 9 per fold.
+at seeds 0 to 7 and executes each one the allow-list admits; near-identical candidates are executed
+once and share a label. Every problem with a working candidate has one among its first 7 samples,
+within $K=8$. The untuned run has 128 candidates: 53 working, 20 applied without recovering,
+44 refused and 11 with no command. The fine-tuned runs have 120 and 96. The training set of a fold
+holds the working commands of its 12 training problems, 6 to 9 per fold.
 \end{itemize}
 
-\noindent Every use of an evaluation problem, a run or a read of its labels, appends an entry to a
-touch log before it happens, and the run is refused otherwise; the log is committed with the
-runs.
+\noindent Every run on an evaluation problem, and every export or scoring step that reads its
+labels, appends an entry to a touch log before it starts, and is refused otherwise; corpus builds
+are logged too, and 17 early entries (16 corpus builds and one test fixture) were logged after
+their use. The harness also refuses an evaluation run from a working tree with uncommitted changes,
+without a pinned AIOpsLab commit or before the confirmation slice is sealed, and a run of the slice
+before it is opened or after it is closed. The log is committed with the runs.
 
 \section{Methodology}
 
 \input{figures/system}
 
 \textbf{System.} Figure~\ref{fig:system} shows the system as evaluated. AIOpsLab injects a fault on
-a two-node kind (Kubernetes in Docker) cluster. The planner (Qwen3.5-4B, GGUF Q8\_0, context 32768, thinking on, temperature 0.7, top-p 0.8, top-k 20,
-presence penalty 1.5)
+a two-node kind (Kubernetes in Docker) cluster. The planner (Qwen3.5-4B, GGUF Q8\_0, context 32768,
+thinking on, temperature 0.7, top-p 0.8, top-k 20, presence penalty 1.5, at most 4096 output tokens
+per call)
 retrieves three past fixes with configuration (iii): \code{BAAI/bge-small-en-v1.5} dense
 retrieval of five, reranked by \code{BAAI/bge-reranker-base}, then runs a loop of at most 16 turns: each turn it calls one read-only tool
-(\code{kubectl get} or \code{describe}, logs, metrics, traces) or gives its diagnosis and one
-command. The model makes a choice in this loop only; the rest runs the same procedure whatever
-the fault.
+(\code{kubectl get} or \code{describe}, logs, metrics, traces) or gives its diagnosis (one of the
+five pool fault types, each described in the prompt, and the faulty service) and one command. The
+model makes a choice in this loop only; the rest runs the same procedure whatever the fault. On
+Hotel Reservation, where MongoDB requires a login, the prompt names the database users and two
+password tokens, which the harness fills in just before a command runs, so no password is stored or
+shown to the model. Every Hotel Reservation pool problem is a database fault, so this note also
+hints at the fault class; it is the same for every arm.
 
-\textbf{Checking and executing.} The command must pass a deterministic allow-list (binary,
-namespace sandbox, verb, resource and flags) before it runs. An admitted command is applied, the
-cluster settles for 120~s, harm is detected by pod-status differencing, and the problem's own fault
-check decides whether the service recovered. After each run the harness resets the problem: Services and
-Deployments return to their saved state, and on the 4 database problems, whose fault lives in
-MongoDB users, AIOpsLab's recovery step runs and pod health is checked.
+\textbf{Checking and executing.} The command must pass a deterministic allow-list before it runs:
+\code{kubectl} only, in the problem's namespace, with the verbs \code{get}, \code{describe},
+\code{scale}, \code{patch} (Deployments and Services, with denied keys such as \code{image} and
+\code{privileged}), \code{delete} (pods only) and \code{rollout restart} or \code{undo}, listed
+resources and flags, no shell metacharacters, and an \code{exec} into the MongoDB shell limited to
+five user-management methods (\code{createUser}, \code{grantRolesToUser}, \code{getSiblingDB},
+\code{getUser}, \code{getUsers}). An admitted command is applied to a fresh injection of the same
+fault, checked against the saved post-injection state; the cluster settles for 120~s, harm is
+detected by pod-status differencing, and the problem's own fault check decides whether the service
+recovered. After each run the harness resets the problem: AIOpsLab's recovery step runs, every
+Service and Deployment that differs from its saved clean state is put back, and the namespace must
+equal that state with every workload healthy. On the 4 MongoDB problems, whose fault lives in
+database users that no Kubernetes object holds, the problem's own fault check must also pass. A
+failed reset stops the batch.
 
 \textbf{The gate and the headroom check.}
 \label{sec:headroom}
 The design placed a validity gate between the planner and execution: score $K$ sampled candidates
 and apply the best one above a threshold. A gate can only win where the planner's top pick fails
-and another candidate works. Before any training, a pre-specified headroom check required at least 5 such recoverable
+and one of its sampled candidates works. Before any training, a pre-specified headroom check required at least 5 such recoverable
 problems among the execution-labelled candidates, the smallest gain with a two-sided McNemar mid-p below 0.05 at
 $n=16$ (5 wins with no loss, or 7 with one). The first labels gave 0 recoverable problems and the
 labels after the rerun gave 1. The check failed both times, so the gate was not trained, and the
-planner acts on its own command. A larger planner, Qwen3.5-9B, tried on the three development
-problems, gave no problem with mixed outcomes either.
+planner acts on its own command. A larger planner, Qwen3.5-9B, run once with $K=8$ on each of the
+three development problems on 2026-11-10, before the fixes of Section~\ref{sec:runs}, gave no
+problem with mixed outcomes and no working candidate on TargetPortMisconfig.
 
 \textbf{Fine-tuning.} Each fold's planner is LoRA-tuned (rank 16, alpha 32, dropout 0.05 on the attention and MLP projections; AdamW,
 learning rate $10^{-4}$, batch 1, 3 epochs) on the
 working commands of its 12 training problems, merged into the base model and served as GGUF Q8\_0.
-A held-out problem is always served by the adapter of its own fold.
+A held-out problem is always served by the adapter of its own fold. The untuned control of this
+comparison is converted through the same merge path with no adapter, so the two served models
+differ only in the LoRA weights; each run records the SHA-256 of the served model and of its
+adapter, and the runner refuses a model whose fold does not match the problem.
 
 \textbf{Arms.} Table~\ref{tab:glossary} defines the names used for the compared systems in the
 rest of the report.
@@ -194,7 +251,8 @@ Name & Meaning \\
 3a, 3b, 3c & untuned planner with no retrieval (3a), dense retrieval (3b), retrieval (iii) (3c);
 3c is the reference system \\
 3cft & 3c with its fold's LoRA-tuned planner \\
-5, 6 & rerank 3c's sampled candidates: a fine-tuned scorer (5), a prompted judge (6) \\
+5, 6 & rerank 3c's sampled candidates: by summed token log-probability under the fold's LoRA-tuned
+planner (5), by a prompted judge (6) \\
 7 & 3c instructed to escalate to a human when unsure \\
 toolsbundle & 3c plus the error bundle \\
 kubectlonly & 3c with read-only \code{kubectl} only, no log, metric or trace tools \\
@@ -202,38 +260,48 @@ notools & kubectlonly plus the error bundle \\
 error bundle & metrics, traces and the logs of the 3 Deployments with the most error lines since
 injection, collected once at injection \\
 retrieval (iii) & dense retrieval with a cross-encoder reranker, three past fixes \\
-recovered & the injected fault is gone after the 120~s settle window \\
+recovered & the injected fault is gone after the 120~s settle window and no workload that was
+healthy before the command is unhealthy \\
 both seeds & recovered at seed 1000 and at seed 1001 \\
-recoverable & a problem whose top pick fails while another sampled candidate works \\
-top pick & in a labelling run, the candidate sampled at seed 0 \\
+top pick & in a labelling run at seed 0, the planner's own final command, executed apart from its
+$K$ sampled candidates \\
+recoverable & a problem whose top pick fails while one of its $K$ sampled candidates works \\
 \hline
 \end{tabularx}
 \end{table}
 
 \section{Experiment runs}
+\label{sec:runs}
 
-Three defects shared by every planner arm (a wrong fault-type description, tool advice that
-discouraged telemetry, and a retrieval query that changed between runs) were fixed before the
-reported results, and all planner arms were then rerun together in three steps. Within steps 1 and 3, the compared arms run from one commit at seeds 1000 and
-1001, interleaved by problem, with the model build recorded in each manifest. Table~\ref{tab:runs} lists
-the runs reported here.
+Some settings were fixed after earlier pool runs had been read: the turn cap of 16, the
+32768-token context and the database login note, added after the first labelling run found no
+admitted command that could fix the database problems (no development problem runs on Hotel
+Reservation), and the fixes of three defects shared by every planner arm (a wrong fault-type
+description, tool advice that discouraged telemetry, and a retrieval query that changed between
+runs). The planner also receives the injection time as the incident's ticket time. All planner arms were then
+rerun together in three steps. Before step 1, a dry run of all 7 arms at both seeds on the 3
+development problems (42 runs, no evaluation touch) checked every manifest for the commit, the
+model build and the sampling settings. Within steps 1 and 3, the compared arms run from one commit
+at seeds 1000 and 1001, interleaved by problem with the first arm rotated from problem to problem,
+with the model build recorded in each manifest. Table~\ref{tab:runs} lists the runs reported here.
 
 \begin{table}[!t]
-\caption{Runs reported, all in 2026. Qwen3.5-4B (\code{qwen/qwen3.5-4b}), GGUF Q8\_0; the
-fine-tuned models from base revision \code{851bf6e}. LM Studio ran on the run host; llama.cpp
-\code{61dbf49} and the bf16 ranking of baseline 5 on one A100 SXM 80~GB.}
+\caption{Runs reported, dates 2026-MM-DD. Qwen3.5-4B (\code{qwen/qwen3.5-4b}), GGUF Q8\_0; the
+fine-tuned models from base revision \code{851bf6e}. LM Studio ran on the run host, an Apple M4 Pro
+with 24~GB (version 0.4.27+2, llama.cpp runtime 2.73.0, recorded for rerun steps 1 and 2); llama.cpp \code{61dbf49} and the bf16 ranking of
+baseline 5 on one A100 SXM 80~GB.}
 \label{tab:runs}
 \centering\footnotesize
 \begin{tabularx}{\columnwidth}{@{}Yllr@{}}
 \hline
-Run & Server & Date & Size \\
+Run & Server or host & Date & Size \\
 \hline
 baselines 1 and 2, seed 1000 & no model & 11-09 & 32 runs \\
 rerun step 1: 7 arms, 2 seeds & LM Studio & 11-13 & 224 runs \\
-rerun step 2: untuned labels, $K=8$ & LM Studio & 11-13 & 128 cand. \\
+rerun step 2: untuned labels, $K=8$ & LM Studio & 11-13 & 128 candidates \\
 rerun step 3: 3c and 3cft, 2 seeds & llama.cpp & 11-14 & 64 runs \\
-fine-tuned labels & llama.cpp & 11-14 & 120 cand. \\
-fine-tuned labels, no retrieval & llama.cpp & 11-14 & 96 cand. \\
+fine-tuned labels & llama.cpp & 11-14 & 120 candidates \\
+fine-tuned labels, no retrieval & llama.cpp & 11-14 & 96 candidates \\
 baseline 5, ranking (bf16) & A100 & 11-14 & 16 problems \\
 confirmation slice & LM Studio & 11-14 & 6 runs \\
 singleton types & LM Studio & 11-15 & 8 runs \\
@@ -242,30 +310,48 @@ baseline 6, judge & LM Studio & 11-15 & 16 problems \\
 \end{tabularx}
 \end{table}
 
-\textbf{Compute.} LoRA training took 0.07 to 0.13 GPU hours per fold on one A100 SXM 80~GB, which
-also served the fine-tuned runs. A planner episode makes one model call per
-turn, at most 16, plus one retrieval. Every run has a manifest with its commit, model build, seed
-and touch-log entry; archives with checksums are on the group's shared drive, and a recorded run
-can be replayed from its saved files with no cluster.
+\textbf{Compute and reproducibility.} No paid API was used: every model is open-weight and
+self-hosted. The reported runs total 334 runs and 344 labelled candidates (Table~\ref{tab:runs}).
+LoRA training took 0.07 to 0.13 GPU hours per fold on one A100 SXM 80~GB, which also served the
+fine-tuned runs; the fine-tuned labels and rerun step 3 took about 6.3 hours there. On the run host,
+rerun step 1 (224 runs, about 1.03 million completion tokens) took about 19 hours and the untuned
+labels about 3 hours; without a model, one harness rollout takes about 145~s, most of it the
+120~s settle window. A planner episode makes one model call per turn, at most 16, plus one
+retrieval; in rerun step 3, 3c used 3 to 16 calls per episode (median 11.5) and 3cft 1 to 16
+(median 16), and a labelling run adds $K=8$ sampling calls per problem. Every run has a manifest
+with its commit, model build, seed and touch-log entry. The run archives, with SHA-256 checksums,
+are at \url{https://drive.google.com/drive/folders/1c08dv-LrF2SfwfqYjMzzY9lRACUPZRyz}, and any
+recorded run can be shown step by step from its saved files with no cluster or model. The
+deterministic parts (allow-list, harm detection, outcome classes, folds, corpus isolation and the
+statistics) have unit tests, some against published worked examples, which run with lint on every
+pull request.
 
 \section{Evaluation}
 \label{sec:eval}
 
-\textbf{Metrics.} A run recovers when the fault is gone after the settle window; a problem counts
+\textbf{Metrics.} A run recovers when the fault is gone after the settle window and the command
+left no healthy workload unhealthy; a problem counts
 as recovered only if it recovers at both seeds. A claim is decided by paired wins and losses on the
 16 problems, with the two-sided McNemar mid-p~\cite{fagerland} and a Bonett-Price interval~\cite{bonett}
-reported beside it. The unsafe
-action rate is the share of runs whose applied command leaves a healthy workload unhealthy: 0 of
-the 288 runs of rerun steps 1 and 3, and 2 of the 120 fine-tuned label candidates, both on one
-problem. No unapproved command was applied, since every command passes the allow-list before it runs; the
-planner proposed one in 71 of the 288 runs of rerun steps 1 and 3 (24.7 percent), per arm in
-Table~\ref{tab:failures}.
+reported beside it. The unsafe action rate is the share of applied commands that leave a healthy
+workload unhealthy: in the 288 runs of rerun steps 1 and 3, no applied command was harmful. In the labels, 0 of 73 untuned
+candidates and 0 of 10 untuned top picks with an outcome were harmful, against 1 of 88 and 1 of 12
+for the fine-tuned planner, both on one problem, where an added \code{envFrom} left the new pods
+unable to start. No unapproved command was applied, since every command passes the allow-list
+before it runs; the planner proposed one in 71 of the 288 runs of rerun steps 1 and 3 (24.7
+percent), per arm in Table~\ref{tab:failures} for step 1 and in Section~\ref{sec:ablations} for
+step 3.
+
+Tool-call accuracy is scored as call validity on every planner turn of rerun step 1 (2584 turns
+over 224 runs): 2538 replies were valid JSON, and 2294 of the 2337 tool calls (98.2 percent) named a tool the arm offers with arguments valid under its schema. The allow-list, which
+admits only read-only verbs during diagnosis, refused 368 of these calls (16.0 percent), most often
+for shell metacharacters; a refused call is answered with its reason and counts toward the turn cap.
 
 \subsection{Baselines}
 
 \begin{table}[!t]
-\caption{Baselines on the 16 pool problems. Recovered problems: for the planner arms at both
-seeds, for baselines 1 and 2 at one seed.}
+\caption{Baselines on the 16 pool problems. Recovered problems: at both seeds for 3a, 3b, 3c and
+7; in one run at seed 1000 for 1 and 2; in one labelling run for 5 and 6.}
 \label{tab:baselines}
 \centering\footnotesize
 \begin{tabularx}{\columnwidth}{@{}lYr@{}}
@@ -278,13 +364,14 @@ Baseline & What & Recovered \\
 3b & untuned planner, dense retrieval & 6 \\
 3c & untuned planner, retrieval (iii) & 6 \\
 5 & fine-tuned ranking of 3c's candidates\textsuperscript{b} & 7 \\
-6 & prompted judge over 3c's candidates & 8 \\
+6 & prompted judge over 3c's candidates\textsuperscript{b} & 8 \\
 7 & 3c told to escalate when unsure & 3 \\
 \hline
 \multicolumn{3}{@{}p{\columnwidth}@{}}{\scriptsize \textsuperscript{a}One run per problem
 at seed 1000, 2026-11-09, before the rerun. \textsuperscript{b}Baselines 5 and 6 rank the candidates of the step 2 labels, one
-labelling run rather than two seeds; in those labels 3c's own top pick solves 7; baseline 5 in bf16, 2026-11-14; baseline 6 at temperature 0 and threshold 0, escalating on 3
-database problems whose candidates were all refused. Baseline 4, a classifier
+labelling run rather than two seeds; in those labels 3c's own top pick solves 7; baseline 5 in bf16, 2026-11-14; baseline 6 at temperature 0 and threshold 0, with a judge not validated against human labels,
+escalating on 3
+MongoDB problems whose candidates were all refused. Baseline 4, a classifier
 over structured features, was dropped by a rule set in advance: the fine-tuned planner's labels hold no
 recoverable problem for it to choose.}\\
 \end{tabularx}
@@ -295,14 +382,18 @@ headroom check bounds them as it bounds the gate: against 3c's top pick in the s
 baseline 5 ties and baseline 6 gains the one recoverable problem. The two rules with no model
 recover 8 problems in one run at seed 1000, on earlier code; the planner arms count a problem only
 when it recovers at both seeds, so the two columns are not on one scale. Baseline 1 holds fixes for
-the three Kubernetes fault types only, and neither rule is paired with the planner arms.
+the three Kubernetes fault types only, and neither rule is paired with the planner arms. Both rules
+fail the 4 MongoDB problems and 4 of the 6 TargetPortMisconfig problems, where the first Service
+they find with an undeclared target port is a healthy one.
 
 \subsection{The fine-tuning claim}
 
-Fine-tuning the planner was added after the failed headroom check, so that every capability has an
-experiment, and the comparison is exploratory. Its threshold is the minimum gain set before any
-training; the both-seeds rule and the outcome labels were confirmed on the project's public issue
-tracker before the counts were computed: the claim
+Fine-tuning the planner was added after the failed headroom check, and the comparison is
+exploratory. Most failed runs end in a command that does not work or is refused
+(Table~\ref{tab:failures}), so the experiment tests whether training on its own working commands
+makes the planner produce them more often. Its threshold is the minimum gain set before any
+training; the both-seeds rule was confirmed, and the outcome labels adopted, on the project's public
+issue tracker before the counts were computed: the claim
 \emph{3cft recovers more pool problems than 3c and loses at most one problem 3c recovers} is
 supported only with at least 5 wins and no loss, or at least 7 wins and one loss, counting a
 problem as recovered only when it recovers at both seeds; two or more losses, or no more wins than
@@ -326,16 +417,17 @@ seed 1001 & 10 & 8 & 1 & 3 & 0.375 \\
 \end{table}
 
 Table~\ref{tab:finetune} gives the result: 0 wins and 2 losses at both seeds, with a Bonett-Price
-95 percent interval for the difference of $[-0.32, 0.10]$. \textbf{The claim is falsified.} 3c
-recovers 7 problems here against 6 in Table~\ref{tab:baselines}: step 3 served both arms with
+95 percent interval for the difference of $[-0.32, 0.10]$. The claim is falsified. Here 3c
+recovers 7 problems against 6 in Table~\ref{tab:baselines}: step 3 served both arms with
 llama.cpp on the GPU host and step 1 with LM Studio, so they are separate configurations and are
 not pooled. In each loss,
 3cft failed at one of the two seeds: once at the turn cap with no diagnosis, once with a command
 the allow-list refused. Labelled by execution at seed 0, the fine-tuned planner's
 top pick solves 8 problems against 7, with 55 of 120 working candidates against 53 of 128 (two
 server builds, descriptive), one problem with both working and failing candidates and no
-recoverable one. Self-training can only reinforce fixes the
-planner already produces: no fold holds a working MongoDB command.
+recoverable one. Its top pick gains two problems and loses one; one gain is a MongoDB problem,
+solved by its own command while none of its 8 sampled candidates worked, although no fold's
+training set holds a working MongoDB command.
 
 \subsection{Failure analysis}
 
@@ -362,56 +454,68 @@ notools & 20 & 5 & 7 & 0 \\
 Table~\ref{tab:failures} classifies every run by its first failure, and shows three patterns:
 
 \begin{enumerate}
-\item \textbf{The allow-list refuses more commands than the planner misdiagnoses:} 56 refused runs
-against 37 with a wrong fault type or service, over all arms. On the 4 MongoDB problems, 37 of their
-56 runs were refused: the commands carry the login but use methods the allow-list does not admit
-(\code{adminCommand}, \code{updateOne}, \code{sh -c}). One MongoDB run recovered (baseline 7).
-\item \textbf{On TargetPortMisconfig the planner misses the faulty service:} every problem and seed that \code{notools} recovered and 3c did not is of this type.
-\item \textbf{The turn cap ends runs without a diagnosis} where the planner keeps calling tools;
-\code{notools} never reaches it.
+\item The allow-list refuses more runs than the planner misdiagnoses: 56 refused runs
+against 37 runs whose diagnosis names the wrong fault type or service, summed over all arms. The 4
+MongoDB problems account for most refusals, about two thirds of their runs: the commands carry the login but use methods the allow-list does not admit
+(\code{adminCommand}, \code{updateOne}, \code{sh -c}). One MongoDB run of rerun step 1 recovered
+(baseline 7).
+\item On TargetPortMisconfig the planner often misses the faulty service: every problem and seed
+that notools recovered and 3c did not is of this type, and in 3 of these 6 cases 3c named the wrong
+service.
+\item The turn cap ends runs without a diagnosis where the planner keeps calling tools;
+notools never reaches it. Baseline 7, told to escalate when unsure, escalated in 3 of its 32 runs
+and reached the turn cap in 7.
 \end{enumerate}
 
-\noindent Two hard cases from the transcripts show the first two patterns:
+\noindent No arm of rerun step 1 recovers 7 problems at both seeds: the 4 MongoDB problems and 3
+of the 6 TargetPortMisconfig problems. In the untuned labels, 8 of 16 problems have no working
+candidate among the 8 sampled, so on half the pool there is no working command for any selector to
+choose. Two hard cases from the transcripts show the first two patterns:
 
 {\raggedright
 
 \textbf{The bundle names the service.} On the first TargetPortMisconfig problem at seed 1000, 3c
 named \code{social-graph-service}, not the faulty \code{user-service}, and proposed
 \code{kubectl edit service social-graph-service}, which the allow-list refused as an interactive
-verb. \code{notools}, on the same problem and seed, read from the bundle that the
+verb. The notools arm, on the same problem and seed, read from the bundle that the
 \code{user-service} Service forwards to target port 9999 while its pods listen on 9090, sent a
 JSON patch setting the target port to 9090, and recovered.
 
 \textbf{A right diagnosis, a refused fix.} On the first RevokeAuth problem at seed 1001, 3c named
 the fault and the geo database correctly, logged in as root, and called \code{db.adminCommand},
-which is not among the MongoDB methods the allow-list admits (\code{getSiblingDB},
-\code{createUser}, \code{grantRolesToUser}, \code{getUser}, \code{getUsers}); nothing ran.\par}
+which is not among the five MongoDB methods the allow-list admits; nothing ran.\par}
 
 \noindent The runner admits a chain \code{a \&\& b} when the allow-list admits each part; the one
-MongoDB recovery (baseline 7) was such a chain, a \code{createUser} call followed by a restart of
+MongoDB recovery of rerun step 1 (baseline 7) was such a chain, a \code{createUser} call followed by a restart of
 the client.
 
 \subsection{Confirmation slice and singleton types}
 
-3c ran on both. It was fixed before the slice was opened and is not the best arm on the pool
-(\code{notools} recovers 9 problems at both seeds, 3c 6), so the slice does not confirm an arm
-picked on the pool results. The confirmation slice was opened once, with 6 runs at
+The reference system 3c ran on both. It was fixed before the slice was opened and is not the best
+arm on the pool (notools recovers 9 problems at both seeds, 3c 6), so the slice does not confirm an
+arm picked on the pool results. These problems are in no fold, so retrieval reads every pool record
+and the runbook, and no record of them. The confirmation slice was opened once, with 6 runs at
 the two seeds: 5 of 6 runs recovered, so 2 of 3 problems at both seeds (the TargetPortMisconfig
 problem recovered at one seed only). Every command was admitted and none was harmful. The
-singleton types are faults that occur in no pool problem: on 2 of them neither 3c nor baseline 2
-recovered any of 8 runs, one did not show its fault within the wait, and two were left out in
-advance as unlikely to show on this cluster.
+singleton types are faults that occur in no pool problem, and the planner's fault-type list holds
+the 5 pool types only, so it cannot name one. Three were run: on 2 of them neither 3c nor baseline 2
+recovered any of 8 runs, and one did not show its fault within the wait; baseline 2 gave no command
+on any singleton run. Two were left out before any run: one deletes its application's namespace,
+which no reset of the shared cluster restores, and the other's application is not deployed here.
 
 \section{Ablations}
+\label{sec:ablations}
 
 \input{figures/recovery}
 
 Retrieval and tool calling are ablated on the same 16 problems and seeds, with the arms
-interleaved by problem in one batch (rerun step 1); fine-tuning is ablated in rerun step 3. Table~\ref{tab:ablations} gives two metrics per arm and seed: the
+interleaved by problem in one batch (rerun step 1); fine-tuning is ablated in rerun step 3.
+Table~\ref{tab:ablations} gives two metrics per arm and seed: the
 number of problems whose diagnosis names the right fault type and service, and the number that
-recovers.
+recovers; Figure~\ref{fig:recovery} plots the recovered counts.
 For the main pairs we give the problems gained and lost and the two-sided
-McNemar mid-p.
+McNemar mid-p, as descriptive statistics. At 16 problems the Wilson 95 percent interval of one
+arm's recovery at one seed spans about 0.4, for example $[0.23, 0.67]$ for 3c at seed 1000.
 
 \begin{table}[!t]
 \caption{Ablations, rerun step 1, \code{ffc2af6}, 2026-11-13. Fault type and service right, and
@@ -433,14 +537,34 @@ notools & 16 & 13 & 11 & 9 & 9 \\
 \end{tabularx}
 \end{table}
 
+\begin{table}[!t]
+\caption{Intrinsic retrieval metrics on the 16 recorded pool queries, in the query form the planner
+uses, ranked over each fold's corpus of 17 entries (12 past fixes, 5 runbook entries); an entry is
+relevant when it has the query's fault type. Run 2026-11-12.}
+\label{tab:intrinsic}
+\centering\footnotesize
+\begin{tabularx}{\columnwidth}{@{}Ycccc@{}}
+\hline
+Configuration & Hit@1 & Hit@3 & MRR & Recall@3 \\
+\hline
+(i) none & 0 & 0 & 0.000 & 0.000 \\
+(ii) dense & 3 & 7 & 0.381 & 0.187 \\
+(iii) dense, reranker & 3 & 6 & 0.359 & 0.187 \\
+(iv) hybrid with BM25, reranker & 3 & 5 & 0.363 & 0.167 \\
+\hline
+\end{tabularx}
+\end{table}
+
 \textbf{Retrieval.} Without retrieval (3a) the planner still names the right fault type and
 service on 12 and 10 of 16 problems, yet recovers only 5 and 3. With retrieval (3b, 3c) it
 recovers 6 to 8 at each seed and 6 at both, against 2. Against 3a, 3c gains 4 problems and loses
 2 at seed 1000 (mid-p 0.45), and gains 5 and loses none at seed 1001 (mid-p 0.03). Retrieval helps
-the planner turn a correct diagnosis into a command that works and that the allow-list admits. On the intrinsic
-retrieval metrics, with the query form the runs use, dense retrieval alone scores above the
-reranker of 3c (Hit@3 7 against 6 of 16 queries, MRR 0.38 against 0.36), while the two give the
-same recovery at both seeds; configuration (iii) was fixed before any query was scored. The
+the planner turn a correct diagnosis into a command that works and that the allow-list admits. On
+the intrinsic retrieval metrics (Table~\ref{tab:intrinsic}), dense retrieval alone scores at or
+above the reranker of 3c and the hybrid, while (ii) and (iii) give the same recovery at both seeds;
+configuration (iii) was fixed before any query was scored. A stricter label, fault type and target
+service, gives no relevant entry for any query, since every pool instance of a type targets a
+different service. The
 fine-tuned planner shows the same effect: its top pick solves 8 problems with retrieval and 3
 without, failing without retrieval on 5 problems it solves with it and on none the other way.
 Those two labelling runs ran on the same server at different times, so cluster drift is a second
@@ -451,18 +575,20 @@ effects. With the bundle the planner names the right fault and service more ofte
 whether or not it keeps its telemetry tools (14 and 15 for toolsbundle against 11 and 13 for 3c; 16 and
 13 for notools against 10 and 9 for kubectlonly) and recovers more problems counted at both seeds (8 against 6 with the tools, 9 against 7 without). Against
 3c, notools gains 4 problems and loses none at seed 1000 (mid-p 0.06), and gains 2 and loses 1 at
-seed 1001 (mid-p 0.63). Removing the interactive tools while keeping the bundle (notools) costs
+seed 1001 (mid-p 0.63). Counted at both seeds, notools gains 3 problems and loses none (mid-p
+0.125). Removing the interactive tools while keeping the bundle (notools) costs
 no recovery: notools recovers the most problems, 9 at both seeds, and never reaches the turn cap. Its
 gains over 3c are all on TargetPortMisconfig, where the bundle names the failing service.
 
 \textbf{Fine-tuning.} The fine-tuned planner is compared with 3c under its own pre-specified rule
 in Section~\ref{sec:eval}. On the same server its runs are refused about as often as 3c's (7
-against 8 of 32 runs, rerun step 3).
+against 8 of 32 runs, rerun step 3) and its diagnosis is right about as often (25 against 26), but
+it ends at the turn cap with no diagnosis more often (5 against 2 runs).
 
-\textbf{The deterministic check.} Applied offline to every sampled candidate, the allow-list
-removes 44 of 128 untuned candidates (34.4 percent) and 29 of 120 fine-tuned ones (24.2 percent),
+\textbf{The allow-list.} Applied offline to every sampled candidate, it removes 44 of 128 untuned
+candidates (34.4 percent) and 29 of 120 fine-tuned ones (24.2 percent),
 mostly for denied flags (14 and 17), verbs outside the list (14 and 1) and shell metacharacters
-(10 and 10). Without it, those commands would reach the cluster unvetted. None of the 288 runs of rerun
+(10 and 10). None of the 288 runs of rerun
 steps 1 and 3 left a workload unhealthy.
 
 \section{Limitations}
@@ -478,27 +604,33 @@ the fine-tuned planner.
 a step.
 \item The retrieval ablation of the fine-tuned planner compares two labelling runs made at
 different times.
+\item The error bundle's log rule was widened once, after it missed the error lines of one pool
+problem, before the reported runs; the 2 by 2 design was added after a first comparison of 3c with
+notools.
 \item Harm detection reads pod status, so harm that leaves every pod healthy, such as a changed
 Service port, is outside its view.
 \item Refused commands are not executed, so the allow-list's cost in recovery is not measured.
 \item Baseline 6's judge is the planner's own model at temperature 0. It ranks candidates whose
 outcomes come from execution, so no reported metric is a judge score; it is not validated against
 human labels and is a baseline, not part of the evaluated system.
-\item Tool use is scored by its effect (diagnosis accuracy, failure class, unsafe action rate); no
-gold tool-call sequence exists for these problems, so tool-call accuracy is not computed.
+\item Tool use is scored by call validity and by its effect (diagnosis accuracy, failure class,
+unsafe action rate). A fault has several valid diagnosis paths, so no gold tool sequence exists and
+the choice of tool is not scored.
 \end{itemize}
 
 \section{Conclusions}
 
 On these 16 problems the evidence supports two statements: fine-tuning the planner on its own
 successes does not beat the untuned planner, under a threshold set before training; and the
-deterministic check removes a quarter to a third of sampled candidates before they run. The
+allow-list removes a quarter to a third of sampled candidates before they run. The
 ablations add two differences in the same direction at each seed: retrieval helps the planner turn
 a diagnosis into a working command (6 problems against 2 at both seeds), and adding a fixed error
 bundle helps it name the faulty service and recover more problems (8 against 6 at both seeds, and
 9 when the interactive telemetry tools are also removed). The failures point at the planner's commands against the allow-list and at
-finding the faulty service, not at the choice among candidates; the headroom check found little
-for a validity gate to select, so the gate itself remains untested here.
+finding the faulty service, not at the choice among candidates. The primary claim, that the gate
+selects working candidates better than the planner's own ranking (top-1 accuracy, AUROC and Brier
+score against baseline 5), was not tested: the pre-specified headroom check found too few
+recoverable problems.
 
 \section{Future work}
 
@@ -507,8 +639,8 @@ for a validity gate to select, so the gate itself remains untested here.
 candidate when each part is admitted, as the runner does.
 \item Make the error bundle the planner's default input, since it led on the problems where the
 planner named the wrong service.
-\item Fine-tune on fixes verified by execution for the fault types the planner never solves, such
-as the database faults, not only on its own successes.
+\item Fine-tune on fixes verified by execution for the fault types the untuned planner never solves,
+such as the MongoDB faults, not only on its own successes.
 \end{itemize}
 
 \bibliographystyle{IEEEtran}
