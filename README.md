@@ -15,8 +15,9 @@ This is a group project for the course Language Models and Agents (CL3410).
 
 ## Status
 
-Complete. The final report, with the method and every result, is in
-[docs/final-report/](docs/final-report/). [Reproducing the final report](#reproducing-the-final-report)
+Complete. The final report, with the method and every result, is
+[docs/final-report/monkeysee-monkeydo-final-report.pdf](docs/final-report/monkeysee-monkeydo-final-report.pdf),
+built from the LaTeX source in [docs/final-report/](docs/final-report/). [Reproducing the final report](#reproducing-the-final-report)
 below says how to check each of its numbers. To build the PDF from its LaTeX source (TeX Live
 with pgfplots; no shell escape):
 
