@@ -428,7 +428,8 @@ confirmed on #56), labelled supported, not supported or falsified; see
 [docs/primary_analysis.md](docs/primary_analysis.md). The ablations of every capability are
 collected in [docs/ablations.md](docs/ablations.md) (#57). `scripts/failure_cases.py` classifies why
 each planner run failed (#58, [docs/failure_analysis.md](docs/failure_analysis.md)). The singleton check (#73) is in
-[docs/singleton_check.md](docs/singleton_check.md).
+[docs/singleton_check.md](docs/singleton_check.md), and the
+confirmation check (#59) in [docs/confirmation_check.md](docs/confirmation_check.md).
 
 `scripts/ablate_no_check.py` is the ablation without the deterministic check (story E5-S4, R5.4).
 It takes the manifests of planner runs that sampled candidates, one run per problem, all of one

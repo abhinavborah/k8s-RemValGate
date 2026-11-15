@@ -766,3 +766,12 @@
 {"problem_id": "misconfig_app_hotel_res-mitigation-1", "run_id": "baseline3c-misconfig_app_hotel_res-mitigation-1-20261115t001856z", "slice": "singleton", "timestamp": "2026-11-15T00:18:56Z"}
 {"problem_id": "misconfig_app_hotel_res-mitigation-1", "run_id": "baseline2-misconfig_app_hotel_res-mitigation-1-20261115t002624z", "slice": "singleton", "timestamp": "2026-11-15T00:26:24Z"}
 {"problem_id": "auth_miss_mongodb-mitigation-1", "run_id": "baseline3c-auth_miss_mongodb-mitigation-1-20261115t002720z", "slice": "singleton", "timestamp": "2026-11-15T00:27:20Z"}
+{"problem_id": "conf-k8s_target_port-misconfig-mitigation-1", "run_id": "open-conf-k8s_target_port-misconfig-mitigation-1-20261114t232615z", "slice": "confirmation", "timestamp": "2026-11-14T23:26:15Z"}
+{"problem_id": "conf-scale_pod_zero_social_net-mitigation-1", "run_id": "open-conf-scale_pod_zero_social_net-mitigation-1-20261114t232615z", "slice": "confirmation", "timestamp": "2026-11-14T23:26:15Z"}
+{"problem_id": "conf-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "open-conf-assign_to_non_existent_node_social_net-mitigation-1-20261114t232615z", "slice": "confirmation", "timestamp": "2026-11-14T23:26:15Z"}
+{"problem_id": "conf-k8s_target_port-misconfig-mitigation-1", "run_id": "baseline3c-conf-k8s_target_port-misconfig-mitigation-1-20261114t232617z", "slice": "confirmation", "timestamp": "2026-11-14T23:26:17Z"}
+{"problem_id": "conf-scale_pod_zero_social_net-mitigation-1", "run_id": "baseline3c-conf-scale_pod_zero_social_net-mitigation-1-20261114t233118z", "slice": "confirmation", "timestamp": "2026-11-14T23:31:18Z"}
+{"problem_id": "conf-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "baseline3c-conf-assign_to_non_existent_node_social_net-mitigation-1-20261114t233551z", "slice": "confirmation", "timestamp": "2026-11-14T23:35:51Z"}
+{"problem_id": "conf-k8s_target_port-misconfig-mitigation-1", "run_id": "baseline3c-conf-k8s_target_port-misconfig-mitigation-1-20261114t234031z", "slice": "confirmation", "timestamp": "2026-11-14T23:40:31Z"}
+{"problem_id": "conf-scale_pod_zero_social_net-mitigation-1", "run_id": "baseline3c-conf-scale_pod_zero_social_net-mitigation-1-20261114t234629z", "slice": "confirmation", "timestamp": "2026-11-14T23:46:29Z"}
+{"problem_id": "conf-assign_to_non_existent_node_social_net-mitigation-1", "run_id": "baseline3c-conf-assign_to_non_existent_node_social_net-mitigation-1-20261114t235113z", "slice": "confirmation", "timestamp": "2026-11-14T23:51:13Z"}
