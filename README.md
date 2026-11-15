@@ -9,8 +9,9 @@ touched objects, applies it, checks for harm after a settle window and restores 
 The project set out to train a validity gate that scores K sampled fixes and applies the best one
 only above a threshold. The headroom check that had to pass before any training failed twice, so
 the gate was never trained. After that the planner was fine-tuned instead, as an exploratory
-ablation whose comparison rule was fixed before its runs (#56), and that claim was falsified. The proposed final system is baseline 3c, the untuned
-planner with retrieval configuration (iii).
+ablation whose comparison rule was fixed before its runs ([#56]), and that claim was falsified.
+The proposed final system is baseline 3c, the untuned planner with retrieval configuration (iii):
+dense retrieval with a cross-encoder reranker ([BRD R4.2](docs/brd.md#e4-retrieval-capability-rag)).
 
 Group project for Language Models and Agents (CL3410): [requirements](docs/brd.md),
 [mid-submission report](docs/mid-submission/monkey-see-monkey-do-mid-report.pdf),
@@ -19,27 +20,31 @@ Group project for Language Models and Agents (CL3410): [requirements](docs/brd.m
 ## Results
 
 Pool of 16 problems, seeds 1000 and 1001; "both seeds" counts a problem only if it recovered at
-both (#56). Each linked page gives the runs, commits and per-problem tables.
+both ([#56]). Each linked page gives the runs, commits and per-problem tables.
 
 | Result | Value | Run | Page |
 |---|---|---|---|
-| Fine-tuned planner (3cft) against 3c, both seeds | 3c 7, 3cft 5 of 16; 0 wins, 2 losses; mid-p 0.25; **falsified** | #165 step 3, 2026-11-14, llama.cpp on one A100 | [primary_analysis](docs/primary_analysis.md) |
-| Retrieval, untuned planner, both seeds | 3a (none) 2, 3b (dense) 6, 3c (dense plus reranker) 6 of 16 | #165 step 1, 2026-11-13, LM Studio | [ablations](docs/ablations.md) |
-| Tools, both seeds | toolsbundle 8, kubectlonly 7, notools 9 of 16 | #165 step 1 | [tool_ablation](docs/tool_ablation.md) |
-| Without the deterministic check | removes 44 of 128 untuned and 29 of 120 fine-tuned candidates | labelling runs, seed 0 | [ablations](docs/ablations.md) |
-| Headroom check (gate G3) | 1 recoverable problem, 5 needed: failed (first run: 0) | #165 step 2 labels | [baselines_pool](docs/baselines_pool.md) |
-| Baselines 1 (fault-type rule), 2 (retrieval only) | 8 of 16 each, seed 1000 | #150 | [rag_ablation](docs/rag_ablation.md) |
+| Fine-tuned planner (3cft) against 3c, both seeds | 3c 7, 3cft 5 of 16; 0 wins, 2 losses; McNemar mid-p 0.25; **falsified** | [#165] step 3, 2026-11-14, llama.cpp on one A100 | [primary_analysis](docs/primary_analysis.md) |
+| Retrieval, untuned planner, both seeds | 3a (none) 2, 3b (dense) 6, 3c (dense plus reranker) 6 of 16 | [#165] step 1, 2026-11-13, LM Studio | [ablations](docs/ablations.md) |
+| Tools, both seeds | toolsbundle 8, kubectlonly 7, notools 9 of 16 | [#165] step 1 | [tool_ablation](docs/tool_ablation.md) |
+| Without the deterministic check | the check removes 44 of 128 untuned and 29 of 120 fine-tuned candidates | labelling runs, seed 0 | [ablations](docs/ablations.md) |
+| Headroom check ([gate G3](docs/brd.md#71-pre-registration-gates)) | 1 recoverable problem, 5 needed: failed (first run: 0) | [#165] step 2 labels | [baselines_pool](docs/baselines_pool.md) |
+| Baselines 1 (fault-type rule), 2 (retrieval only) | 8 of 16 each, seed 1000 | [#150] | [rag_ablation](docs/rag_ablation.md) |
 | Baseline 5 (fine-tuned ranking of 3c's candidates) | 7.0 of 16 | 2026-11-14 | [baseline5](docs/baseline5.md) |
 | Baseline 6 (prompted judge of 3c's candidates) | 8 of 16, 3 escalated | 2026-11-15 | [primary_analysis](docs/primary_analysis.md) |
-| Baseline 7 (3c told to escalate when unsure), both seeds | 3 of 16, 3 escalations in 32 runs | #165 step 1 | [baselines_pool](docs/baselines_pool.md) |
+| Baseline 7 (3c told to escalate when unsure), both seeds | 3 of 16, 3 escalations in 32 runs | [#165] step 1 | [baselines_pool](docs/baselines_pool.md) |
 | Confirmation slice, 3c, opened once | 2 of 3 at seed 1000, 3 of 3 at seed 1001 | 2026-11-14 | [confirmation_check](docs/confirmation_check.md) |
 | Singleton fault types, 3c (descriptive) | none recovered; 3 of 5 types not run | 2026-11-15 | [singleton_check](docs/singleton_check.md) |
 
-3c is 6 of 16 in step 1 and 7 of 16 in step 3: different servers and runs, reported apart. Why the
-planner fails: [docs/failure_analysis.md](docs/failure_analysis.md). The planner is Qwen3.5-4B
-(`qwen/qwen3.5-4b`), GGUF Q8_0, context 32768, thinking on; fine-tuning used `Qwen/Qwen3.5-4B` at
-revision `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. Each run's server, build and date are in its
-manifest; compute is in [docs/compute.md](docs/compute.md).
+The tool arms differ from 3c only in tools and inputs: toolsbundle adds a fixed telemetry bundle
+collected at injection, kubectlonly drops `get_logs`, `get_metrics` and `get_traces` and keeps
+read-only `kubectl`, and notools does both.
+
+3c is 6 of 16 in [#165] step 1 and 7 of 16 in step 3: different servers and runs, reported apart.
+Why the planner fails: [docs/failure_analysis.md](docs/failure_analysis.md). The planner is
+Qwen3.5-4B (`qwen/qwen3.5-4b`), GGUF Q8_0, context 32768, thinking on; fine-tuning used
+`Qwen/Qwen3.5-4B` at revision [`851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`][qwen-revision]. Each
+run's server, build and date are in its manifest; compute is in [docs/compute.md](docs/compute.md).
 
 ## Layout
 
@@ -61,8 +66,8 @@ requirements*.txt  pip exports of the lockfile and the retrieval group, for Cola
 |---|---|---|
 | 1. Install and test | Python 3.11 or 3.12, [uv](https://docs.astral.sh/uv/), git | about 20 minutes, most of it the clone |
 | 2. Recompute the results from the saved runs | level 1 and the shared drive (read only) | minutes |
-| 3. Rerun on a cluster | Docker (12 GB), kind, kubectl, helm, an OpenAI-compatible model server | about 5 minutes per planner run (224 runs in 19 hours, #165 step 1) |
-| 4. Fine-tune and serve | a CUDA GPU (an A100 80 GB was used), llama.cpp | 0.07 to 0.13 GPU hours of training per fold |
+| 3. Rerun on a cluster | [Docker](https://docs.docker.com/get-started/get-docker/) (12 GB), [kind](https://kind.sigs.k8s.io/), [kubectl](https://kubernetes.io/docs/reference/kubectl/), [helm](https://helm.sh/), an OpenAI-compatible model server | about 5 minutes per planner run (224 runs in 19 hours, [#165] step 1) |
+| 4. Fine-tune and serve | a CUDA GPU (an A100 80 GB was used), [llama.cpp](https://github.com/ggml-org/llama.cpp) | 0.07 to 0.13 GPU hours of training per fold |
 
 ## 1. Install and test
 
@@ -145,8 +150,9 @@ uv run python scripts/replay_run.py $B/<run id>.json [--step] \
 asciinema play --idle-time-limit 2 --speed 2 $B/<run id>.cast
 ```
 
-`summarize_g3.py`, `summarize_oracle_labels.py` and `summarize_baseline5.py` read the labels and
-score files listed on their pages.
+`summarize_g3.py` ([baselines_pool](docs/baselines_pool.md)), `summarize_oracle_labels.py`
+([oracle_labels](docs/oracle_labels.md)) and `summarize_baseline5.py`
+([baseline5](docs/baseline5.md)) read the labels and score files listed on those pages.
 
 ## 3. Rerun on a cluster
 
@@ -211,11 +217,12 @@ For traces they drive 100 requests per second for 30 s, since the Jaeger client 
 
 ### Model server and secrets
 
-The planner talks to any OpenAI-compatible server serving `qwen/qwen3.5-4b`: LM Studio on port
-1234 by default, `--base-url` otherwise. LM Studio honours `reasoning_effort` (the thinking
-switch). Its chat endpoint lists no `logprobs` parameter, yet it returned them for all 128
-candidates of the #165 step 2 labels; check on a new server. `--model-version` is required and
-goes into the manifest. Secrets come from the environment, never from a file in the repository:
+The planner talks to any OpenAI-compatible server serving `qwen/qwen3.5-4b`:
+[LM Studio](https://lmstudio.ai/) on port 1234 by default, `--base-url` otherwise. LM Studio
+honours `reasoning_effort` (the thinking switch). Its chat endpoint lists no `logprobs` parameter,
+yet it returned them for all 128 candidates of the [#165] step 2 labels; check on a new server.
+`--model-version` is required and goes into the manifest. Secrets come from the environment, never
+from a file in the repository:
 
 - `REMVALGATE_PLANNER_API_KEY`: the key of a remote server, such as the GPU host's.
 - `REMVALGATE_MONGO_ADMIN_PASSWORD`, `REMVALGATE_MONGO_ROOT_PASSWORD`: the passwords of AIOpsLab's
@@ -249,38 +256,54 @@ it. The four adapters are `adapters.tar` on the drive ([docs/baseline5.md](docs/
 
 ## Evaluation-set rules
 
-- **Slices.** `src/remvalgate/harness/slices.json` maps each problem to a slice: 16 pool problems
-  in 4 folds, 3 development problems, a 3-problem confirmation slice and 5 singleton types, which
-  are in no fold and no corpus and reported descriptively only
+- **Slices.** [`src/remvalgate/harness/slices.json`](src/remvalgate/harness/slices.json) maps each
+  problem to a slice: 16 pool problems in 4 folds, 3 development problems, a 3-problem confirmation
+  slice and 5 singleton types, which are in no fold and no corpus and reported descriptively only
   ([docs/problem_inventory.md](docs/problem_inventory.md)).
-- **Touch log.** `runs/touch_log.jsonl` (committed, append only, merged as a union) gets one line
-  per use of a pool, confirmation or singleton problem, and per creation, seal, authoring or
-  fixture touch, through `start_run` in `src/remvalgate/harness/manifest.py`.
+- **Touch log.** [`runs/touch_log.jsonl`](runs/touch_log.jsonl) (committed, append only, merged as
+  a union) gets one line per use of a pool, confirmation or singleton problem, and per creation,
+  seal, authoring or fixture touch, through `start_run` in
+  [`src/remvalgate/harness/manifest.py`](src/remvalgate/harness/manifest.py).
 - **Refusals.** A pool or singleton run is refused without a touch entry, with a run id already in
   the log, with an unpinned AIOpsLab, or with any uncommitted or untracked file. It is also refused
-  until the confirmation slice is sealed (gate G1, `runs/confirmation_seal.json`).
+  until the confirmation slice is sealed ([gate G1](docs/brd.md#71-pre-registration-gates),
+  [`runs/confirmation_seal.json`](runs/confirmation_seal.json)).
 - **Confirmation slice.** Opened once on 2026-11-14 and closed on 2026-11-15: no further
   confirmation run is admitted ([docs/confirmation_check.md](docs/confirmation_check.md)).
-- **Retrieval configuration (iii)** was fixed before any evaluation run (gate G5).
-  `src/remvalgate/retrieval/fixed.json` records it, and `configuration_iii` refuses to build when
-  the live settings differ, so a change needs a new entry with its reason.
+- **Retrieval configuration (iii)**, dense retrieval with a cross-encoder reranker
+  ([BRD R4.2](docs/brd.md#e4-retrieval-capability-rag)), was fixed before any evaluation run
+  ([gate G5](docs/brd.md#71-pre-registration-gates)).
+  [`src/remvalgate/retrieval/fixed.json`](src/remvalgate/retrieval/fixed.json) records it, and
+  `configuration_iii` in [`fixed.py`](src/remvalgate/retrieval/fixed.py) refuses to build when the
+  live settings differ, so a change needs a new entry with its reason.
 
 ## AIOpsLab pin and overlay
 
-Decided in #65: an unmodified submodule pinned at a commit, with new problems in an overlay here;
+Decided in [#65]: an unmodified submodule pinned at a commit, with new problems in an overlay here;
 a fork was rejected because the code would then live in a second repository.
 
-AIOpsLab commit: `576c3f080c7ae2459a972afd4a2f8d5f01828430` (upstream `main` on 2026-10-20), at
-`external/AIOpsLab`. Its nested `aiopslab-applications` is pinned by AIOpsLab at `8038be6`. The
-run manifest records this hash: callers pass `remvalgate.aiopslab_pin.pinned_commit(repo)` as
-`aiopslab_commit` to `start_run`, which reads the committed link and not the checkout.
+AIOpsLab commit: [`576c3f080c7ae2459a972afd4a2f8d5f01828430`][aiopslab-commit] (upstream `main` on
+2026-10-20), at `external/AIOpsLab`. Its nested `aiopslab-applications` is pinned by AIOpsLab at
+[`8038be6b4989c647126f27715acc591c47133c2d`][applications-commit]. The run manifest records the
+AIOpsLab commit: callers pass `remvalgate.aiopslab_pin.pinned_commit(repo)` as `aiopslab_commit`
+to `start_run` ([`manifest.py`](src/remvalgate/harness/manifest.py)). `pinned_commit`
+([`aiopslab_pin.py`](src/remvalgate/aiopslab_pin.py)) reads the submodule link committed in
+`HEAD`, not the checkout under `external/`, so a submodule moved by hand and not committed does
+not change it.
 
-New problems are in `src/remvalgate/overlay/` (known fixes in `fixes.py`) and exist only in an
-Orchestrator built with `remvalgate.overlay.new_orchestrator`, not in a bare `Orchestrator()`.
-`scripts/validate_overlay_problems.py` checks on a cluster that each fault breaks the eval and its
-known fix repairs it.
+New problems are in [`src/remvalgate/overlay/`](src/remvalgate/overlay/) (known fixes in
+[`fixes.py`](src/remvalgate/overlay/fixes.py)): the development problems
+([docs/development_problems.md](docs/development_problems.md)), the pool extension
+([docs/pool_extension.md](docs/pool_extension.md)), the pool variant of AssignNonExistentNode
+([docs/problem_inventory.md](docs/problem_inventory.md#pool-eval-override-for-row-11)) and the
+confirmation slice ([docs/confirmation_problems.md](docs/confirmation_problems.md)). They exist
+only in an AIOpsLab `Orchestrator` built with `remvalgate.overlay.new_orchestrator`, not in a bare
+`Orchestrator()`. [`scripts/validate_overlay_problems.py`](scripts/validate_overlay_problems.py)
+checks on a cluster that each problem's mitigation eval fails with its fault injected and passes
+after its known fix.
 
-Image digests of the verified runs (BRD 7.3); several tags are mutable, so a later pull can differ.
+Image digests of the verified runs ([BRD 7.3](docs/brd.md#73-reproducibility)); several tags are
+mutable, so a later pull can differ.
 Regenerate with `kubectl --context kind-kind get pods -n <namespace> -o jsonpath='{range .items[*].status.containerStatuses[*]}{.image} {.imageID}{"\n"}{end}' | sort -u` (and `initContainerStatuses`).
 
 - node image `jacksonarthurclark/aiopslab-kind-arm`: `sha256:9723c6d45f5e1b9af0975987801543f36f529e6caff2575d9ba55d048f38977c`
@@ -297,3 +320,11 @@ Regenerate with `kubectl --context kind-kind get pods -n <namespace> -o jsonpath
 - `yinfangchen/hotelreservation:latest`: `sha256:c46c018d412ab466c4cb3ae93b1aaf1a373968e2fafc2767f15539f50cd1683a`
 - `hashicorp/consul:latest`: `sha256:259fd02f2544fe1aa03fa49efd3b105c8dd67106d710a72f5e898110266356f7`
 - `alpine/git:latest` (init container): ARM `sha256:e8ceedc73bd80992ae8d58a7d24c58b8322146c354f1d2e81a97db4452068ec0`, x86 `sha256:6a1fdb962814ca11508ca8d1bab94375b5b7ac4e4a9a40981c29fc32c02f095d`
+
+[#56]: https://github.com/abhinavborah/k8s-RemValGate/issues/56
+[#65]: https://github.com/abhinavborah/k8s-RemValGate/issues/65
+[#150]: https://github.com/abhinavborah/k8s-RemValGate/issues/150
+[#165]: https://github.com/abhinavborah/k8s-RemValGate/issues/165
+[qwen-revision]: https://huggingface.co/Qwen/Qwen3.5-4B/tree/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a
+[aiopslab-commit]: https://github.com/microsoft/AIOpsLab/commit/576c3f080c7ae2459a972afd4a2f8d5f01828430
+[applications-commit]: https://github.com/xlab-uiuc/aiopslab-applications/commit/8038be6b4989c647126f27715acc591c47133c2d
