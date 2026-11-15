@@ -3,8 +3,10 @@
 Story E10-S5 (#64, BRD R10.5). Evaluations run 2026-11-16 to 2026-11-19. Every group member should
 be able to explain the design, the results, the limits and the claim, and to run the replay. This
 page is built from the merged result pages and the outline of the final report (#184); each number
-names the page it comes from. Nothing here is a new result. When the final report (#62) is merged
-and differs from this page, the report wins.
+names the page it comes from. Nothing here is a new result. On 2026-11-15 the safety, tool-call,
+retrieval and judge answers, the worked failure examples and the future work were checked against
+the final report draft (#192 at `d90ce60`). When the final report (#62) is merged and differs from
+this page, the report wins.
 
 Model for every result below unless a line says otherwise: Qwen3.5-4B (revision
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`), GGUF Q8_0.
@@ -167,10 +169,12 @@ problem the planner can solve (a turn cap; a refused `kubectl set`).
 - Training data is small: 6 to 9 working records per fold, none for MongoDB.
 - Rollback covered Kubernetes objects only in every reported run; database user state was not
   restored.
-- Baseline 6's judge shares the planner's model family, a confound.
-- No pool-level unsafe action rate and no tool-call accuracy number are reported, though the
-  tool-call scoring of R2.7 is built; the pool runner
-  and the planner's check treat `&&` chains differently.
+- Baseline 6's judge shares the planner's model family, a confound, and it was not validated
+  against human labels, so no Cohen's kappa is reported for it.
+- Tool-call accuracy was not computed: the scorer of R2.7 exists in the harness but was not run on
+  these results.
+- The pool runner and the planner's check treat `&&` chains differently.
+- Harm is detected from pod status only.
 - MongoDB command output was not kept before #174, so failed database commands show only an exit
   code.
 
@@ -218,11 +222,14 @@ resources and MongoDB methods and refuses the rest with a reason. It is the larg
 it refuses more fixes than the planner misdiagnoses, and it blocks every MongoDB fix the planner
 proposes. Loosening it trades recovery for safety; we did not tune it on the pool.
 
-**What is the unsafe or unapproved action rate?** Answer plainly: no pool-level rate is reported.
-What exists: the confirmation runs had 0 harmful actions in 6 (every command admitted); the outcome
-classifier has an APPLIED_HARMFUL class (R2.4), but the failure analysis does not split harmful
-from ineffective. Without the check, 34.4% of the untuned candidates and 24.2% of the fine-tuned
-ones would reach the cluster unvetted. One known inconsistency: the pool runner admits a `&&` chain
+**What is the unsafe or unapproved action rate?** An unsafe action is an applied command that
+leaves a healthy workload unhealthy (APPLIED_HARMFUL, R2.4): 0 of the 224 runs of #165 step 1 and 0
+of the 64 runs of step 3; 2 of the 120 fine-tuned candidates in the labels were harmful, both on
+one problem. An unapproved command is one the allow-list refuses: 56 of 224 runs in step 1 and 15
+of 64 in step 3 proposed one, and the allow-list stopped every one before it ran, so no unapproved
+command was executed. Without the check, 34.4% of the untuned candidates and 24.2% of the
+fine-tuned ones would reach the cluster unvetted. Harm is read from pod status only. One known
+inconsistency: the pool runner admits a `&&` chain
 when the allow-list admits every part, while the planner's own check refuses any chain
 (SHELL_METACHAR). Demo run 3 is such a case: each part was an admitted command, but the planner path
 would have refused it.
@@ -233,9 +240,10 @@ malformed (unknown tool, missing or undefined argument, wrong type), wrong opera
 kubectl verb), wrong target (namespace, kind or name), or correct, checked in that order.
 Accuracy is the share of correct calls. It covers operation and target, not parameter values such
 as a patch body, since whether an action works is judged by executing it; the allow-list verdict
-is a separate check. No pool-level number is reported: the tool ablation reports diagnostics per
-arm (turns, refused turns, tool calls by name, tokens) and its metrics are diagnosis accuracy and
-recovery (`docs/tool_ablation.md`).
+is a separate check. Answer plainly: tool-call accuracy was not computed. The scorer exists but
+was not run on these results; the tool ablation reports diagnostics per arm (turns, refused turns,
+tool calls by name, tokens) and its metrics are diagnosis accuracy and recovery
+(`docs/tool_ablation.md`). Running the scorer is listed as future work.
 
 **Why AIOpsLab?** Public, peer reviewed (MLSys 2025), maintained, and its mitigation task is
 verified by execution and checks the whole system's health, not only the targeted service. The
@@ -312,11 +320,15 @@ and a full rerank would make (iii) and (iv) rank alike. Both pinned to a revisio
 configurations rank the same entry text (fault type, service, summary, no fix command) from the
 fold that holds the problem out.
 
-**Intrinsically, plain dense retrieval scored best. Why use the reranker?** True: Hit@3 was 9, 7 and
-6 of 16 for dense, dense plus reranker and hybrid (2026-11-05; 7 and 6 for (ii) and (iii) after the
-query form fix of 2026-11-12, `docs/intrinsic_retrieval.md`). Configuration (iii) was fixed under
-gate G5 before any query was scored, and with 16 queries one query moves Hit@3 by 6 points, so no
-claim about the reranker is made and (iii) was not changed after seeing results.
+**Intrinsically, plain dense retrieval scored best. Why use the reranker?** True. On the 16 pool
+queries in the query form the runs use (#164), a retrieved entry of the right fault type is first
+for 3 queries (Hit@1) and in the top 3 for 7 with dense retrieval (MRR 0.381), and 3 and 6 with
+the reranker (MRR 0.359): the reranker does not improve on dense retrieval here. On the raw query
+form of 2026-11-05 Hit@3 was 9, 7 and 6 for dense, dense plus reranker and hybrid
+(`docs/intrinsic_retrieval.md`). Configuration (iii) was fixed under gate G5 before any query was
+scored, and with 16 queries one query moves Hit@3 by 6 points, so no claim about the reranker is
+made and (iii) was not changed after seeing results. Extrinsically, the untuned planner recovers 2
+problems at both seeds without retrieval and 6 with either.
 
 **What are baselines 6 and 7?** Baseline 6 is a prompted judge: each admitted candidate gets a
 verbalised probability from 0 to 1, seeing the task, the diagnosis and the command, never an
@@ -336,9 +348,29 @@ since a language-model loss on a failed command raises its likelihood (`docs/bas
 They use methods and characters the allow-list does not admit (`adminCommand`, `dropUser`, `sh -c`,
 `&&`), and before #174 a failed command kept only its exit code.
 
-**What would you do with more time?** Widen the admitted MongoDB methods with a reviewed list,
-give the planner the error bundle (the best arm), fine-tune on more working records including
-database fixes, and rerun the headroom check before training a gate.
+**Give one failure you can walk through.** Two worked examples from the report:
+- The bundle names the service. On the first TargetPortMisconfig problem at seed 1000, 3c named
+  `social-graph-service`, not the faulty `user-service`, and proposed
+  `kubectl edit service social-graph-service`, which the allow-list refused as an interactive verb.
+  notools, on the same problem and seed, read from the error bundle that the `user-service` Service
+  forwards to target port 9999 while its pods listen on 9090, sent a JSON patch setting the target
+  port to 9090, and recovered.
+- A right diagnosis, a refused fix. On the first RevokeAuth problem at seed 1001, 3c named the
+  fault and the geo database correctly, logged in as root, and called `db.adminCommand`, which is
+  not among the admitted MongoDB methods (`getSiblingDB`, `createUser`, `grantRolesToUser`,
+  `getUser`, `getUsers`); nothing ran.
+
+**What would you do with more time?** The report's future work:
+- Review and widen the MongoDB methods the allow-list admits, and admit a chained fix as a
+  candidate when each part is admitted, as the runner does.
+- Make the error bundle the planner's default, since it led on the problems where the planner named
+  the wrong service.
+- Fine-tune on fixes verified by execution for the fault types the planner never solves, such as
+  the database faults, not only on its own successes.
+- Compute tool-call accuracy with the existing scorer, and validate any judge against human labels
+  with Cohen's kappa.
+
+Then rerun the headroom check before training a gate.
 
 **How much compute?** One A100 pod for about 12.7 hours at $2.19 per hour (training, merging,
 serving); training 0.07 to 0.13 GPU hours per fold; the rest on a local machine with LM Studio
@@ -354,4 +386,5 @@ replay above plays any recorded run from its files.
 - [ ] Each group member can tell the five-sentence story without notes.
 - [ ] Each group member answered every question in section 6 once, aloud, to another member.
 - [ ] Each group member can name the claim's numbers: 7, 5, 0 wins, 2 losses, mid-p 0.25.
-- [ ] The final report (#62) is checked against this page, and differences are fixed here.
+- [ ] The final report (#62) is checked against this page, and differences are fixed here
+  (draft #192 at `d90ce60` checked on 2026-11-15; recheck once it is merged).
