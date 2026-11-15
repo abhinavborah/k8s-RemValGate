@@ -20,6 +20,7 @@ from remvalgate.harness.oracle import (
     one_slice,
     originals,
     pass_at_k,
+    problem_fault_type,
     read_labels,
     reset_namespace,
     smallest_k,
@@ -441,6 +442,32 @@ def _status(key, reason=None):
         # being created does not show that the fault took
         ("RevokeAuth", "mongodb-geo", _status("Deployment/geo", Reason.PHASE), False),
         ("UserUnregistered", "mongodb-rate", _status("Deployment/rate", Reason.PHASE), False),
+        # the singleton rules (#73)
+        ("MisconfigApp", "geo", _status("Deployment/geo"), False),
+        ("MisconfigApp", "geo", _status("Deployment/geo", Reason.NOT_READY), True),
+        ("MisconfigApp", "geo", _status("Deployment/geo", Reason.PHASE), True),
+        (
+            "AuthMissMongoDB",
+            "url-shorten-mongodb",
+            _status("Deployment/url-shorten-service"),
+            False,
+        ),
+        (
+            "AuthMissMongoDB",
+            "url-shorten-mongodb",
+            _status("Deployment/url-shorten-service", Reason.NOT_READY),
+            True,
+        ),
+        (
+            "AuthMissMongoDB",
+            "url-shorten-mongodb",
+            _status("Deployment/url-shorten-mongodb", Reason.NOT_READY),
+            False,
+        ),
+        ("WrongBinUsage", "profile", {}, False),
+        ("WrongBinUsage", "profile", _status("Deployment/profile", Reason.PHASE), False),
+        ("WrongBinUsage", "profile", _status("Deployment/profile"), True),
+        ("WrongBinUsage", "profile", _status("Deployment/profile", Reason.NOT_READY), True),
     ],
 )
 def test_fault_shows(fault_type, service, status, shows):
@@ -558,3 +585,14 @@ def test_one_slice_refuses_the_pool_with_a_dry_run():
 def test_one_slice_refuses_a_problem_outside_the_registry():
     with pytest.raises(ValueError, match="not in the registry: x"):
         one_slice(["p-a", "x"], SLICES)
+
+
+def test_problem_fault_type_reads_the_singleton_stems_apart_from_the_pool():
+    assert problem_fault_type("auth_miss_mongodb-mitigation-1") == "AuthMissMongoDB"
+    assert problem_fault_type("misconfig_app_hotel_res-mitigation-1") == "MisconfigApp"
+    assert problem_fault_type("wrong_bin_usage-mitigation-1") == "WrongBinUsage"
+    assert problem_fault_type("conf-scale_pod_zero_social_net-mitigation-1") == "ScalePod"
+    # the singletons not run have no type, and the runner refuses them before any touch
+    for skipped in ("redeploy_without_PV-mitigation-1", "astronomy_shop_kafka_queue_problems-1"):
+        with pytest.raises(ValueError):
+            problem_fault_type(skipped)

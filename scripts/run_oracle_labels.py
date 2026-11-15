@@ -85,7 +85,7 @@ from remvalgate.harness import credentials
 from remvalgate.harness.allowlist import DEFAULT_POLICY_PATH, check_chain, load_policy
 from remvalgate.harness.cluster_state import changed, normalise
 from remvalgate.harness.execute import kubectl_rolled_out
-from remvalgate.harness.folds import fault_type, pool_folds
+from remvalgate.harness.folds import pool_folds
 from remvalgate.harness.harm import detect_harm, kubectl_pods, parse_pods
 from remvalgate.harness.manifest import (
     DEFAULT_REGISTRY_PATH,
@@ -102,6 +102,7 @@ from remvalgate.harness.oracle import (
     Clean,
     fault_shows,
     label_problem,
+    problem_fault_type,
     reset_namespace,
 )
 from remvalgate.harness.outcome import Outcome, classify, single_action_result
@@ -211,7 +212,7 @@ def wait_for_fault(prob, problem_id: str) -> dict:
     deadline = time.monotonic() + SHOWS_TIMEOUT
     while True:
         status = pods(prob.namespace)
-        if fault_shows(fault_type(problem_id), prob.faulty_service, status):
+        if fault_shows(problem_fault_type(problem_id), prob.faulty_service, status):
             return status
         if time.monotonic() > deadline:
             raise AssertionError(f"{problem_id}: the fault does not show in pod status")
@@ -247,14 +248,14 @@ async def diagnose(
     orch.session.set_problem(prob, pid=problem_id)
     orch.session.set_agent("planner")
     loop = asyncio.get_running_loop()
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     try:
         prob.inject_fault()
         # the trace export carries spans from before its window, so the summary keeps later ones
         injected_at = int(time.time() * 1e6)
         # the database faults change MongoDB users, which these objects do not record
-        if fault_type(problem_id) not in DATABASE_TYPES:
+        if problem_fault_type(problem_id) not in DATABASE_TYPES:
             took = bool(changed(clean.objects, objects(namespace)))
             check(took, f"{problem_id}: the injection left the cluster unchanged")
         injected = objects(namespace)
@@ -308,7 +309,7 @@ def execute(orch, prob, problem_id, command, clean, injected, results_dir, recor
     # raises CannotSend before anything is injected
     carried_action(command, orch.parser.parse, strict=False)
     # the reset after the diagnosis or the last candidate restarted the MongoDB pod
-    if fault_type(problem_id) in DATABASE_TYPES:
+    if problem_fault_type(problem_id) in DATABASE_TYPES:
         wait_for_mongod(namespace)
     start = time.perf_counter()
     try:
